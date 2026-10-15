@@ -636,7 +636,7 @@ function frame(now) {
     if (simT < stim.windUntil) weather.wind.copy(stim.windVec); else weather.wind.set(0, 0);
     const feet = perch.z + z;
     const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0 },
-      { x: controls.target.x, y: controls.target.y, dist: camera.position.distanceTo(controls.target) });
+      { x: controls.target.x, y: controls.target.y, dist: camera.position.distanceTo(controls.target), camera, height: canvas.clientHeight });
     for (const hit of hits) onWeatherHit(hit);
     // A leaf bobs when a drop lands on it, and so does a fly standing on it (its legs feel it).
     const bob = body.airborne > 0 ? 0 : terrain.leafBobAt(x, y, perch.z);
@@ -722,4 +722,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera }; // for debugging from the console

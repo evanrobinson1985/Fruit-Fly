@@ -103,31 +103,35 @@ function streakMesh(max, snow) {
   quad.instanceCount = 0;
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
-    uniforms: { uShutter: { value: SHUTTER } },
+    uniforms: { uShutter: { value: SHUTTER }, uPx: { value: 0.001 } }, // uPx: world size of a pixel at 1 mm
     vertexShader: `
       attribute vec3 iPos, iVel; attribute float iSize;
-      uniform float uShutter;
-      varying vec2 vUv; varying float vLen;
+      uniform float uShutter, uPx;
+      varying vec2 vUv; varying float vLen; varying float vFade;
       void main() {
         float sp = length(iVel);
         vec3 axis = sp > 1e-3 ? iVel / sp : vec3(0.0, 0.0, -1.0);
-        float len = iSize + sp * uShutter;
+        // Never thinner than about a pixel and a half: distant drops read as fine lines.
+        float px = 1.5 * uPx * distance(cameraPosition, iPos);
+        float wid = max(iSize, px);
+        vFade = clamp(iSize / wid, 0.4, 1.0);
+        float len = wid + sp * uShutter;
         vec3 view = normalize(cameraPosition - iPos);
         vec3 side = cross(axis, view);
         side = length(side) > 1e-4 ? normalize(side) : vec3(1.0, 0.0, 0.0);
-        vec3 p = iPos - axis * (position.x * len - 0.5 * iSize) + side * (position.y * 0.5 * iSize);
+        vec3 p = iPos - axis * (position.x * len - 0.5 * wid) + side * (position.y * 0.5 * wid);
         vUv = vec2(position.x, position.y);
-        vLen = len / iSize;
+        vLen = len / wid;
         gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
       }`,
     fragmentShader: `
-      varying vec2 vUv; varying float vLen;
+      varying vec2 vUv; varying float vLen; varying float vFade;
       void main() {
         // A round drop at the head (u = 0.5 drop widths from the front), its blur trailing behind.
         float u = vUv.x * vLen, w = abs(vUv.y);
         float head = smoothstep(1.0, 0.7, length(vec2((u - 0.5) * 2.0, vUv.y)));
         float trail = u > 0.5 ? smoothstep(1.0, 0.6, w) * (1.0 - vUv.x) / max(1.0, 0.35 * vLen) : 0.0;
-        float a = max(head, trail);
+        float a = max(head, trail) * vFade;
         ${snow
           ? "gl_FragColor = vec4(vec3(0.97, 0.98, 1.0), a * 0.85);"
           : "gl_FragColor = vec4(mix(vec3(0.62, 0.7, 0.8), vec3(0.95), smoothstep(0.6, 0.0, w)), a * (0.45 + 0.3 * smoothstep(0.8, 0.0, w)));"}
@@ -307,6 +311,10 @@ export class Weather {
    * [{kind, D, mass, v: Vector3, zone, side, point}]
    */
   update(dt, t, fly, view) {
+    if (view.camera) {
+      const px = (2 * Math.tan((view.camera.fov * Math.PI) / 360)) / Math.max(1, view.height || 800);
+      this.rain.mesh.material.uniforms.uPx.value = this.snow.mesh.material.uniforms.uPx.value = px;
+    }
     const hits = [];
     if (dt <= 0) return hits;
     this._fx = fly.x; this._fy = fly.y;
