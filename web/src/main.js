@@ -573,55 +573,91 @@ window.addEventListener("resize", resize);
 resize();
 
 const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion(), tmpN = new THREE.Vector3();
-const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, hold: 0 };
-// A fly doesn't glide up a stem: when the surface ahead is much higher or lower (stepping onto a
-// leaf, or off one), it makes a short wing-assisted hop. Small turf bumps are walked over.
-const HOP = { step: 0.6, look: 1.3, holdS: 0.5 };
+const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, cool: 0 };
+// The fly stands on its six feet. It stays on a leaf while at least two feet are still on it,
+// so it walks across gaps between leaflets and along ragged edges without bobbing. It hops
+// (wings open, a short arc) only when it really changes level: both front feet reach a
+// surface well above it, or fewer than two feet are left on the one it stands on. After a
+// hop it commits to the new surface for a moment. Small turf bumps are walked over.
+const HOP = { step: 0.6, cool: 0.45 };
+// Feet in the body frame (mm forward, mm left): front, middle, hind pairs.
+const FEET = [[1.0, 0.75], [1.0, -0.75], [0.05, 0.95], [0.05, -0.95], [-0.9, 0.75], [-0.9, -0.75]];
 const smoothstep = (f) => f * f * (3 - 2 * f);
+const groundZ = (x, y) => (terrain.visible ? Math.max(TURF_TOP, terrain.leafHeightAt(x, y)) : 0);
+function feetHeights(x, y, hDeg) {
+  const a = (hDeg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  return FEET.map(([f, l]) => groundZ(x + f * c - l * s, y + f * s + l * c));
+}
+// Surface normal from the feet resting on level z (feet more than a step below it dangle).
+function feetNormal(zs, z, hDeg, out) {
+  const h = zs.map((v) => (Math.abs(v - z) <= HOP.step ? v : z));
+  const dFwd = ((h[0] + h[1]) / 2 - (h[4] + h[5]) / 2) / 1.9;
+  const dLeft = ((h[0] + h[2] + h[4]) - (h[1] + h[3] + h[5])) / 3 / 1.6;
+  const a = (hDeg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  const gx = dFwd * c - dLeft * s, gy = dFwd * s + dLeft * c;
+  out.set(-gx, -gy, 1);
+  if (out.x * out.x + out.y * out.y > 0.5) out.setZ(Math.hypot(out.x, out.y) / Math.sqrt(0.5)); // at most ~35 deg
+  return out.normalize();
+}
 function startHop(p, z1, n1, now) {
   const dz = Math.abs(z1 - p.z);
   p.hop = { z0: p.z, z1, n0: p.n.clone(), n1: n1.clone(), t0: now, dur: 1000 * Math.min(0.6, 0.28 + 0.04 * dz), arc: 0.6 + 0.25 * dz };
-  p.hold = 0;
 }
+const tmpN2 = new THREE.Vector3();
 /** Moves the perch height/tilt for this frame; returns how far the wings open for a hop (0..1). */
-function updatePerch(p, surf, x, y, hDeg, now, dt) {
+function updatePerch(p, x, y, hDeg, now, dt) {
+  const zs = feetHeights(x, y, hDeg);
   if (body.airborne > 0) {
     // In flight: hold altitude over plants; settle onto whatever is below during the landing.
-    p.hop = null; p.hold = 0;
+    p.hop = null;
     if (body.airborne < 0.3) {
+      const target = [...zs].sort((a, b) => b - a)[1]; // where at least two feet will land
       const k = Math.min(1, dt / Math.max(body.airborne, dt));
-      p.z += (surf.z - p.z) * k;
-      p.n.lerp(surf.normal, k).normalize();
+      p.z += (target - p.z) * k;
+      p.n.lerp(feetNormal(zs, target, hDeg, tmpN2), k).normalize();
     }
+    p.cool = HOP.cool;
     return 0;
   }
   if (p.hop) {
     const hp = p.hop, f = Math.min(1, (now - hp.t0) / hp.dur);
     p.z = hp.z0 + (hp.z1 - hp.z0) * smoothstep(f) + hp.arc * Math.sin(Math.PI * f);
     p.n.copy(hp.n0).lerp(hp.n1, smoothstep(f)).normalize();
-    if (f >= 1) { p.z = hp.z1; p.hop = null; }
+    if (f >= 1) { p.z = hp.z1; p.hop = null; p.cool = HOP.cool; }
     return Math.min(1, 2.5 * Math.sin(Math.PI * f));
   }
-  // Look a little way along the direction of travel so the hop starts at the edge, not inside the leaf.
+  p.cool = Math.max(0, p.cool - dt);
+  const on = zs.filter((v) => Math.abs(v - p.z) <= HOP.step);
   const moving = Math.abs(body.speed) > 1;
-  let ahead = surf;
-  if (moving) {
-    const a = (hDeg * Math.PI) / 180, d = Math.sign(body.speed) * HOP.look;
-    ahead = terrain.surfaceAt(x + Math.cos(a) * d, y + Math.sin(a) * d);
+  const front = body.speed >= 0 ? [zs[0], zs[1]] : [zs[4], zs[5]];
+  // Where the fly will be when a hop that starts now lands, and what its feet will stand on:
+  // the height at least two feet share (it keeps walking during the hop).
+  const landing = (zGuess) => {
+    const dur = Math.min(0.6, 0.28 + 0.04 * Math.abs(zGuess - p.z));
+    const a = (hDeg * Math.PI) / 180, d = body.speed * dur;
+    const zl = feetHeights(x + Math.cos(a) * d, y + Math.sin(a) * d, hDeg);
+    return { z: [...zl].sort((u, v) => v - u)[1], zs: zl };
+  };
+  const climb = Math.min(...front);
+  let L = null;
+  if (p.cool <= 0 && moving && climb > p.z + HOP.step) {
+    L = landing(climb); // both leading feet reach a higher surface: hop up if it is still there on landing
+    if (L.z > p.z + HOP.step) startHop(p, L.z, feetNormal(L.zs, L.z, hDeg, tmpN2), now);
+    else L = null;
   }
-  const offHere = Math.abs(surf.z - p.z) > HOP.step, offAhead = Math.abs(ahead.z - p.z) > HOP.step;
-  if (!offHere && !offAhead) {
-    const k = Math.min(1, dt / 0.08);
-    p.z += (surf.z - p.z) * k;
-    p.n.lerp(surf.normal, k).normalize();
-    p.hold = 0;
-  } else if (!offHere && moving) {
-    startHop(p, ahead.z, ahead.normal, now); // the edge is just ahead: hop up/down onto it
-  } else if (offHere && !offAhead && moving && p.hold < HOP.holdS) {
-    p.hold += dt; // just hopped to the surface ahead; the body is still over the edge
-  } else if (offHere) {
-    startHop(p, surf.z, surf.normal, now);
-  } else p.hold = 0;
+  if (L) return 0;
+  if (on.length >= 2) {
+    // Still standing on this surface: follow it smoothly (median of the feet on it).
+    on.sort((u, v) => u - v);
+    const target = on[Math.floor(on.length / 2)];
+    const k = Math.min(1, dt / 0.12);
+    p.z += (target - p.z) * k;
+    p.n.lerp(feetNormal(zs, p.z, hDeg, tmpN2), k).normalize();
+  } else if (p.cool <= 0 || on.length === 0) {
+    // Fewer than two feet left on it (none at all: no hovering): hop to where they land.
+    const target = moving ? landing([...zs].sort((u, v) => v - u)[1]) : { z: [...zs].sort((u, v) => v - u)[1], zs };
+    startHop(p, target.z, feetNormal(target.zs, target.z, hDeg, tmpN2), now);
+  }
   return 0;
 }
 const lerpAngle = (a, b, f) => a + ((((b - a) % 360) + 540) % 360 - 180) * f;
@@ -635,9 +671,8 @@ function frame(now) {
     const h = lerpAngle(prev.heading, curr.heading, f);
     const delta = new THREE.Vector3(x - flyRoot.position.x, y - flyRoot.position.y, 0);
     // Stand on whatever is underneath (a leaf, the turf, the floor), tilted to its slope.
-    const surf = terrain.surfaceAt(x, y);
     const dtf = Math.min(0.1, (now - lastFrame) / 1000);
-    const hopWing = updatePerch(perch, surf, x, y, h, now, dtf);
+    const hopWing = updatePerch(perch, x, y, h, now, dtf);
     body.perch = perch.z;
     // Rain and snow, in simulated time so they pause with the brain.
     const simT = (prev.t ?? 0) + ((curr.t ?? 0) - (prev.t ?? 0)) * f;

@@ -52,8 +52,10 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   arena (filter paper, the default) or grass and small weeds (fine turf, clover, dandelion
   rosettes, seedlings) at true scale for a 2.5 mm fly. On grass the fly walks on top of
   leaves and the matted turf, tilted to the surface, and tastes food only when it is down
-  on the ground. Bigger height changes (stepping onto a leaf or off one, more than 0.6 mm)
-  are short wing-assisted hops rather than a slide; in flight it holds altitude over plants
+  on the ground. It stands on its six feet: it stays on a leaf while at least two feet are
+  on it (so it walks across gaps between leaflets without bobbing), and changes level with a
+  short wing-assisted hop aimed at where its feet will land, then commits to that surface for
+  a moment; in flight it holds altitude over plants
   and settles onto whatever is below as it lands.
   Grass covers the whole arena floor (blades are placed on the GPU in rings that coarsen
   with distance). Only blades under the fly's body and legs are pressed down,
