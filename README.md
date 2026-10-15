@@ -156,17 +156,16 @@ stands in for the VNC's own walking rhythm, which the model does not generate.
 
 Validated (`results/validation.md`, `realistic` preset):
 
-- **Looming escape.** LC4 or LPLC2 input drives the Giant Fiber at 175–205 Hz,
-  which in turn drives the flight motor neurons (DLMn). Proboscis and walking
-  neurons stay silent. In closed loop the fly takes off 170–190 ms before a
-  simulated collision.
+- **Looming escape.** LC4 or LPLC2 input alone drives the Giant Fiber at 120–140 Hz
+  (both together about 210 Hz), which in turn drives the flight motor neurons (DLMn).
+  Proboscis and walking neurons stay silent. In the Python closed loop the fly takes off
+  about 0.2–0.3 s before a simulated collision.
 - **Feeding.** A subset of taste-neuron types (LB3b–d, LB4a, PhG1a–c) drives MN9.
   The release does not label which taste types are sugar-sensing, so these
   types were selected because they drive MN9 in this model.
-- **Stability.** For most inputs, activity stops within 300 ms of the stimulus
-  ending. The exception is vinegar ORNs and two taste types, which leave about
-  200 antennal-lobe neurons (mainly the excitatory local neurons lLN1_bc)
-  firing.
+- **Stability.** For every input tested, activity stops within 300 ms of the stimulus
+  ending. (Before adaptation was added, vinegar left about 200 antennal-lobe neurons
+  firing.)
 
 Limits to keep in mind:
 
