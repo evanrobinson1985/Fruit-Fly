@@ -141,6 +141,17 @@
       <button id="floor-lab" aria-pressed="true">Lab arena</button>
       <button id="floor-grass" aria-pressed="false">Grass &amp; weeds</button>
     </div>
+    <div class="row" role="group" aria-label="Weather">
+      <span class="label" style="flex:0 0 auto">Weather</span>
+      <button id="wx-off" aria-pressed="true">Clear</button>
+      <button id="wx-rain" aria-pressed="false">Rain</button>
+      <button id="wx-snow" aria-pressed="false">Snow</button>
+    </div>
+    <div class="row">
+      <label class="label" for="wx-level" style="flex:0 0 auto">Intensity</label>
+      <input id="wx-level" type="range" min="0" max="4" step="1" value="2" aria-label="Rain or snow intensity" disabled>
+      <span id="wx-level-val" class="mono" style="flex:0 0 auto;min-width:9.5em;text-align:right">–</span>
+    </div>
     <div class="tools">
       <button id="loom" class="threat">Looming threat</button>
       <button id="pause">Pause</button>
@@ -244,6 +255,11 @@
   MN9 proboscis extension: Gordon &amp; Scott, <i>Neuron</i> 2009. Synaptic depression: Kazama &amp; Wilson, <i>Neuron</i> 2008.
   Spontaneous smell-receptor firing: de Bruyne, Foster &amp; Carlson, <i>Neuron</i> 2001.
   Motor-neuron pools, touch and wind neurons are taken from the MaleCNS annotations.</p>
+
+  <h3>Rain and snow</h3>
+  <p>Raindrop sizes: Marshall &amp; Palmer, <i>J. Meteorol.</i> 1948. Fall speeds: Atlas, Srivastava &amp; Sekhon, <i>Rev. Geophys.</i> 1973.
+  Snowflake mass and fall speed: Locatelli &amp; Hobbs, <i>J. Geophys. Res.</i> 1974. Insects hit by raindrops in flight: Dickerson <i>et al.</i>, <i>PNAS</i> 2012.
+  Moist-air cells (VP5) and cold cells (VP3): Knecht <i>et al.</i>, <i>eLife</i> 2017; Frank <i>et al.</i>, <i>Curr. Biol.</i> 2017; Gallio <i>et al.</i>, <i>Cell</i> 2011; Marin <i>et al.</i>, <i>Curr. Biol.</i> 2020.</p>
 
   <h3>Software and fonts</h3>
   <p><a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> (MIT, © three.js authors). Fonts from Google Fonts under the SIL Open Font License: Newsreader (Production Type), Hanken Grotesk (Hanken Design Co.), JetBrains Mono (JetBrains).

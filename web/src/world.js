@@ -213,6 +213,23 @@ export class Body {
     this.phase += Math.sign(v || 1) * 2 * Math.PI * freq * dt;
   }
 
+  // Pushed by a raindrop or flake while standing or walking (mm).
+  shove(dx, dy, world) {
+    this.x += dx;
+    this.y += dy;
+    this._clip(world);
+  }
+
+  // Hit in flight. A drop heavier than about a third of the fly's weight beats its
+  // flight control and drives it down (mosquitoes hit by drops: Dickerson et al. 2012);
+  // a lighter one just knocks it off course.
+  knock(dx, dy, ratio) {
+    this.x += dx;
+    this.y += dy;
+    if (ratio > 0.25) this.airborne = Math.min(this.airborne, 0.15);
+    else this.heading = (this.heading + (Math.random() - 0.5) * 80 * ratio + 360) % 360;
+  }
+
   _clip(world) {
     const r = Math.hypot(this.x, this.y);
     if (r > world.radius - 2) {

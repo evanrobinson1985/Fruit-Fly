@@ -93,6 +93,21 @@ cited next to each entry in `flysim/interface.py`):
 - Synaptic depression in the antennal lobe: Kazama, H. & Wilson, R. I. *Neuron* 58,
   401–413 (2008).
 
+## Rain and snow (website)
+
+- Raindrop size spectrum: Marshall, J. S. & Palmer, W. M. The distribution of raindrops with size.
+  *J. Meteorol.* 5, 165–166 (1948).
+- Raindrop fall speeds: Atlas, D., Srivastava, R. C. & Sekhon, R. S. Doppler radar characteristics of
+  precipitation at vertical incidence. *Rev. Geophys.* 11, 1–35 (1973).
+- Snowflake mass and fall speed: Locatelli, J. D. & Hobbs, P. V. Fall speeds and masses of solid
+  precipitation particles. *J. Geophys. Res.* 79, 2185–2197 (1974).
+- Insects struck by raindrops in flight: Dickerson, A. K., Shankles, P. G., Madhavan, N. M. & Hu, D. L.
+  Mosquitoes survive raindrop collisions by virtue of their low mass. *PNAS* 109, 9822–9827 (2012).
+- Hygrosensory and thermosensory receptor neurons driven by the weather (HRN_VP5 moist cells,
+  TRN_VP3 cold cells): Knecht, Z. A. *et al.* *eLife* 6, e26654 (2017); Frank, D. D. *et al.*
+  *Curr. Biol.* 27, 2381–2388 (2017); Gallio, M. *et al.* *Cell* 144, 614–624 (2011);
+  Marin, E. C. *et al.* *Curr. Biol.* 30, 3167–3182 (2020).
+
 ## Feed the Fly (watch game)
 
 Uses the same connectome, neuron model, FlyBody fly and NeuroMechFly leg recordings as above;

@@ -7,7 +7,8 @@ import { loadFly } from "./fly.js";
 import { World, Body } from "./world.js";
 import { BrainMap, Chart } from "./hud.js";
 import { loadPng } from "./pngdata.js";
-import { Terrain } from "./terrain.js";
+import { Terrain, TURF_TOP } from "./terrain.js";
+import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 const STEP_MS = 20;         // brain/body exchange interval
@@ -77,6 +78,7 @@ scene.add(rim);
 
 // Optional outdoor floor: grass and small weeds (off by default; see the floor switch).
 const terrain = new Terrain(scene, world.radius);
+terrain.bake(renderer);
 terrain.visible = false;
 function syncExclusions() {
   terrain.setExclusions([
@@ -87,10 +89,40 @@ function syncExclusions() {
 function setFloor(grass) {
   terrain.visible = grass;
   floor.visible = !grass;
+  applySky();
   $("floor-grass").setAttribute("aria-pressed", grass);
   $("floor-lab").setAttribute("aria-pressed", !grass);
   try { localStorage.setItem("floor", grass ? "grass" : "lab"); } catch {}
 }
+
+// Sky: a dark lab, or daylight outdoors that clouds over in rain or snow.
+function applySky() {
+  const out = terrain.visible, w = weather?.mode || "off";
+  const sky = !out ? (w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22)
+    : w === "rain" ? 0x7b8893 : w === "snow" ? 0xc3cbd3 : 0x9db4c6;
+  scene.background.setHex(sky);
+  scene.fog.color.setHex(sky);
+  [scene.fog.near, scene.fog.far] = out ? (w === "off" ? [120, 420] : [70, 300]) : [60, 260];
+  sun.intensity = w === "rain" ? 1.1 : w === "snow" ? 1.5 : 2.4;
+}
+
+// Rain and snow. They land on whatever is highest: leaves, turf, food, odor sources.
+function obstacleTop(x, y) {
+  let z = terrain.topAt(x, y);
+  for (const f of world.food) {
+    const d2 = (x - f.x) ** 2 + (y - f.y) ** 2;
+    if (d2 < f.r * f.r) z = Math.max(z, 0.18 * f.r * Math.sqrt(1 - d2 / (f.r * f.r)));
+  }
+  for (const o of world.odors) if ((x - o.x) ** 2 + (y - o.y) ** 2 < 1.96) z = Math.max(z, 1.5);
+  return z;
+}
+let weatherT = 0;
+const weather = new Weather(scene, {
+  topAt: obstacleTop,
+  isLeaf: (x, y, z) => terrain.visible && z > TURF_TOP + 0.3 && Math.abs(terrain.leafHeightAt(x, y) - z) < 0.05,
+  impact: (x, y, D) => terrain.addImpact(x, y, weatherT, D),
+  arenaRadius: world.radius + 1, wallHeight: 50,
+});
 
 // Odor clouds are drawn as glowing discs on the floor; food as glossy drops.
 const odorGroup = new THREE.Group(), foodGroup = new THREE.Group(), loomGroup = new THREE.Group();
@@ -160,6 +192,7 @@ const SENSE_SERIES = [
   { key: "touch", label: "Touch", color: "#c9a7e8" },
   { key: "wind", label: "Wind", color: "#7fc4e8" },
   { key: "opto", label: "Light", color: "#ff6f8f" },
+  { key: "climate", label: "Moist/cold", color: "#d6e4f0" },
 ];
 const motorChart = new Chart($("chart-motor"), MOTOR, { max: 60 });
 const senseChart = new Chart($("chart-sense"), SENSE_SERIES, { max: 80 });
@@ -219,7 +252,7 @@ async function startBrain() {
 }
 
 // Short-lived stimuli from the user: touch, wind, light.
-const stim = { touch: null, touchUntil: 0, windL: 0, windR: 0, windUntil: 0, opto: null };
+const stim = { touch: null, touchUntil: 0, windL: 0, windR: 0, windUntil: 0, windVec: new THREE.Vector2(), opto: null };
 
 function sensoryInputs(t) {
   lastSense = body.sense(world, t, $("odor-kind").value);
@@ -227,7 +260,10 @@ function sensoryInputs(t) {
   if (t < stim.touchUntil) inputs.touch = stim.touch;
   if (t < stim.windUntil) { inputs.windL = stim.windL; inputs.windR = stim.windR; }
   if (stim.opto) inputs.opto = stim.opto;
-  lastSense.extra = { touch: inputs.touch?.hz || 0, wind: Math.max(inputs.windL || 0, inputs.windR || 0), opto: stim.opto?.hz || 0 };
+  // Weather on the antennae: moist-air cells (HRN_VP5) in rain, cold cells (TRN_VP3) in snow.
+  const climate = weatherInput();
+  if (climate.length) inputs.extra = climate;
+  lastSense.extra = { touch: inputs.touch?.hz || 0, wind: Math.max(inputs.windL || 0, inputs.windR || 0), opto: stim.opto?.hz || 0, climate: climate[0]?.hz || 0 };
   return inputs;
 }
 
@@ -313,6 +349,8 @@ function blow(point) {
   stim.windL = far + (near - far) * Math.max(0, s) + (near - far) * 0.5 * (1 - Math.abs(s));
   stim.windR = far + (near - far) * Math.max(0, -s) + (near - far) * 0.5 * (1 - Math.abs(s));
   stim.windUntil = (curr.t || 0) + 2.5;
+  // The gust also carries rain and snow: about 1.5 m/s toward the fly.
+  stim.windVec.set(body.x - point.x, body.y - point.y).normalize().multiplyScalar(1500);
   showGust(point);
   $("hint").textContent = `Wind from the ${Math.abs(az) < 45 ? "front" : Math.abs(az) > 135 ? "back" : az > 0 ? "left" : "right"}: antennal wind neurons fire for 2.5 s.`;
 }
@@ -372,6 +410,7 @@ $("pause").onclick = () => {
   if (!paused) { wallStart = performance.now(); simAtStart = curr.t || 0; step(); }
 };
 $("clear").onclick = () => {
+  weather.clearSettled();
   world.odors = []; world.food = [];
   odorGroup.clear(); foodGroup.clear();
   syncExclusions();
@@ -389,6 +428,63 @@ $("cam").onclick = () => {
 
 $("credits-open").onclick = $("credits-open-2").onclick = () => $("credits").showModal();
 $("credits-close").onclick = () => $("credits").close();
+
+// ---------- weather ----------
+const FLY_MASS = 1.0; // mg, a male Drosophila
+function weatherInput() {
+  if (!optoTypes || weather.mode === "off") return [];
+  const lvl = weather.level;
+  const types = weather.mode === "rain" ? ["HRN_VP5"] : ["TRN_VP3a", "TRN_VP3b"];
+  const hz = weather.mode === "rain" ? 20 + 6 * lvl : 25 + 6 * lvl;
+  return types.map((t) => ({ type: optoTypes.types.indexOf(t) + 1, hz })).filter((e) => e.type > 0);
+}
+function syncWeatherUi() {
+  const list = weather.mode === "snow" ? SNOW_LEVELS : RAIN_LEVELS;
+  for (const m of ["off", "rain", "snow"]) $(`wx-${m}`).setAttribute("aria-pressed", weather.mode === m);
+  $("wx-level").disabled = weather.mode === "off";
+  const lv = list[weather.level];
+  $("wx-level-val").textContent = weather.mode === "off" ? "–" : `${lv.name} · ${lv.rate} mm/h${weather.mode === "snow" ? " water" : ""}`;
+  applySky();
+}
+for (const m of ["off", "rain", "snow"]) {
+  $(`wx-${m}`).onclick = () => {
+    weather.set(m, +$("wx-level").value);
+    syncWeatherUi();
+    $("hint").textContent = m === "rain" ? "Rain: drops up to 6 mm across fall at up to 9 m/s. A 2 mm drop weighs 4× the fly."
+      : m === "snow" ? "Snow: flakes drift down at about 1 m/s, settle on leaves, turf and the fly, and melt." : "Weather off.";
+  };
+}
+$("wx-level").addEventListener("input", () => { weather.set(weather.mode, +$("wx-level").value); syncWeatherUi(); });
+
+// A raindrop or flake hit the fly: momentum, and the touch neurons where it landed.
+let lastHitNote = 0;
+const jolt = { tilt: new THREE.Vector3(), dip: 0 };
+function onWeatherHit(h) {
+  const t = curr.t || 0;
+  const ratio = h.mass / (h.mass + FLY_MASS);
+  const speed = h.v.length();
+  const hz = Math.min(220, 40 + 180 * Math.min(1, (ratio * speed) / 2000));
+  if (t >= stim.touchUntil || hz >= (stim.touch?.hz || 0)) {
+    stim.touch = { zone: h.zone, side: h.side, hz: Math.round(hz) };
+    stim.touchUntil = t + 0.12 + 0.2 * ratio;
+  }
+  // Momentum: the drop's horizontal motion plus a sideways slip from the blow.
+  const hv = new THREE.Vector2(h.v.x, h.v.y);
+  const away = new THREE.Vector2(body.x - h.point.x, body.y - h.point.y);
+  if (away.lengthSq() < 1e-6) away.set(Math.random() - 0.5, Math.random() - 0.5);
+  away.normalize();
+  const push = away.multiplyScalar(ratio * (0.25 + 0.35 * h.D)).addScaledVector(hv, ratio * 0.004);
+  if (body.airborne > 0) body.knock(push.x * 3, push.y * 3, ratio);
+  else body.shove(push.x, push.y, world);
+  jolt.tilt.x += push.x * 0.5; jolt.tilt.y += push.y * 0.5;
+  jolt.dip = Math.max(jolt.dip, 0.35 * ratio);
+  if (performance.now() - lastHitNote > 1200 && (h.kind !== "splash" || ratio > 0.05)) {
+    lastHitNote = performance.now();
+    const what = h.kind === "flake" ? "snowflake" : h.kind === "splash" ? "splash droplet" : "raindrop";
+    const x = h.mass / FLY_MASS;
+    $("hint").textContent = `A ${h.D.toFixed(1)} mm ${what} (${h.mass < 0.1 ? h.mass.toFixed(3) : h.mass.toFixed(2)} mg, ${x >= 1 ? x.toFixed(1) + "× the fly" : Math.round(x * 100) + "% of the fly"}) hit its ${h.side === "L" ? "left" : "right"} ${h.zone} at ${(speed / 1000).toFixed(1)} m/s.`;
+  }
+}
 
 // ---------- optogenetics ----------
 // Drive every neuron of a chosen cell type with Poisson input while the light is on,
@@ -466,7 +562,7 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion();
+const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion(), tmpN = new THREE.Vector3();
 const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, hold: 0 };
 // A fly doesn't glide up a stem: when the surface ahead is much higher or lower (stepping onto a
 // leaf, or off one), it makes a short wing-assisted hop. Small turf bumps are walked over.
@@ -533,12 +629,28 @@ function frame(now) {
     const dtf = Math.min(0.1, (now - lastFrame) / 1000);
     const hopWing = updatePerch(perch, surf, x, y, h, now, dtf);
     body.perch = perch.z;
-    flyRoot.position.set(x, y, perch.z + z - fly.groundOffset);
-    flyRoot.quaternion.setFromUnitVectors(UP, perch.n)
+    // Rain and snow, in simulated time so they pause with the brain.
+    const simT = (prev.t ?? 0) + ((curr.t ?? 0) - (prev.t ?? 0)) * f;
+    const dts = Math.max(0, simT - weatherT);
+    weatherT = simT;
+    if (simT < stim.windUntil) weather.wind.copy(stim.windVec); else weather.wind.set(0, 0);
+    const feet = perch.z + z;
+    const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0 },
+      { x: controls.target.x, y: controls.target.y, dist: camera.position.distanceTo(controls.target) });
+    for (const hit of hits) onWeatherHit(hit);
+    // A leaf bobs when a drop lands on it, and so does a fly standing on it (its legs feel it).
+    const bob = body.airborne > 0 ? 0 : terrain.leafBobAt(x, y, perch.z);
+    if (Math.abs(bob) > 0.04 && simT >= stim.touchUntil) { stim.touch = { zone: "legs", side: "L", hz: 60 }; stim.touchUntil = simT + 0.1; }
+    const decay = Math.exp(-dtf / 0.12);
+    jolt.tilt.multiplyScalar(decay);
+    jolt.dip *= decay;
+    flyRoot.position.set(x, y, feet + bob - jolt.dip - fly.groundOffset);
+    tmpN.copy(perch.n).add(jolt.tilt).normalize();
+    flyRoot.quaternion.setFromUnitVectors(UP, tmpN)
       .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
     camera.position.add(delta);
     controls.target.set(x, y, 0.8 + z + perch.z);
-    terrain.update(x, y, now / 1000, z);
+    terrain.update(x, y, now / 1000, feet, h, simT);
     sun.position.set(x + 8, y - 6, 20);
     sun.target.position.set(x, y, 0);
     // Pose.
@@ -586,6 +698,7 @@ async function boot() {
   let saved = "lab";
   try { saved = localStorage.getItem("floor") || "lab"; } catch {}
   setFloor(saved === "grass");
+  syncWeatherUi();
   addOdor(35, 40, "vinegar");
   addFood(35, 40, 5);
   addFood(-25, 18, 4);
@@ -600,6 +713,7 @@ async function boot() {
   flyRoot = fly.root;
   flyRoot.traverse((o) => { if (o.isMesh) o.castShadow = o.castShadow !== false; });
   scene.add(flyRoot);
+  weather.attachFly(flyRoot);
   $("load-stage").textContent = "Downloading connectome";
   startBrain();
   const meta = await fetch(ASSETS + "brain.json").then((r) => r.json());
@@ -608,4 +722,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather }; // for debugging from the console

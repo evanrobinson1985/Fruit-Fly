@@ -1,22 +1,23 @@
 // Grass floor and small weeds for the arena, at true scale for a 2.5 mm fly (units: mm).
 //
-// Blades are instanced in a circular window around the fly and rebuilt as it
-// moves; positions come from a hash of the 1 mm ground cell, so every blade has
-// a fixed place in the world. Beyond the window the ground texture carries the
-// look. Weeds (clover, dandelion rosettes, seedlings) are placed once.
+// Blades are generated on the GPU: each instance is a cell offset in one of several
+// nested level-of-detail rings around the fly (cells double in size per ring), and the
+// vertex shader places the blade at a hashed spot in that world cell. Every blade has a
+// fixed place in the world, nothing is rebuilt on the CPU as the fly moves, and grass
+// reaches the horizon. The same shader bends blades only where the fly's body and legs
+// actually press them, keeps them under any leaf lying on the turf (from a baked height
+// map of the weeds) and knocks them down where raindrops hit.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
-const WINDOW = 26;          // radius of the bladed area around the fly
-const PER_CELL = 12;         // blades per mm^2
-const TURF_TOP = 0.35;      // a fly walks on the matted turf, about this high (mm)
-const MAX_BLADES = Math.ceil(Math.PI * WINDOW * WINDOW * PER_CELL);
-
-function hash(x, y, k) {
-  let h = (x * 374761393 + y * 668265263 + k * 2147483647) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
+export const TURF_TOP = 0.35; // a fly walks on the matted turf, about this high (mm)
+const C0 = 0.29;              // level-0 cell size (mm): 12 blades per mm^2 next to the fly
+const R0 = 16;                // radius of level 0; level L reaches R0 * 2^L
+const LEVELS = 5;             // out to 256 mm
+const GROUND = 520;           // radius of the outdoor ground disc
+const MAX_IMPACTS = 16;       // raindrop impacts the shaders animate at once
+const MAX_EXCL = 16;
+const HMAP = 1024;            // leaf height map resolution over the arena
 
 // Seeded RNG for weed placement.
 function rng(seed) {
@@ -24,7 +25,7 @@ function rng(seed) {
   return () => ((s = Math.imul(s ^ (s >>> 15), 2246822507) + 0x9e3779b9) >>> 0) / 4294967296;
 }
 
-function soilTexture() {
+function soilTexture(repeat) {
   const c = document.createElement("canvas");
   c.width = c.height = 512;
   const g = c.getContext("2d");
@@ -51,7 +52,7 @@ function soilTexture() {
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(16, 16);
+  t.repeat.set(repeat, repeat);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
   return t;
@@ -72,36 +73,145 @@ function bladeGeometry() {
     const a = 2 * i;
     idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
   }
-  const geo = new THREE.BufferGeometry();
+  const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
+  // One instance per cell offset of each ring: (dx, dy, level).
+  const cells = [];
+  for (let L = 0; L < LEVELS; L++) {
+    const c = C0 * 2 ** L, rOut = R0 * 2 ** L + 2 * c, rIn = L ? Math.max(0, 0.8 * R0 * 2 ** (L - 1) - 2 * c) : -1;
+    const n = Math.ceil(rOut / c);
+    for (let i = -n; i <= n; i++) {
+      for (let j = -n; j <= n; j++) {
+        const d = Math.hypot(i, j) * c;
+        if (d <= rOut && d >= rIn) cells.push(i, j, L);
+      }
+    }
+  }
+  geo.setAttribute("aCell", new THREE.InstancedBufferAttribute(new Float32Array(cells), 3));
+  geo.instanceCount = cells.length / 3;
   return geo;
 }
 
-// Breeze: sway each vertex by the square of its height, after instancing.
-// sway: mm of tip motion per unit of local height squared; press: whether the fly flattens it.
-function addWind(material, uniforms, sway = 0.22, press = 1) {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = uniforms.uTime;
-    shader.uniforms.uFly = uniforms.uFly;
-    shader.vertexShader = `uniform float uTime;\nuniform vec3 uFly;\nconst float SWAY = ${sway.toFixed(4)};\nconst float PRESS = ${press.toFixed(1)};\n` + shader.vertexShader.replace(
-      "#include <project_vertex>",
-      `vec4 mvPosition = vec4( transformed, 1.0 );
-      #ifdef USE_INSTANCING
-        mvPosition = instanceMatrix * mvPosition;
-        // Blades under and beside the fly are pressed down as it walks through.
-        vec2 off = mvPosition.xy - uFly.xy;
-        float press = smoothstep( 0.6, 2.2, length( off ) ) * 0.75 + 0.25;
-        if ( PRESS > 0.5 && uFly.z < 0.5 ) { mvPosition.z *= press; mvPosition.xy += normalize( off + 1e-4 ) * ( 1.0 - press ) * mvPosition.z * 0.6; }
-        float sw = transformed.z * transformed.z;
-        mvPosition.x += sin( uTime * 1.7 + mvPosition.y * 0.35 ) * SWAY * sw;
-        mvPosition.y += cos( uTime * 1.3 + mvPosition.x * 0.3 ) * SWAY * 0.7 * sw;
-      #endif
-      mvPosition = modelViewMatrix * mvPosition;
-      gl_Position = projectionMatrix * mvPosition;`);
+const GLSL_COMMON = `
+uniform float uTime, uSimT;
+uniform vec3 uFly;            // fly x, y and the height of its feet
+uniform vec2 uFlyDir;         // fly heading (cos, sin)
+uniform vec4 uImp[${MAX_IMPACTS}];  // raindrop impacts: x, y, sim time, drop diameter
+`;
+
+// Grass blades: place each instance, then press, clamp under leaves, sway and splash.
+function grassMaterial(u) {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.8 });
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = GLSL_COMMON + `
+attribute vec3 aCell;
+uniform vec2 uCenter;
+uniform float uArena;
+uniform vec3 uExcl[${MAX_EXCL}];
+uniform int uNExcl;
+uniform sampler2D uLeaf;
+uniform vec3 uLeafBox;        // min x, min y, size of the height map
+uint pcg(uint v) { uint s = v * 747796405u + 2891336453u; uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u; return (w >> 22u) ^ w; }
+float h01(ivec2 c, uint k) { return float(pcg(uint(c.x) * 73856093u ^ pcg(uint(c.y) * 19349663u ^ k))) / 4294967295.0; }
+vec3 hsl2rgb(vec3 c) { vec3 r = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); return c.z + c.y * (r - 0.5) * (1.0 - abs(2.0 * c.z - 1.0)); }
+float leafTop(vec2 p) {
+  vec2 uv = (p - uLeafBox.xy) / uLeafBox.z;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
+  vec4 t = textureLod(uLeaf, uv, 0.0);
+  return (t.r * 65280.0 + t.g * 255.0) / 2500.0;
+}
+` + shader.vertexShader
+      .replace("#include <color_vertex>", `
+  float lvl = aCell.z, cs = ${C0} * exp2(lvl);
+  ivec2 cell = ivec2(floor(uCenter / cs) + aCell.xy);
+  uint L = uint(lvl) * 16u;
+  vec2 bpos = (vec2(cell) + vec2(h01(cell, L + 1u), h01(cell, L + 2u))) * cs;
+  float d = length(bpos - uCenter);
+  // Rings overlap by 20%: the inner one thins out as the outer one fills in.
+  float rOut = ${R0}.0 * exp2(lvl), rIn = ${R0}.0 * exp2(lvl - 1.0);
+  float keep = (1.0 - smoothstep(0.8 * rOut, rOut, d)) * (lvl < 0.5 ? 1.0 : smoothstep(0.8 * rIn, rIn, d));
+  float alive = step(h01(cell, L + 3u), keep);
+  float rr = length(bpos);
+  alive *= step(rr, ${GROUND - 4}.0) * (1.0 - step(uArena - 1.2, rr) * step(rr, uArena + 2.5));
+  for (int i = 0; i < ${MAX_EXCL}; i++) { if (i >= uNExcl) break; if (distance(bpos, uExcl[i].xy) < uExcl[i].z) alive = 0.0; }
+  float h0 = h01(cell, L + 4u);
+  float bh = (0.4 + 1.4 * h0 * h0) * (1.0 + 0.25 * lvl);             // fine, freshly mown turf
+  float bw = (0.12 + 0.22 * h01(cell, L + 5u)) * pow(2.0, 0.7 * lvl);
+  float yaw = h0 * 97.3, tilt = (h01(cell, L + 6u) - 0.5) * 0.5;
+  mat3 Rz = mat3(cos(yaw), sin(yaw), 0.0, -sin(yaw), cos(yaw), 0.0, 0.0, 0.0, 1.0);
+  mat3 Rx = mat3(1.0, 0.0, 0.0, 0.0, cos(tilt), sin(tilt), 0.0, -sin(tilt), cos(tilt));
+  mat3 bladeR = Rz * Rx;
+  bool dry = h01(cell, L + 7u) < 0.06;
+  vec3 bc = hsl2rgb(dry ? vec3(0.13, 0.35, 0.55) : vec3(0.24 + 0.08 * h01(cell, L + 8u), 0.55, 0.28 + 0.2 * h01(cell, L + 9u)));
+  vColor = color * pow(bc, vec3(2.2));`)
+      .replace("#include <beginnormal_vertex>", "vec3 objectNormal = bladeR * normal;")
+      .replace("#include <begin_vertex>", `
+  vec3 transformed = alive > 0.5 ? bladeR * (position * vec3(bw, bw, bh)) + vec3(bpos, 0.0) : vec3(0.0);`)
+      .replace("#include <project_vertex>", `
+  if (alive > 0.5) {
+    // Pressed only where the fly's body and legs are: an ellipse around it, capped just under its belly.
+    vec2 o = transformed.xy - uFly.xy;
+    float a = dot(o, uFlyDir), b = dot(o, vec2(-uFlyDir.y, uFlyDir.x));
+    float e = a * a / 2.1 + b * b / 1.3;
+    float cap = uFly.z + 0.22 + max(0.0, e - 0.7) * 8.0;
+    if (transformed.z > cap) { float ex = transformed.z - cap; transformed.z = cap; transformed.xy += normalize(o + 1e-4) * ex * 0.7; }
+    // A leaf lying on the turf is solid: blades stay underneath it.
+    float lz = leafTop(transformed.xy);
+    if (lz > 0.01 && transformed.z > lz - 0.06) transformed.z = max(0.01, lz - 0.06);
+    float sw = position.z * position.z;
+    transformed.x += sin(uTime * 1.7 + transformed.y * 0.35) * 0.22 * sw;
+    transformed.y += cos(uTime * 1.3 + transformed.x * 0.3) * 0.15 * sw;
+    // Raindrops flatten the blades they hit, which then spring back.
+    for (int i = 0; i < ${MAX_IMPACTS}; i++) {
+      float age = uSimT - uImp[i].z;
+      if (age < 0.0 || age > 0.8 || uImp[i].w <= 0.0) continue;
+      vec2 q = transformed.xy - uImp[i].xy;
+      float R = 0.5 * uImp[i].w + 0.35;
+      float f = exp(-dot(q, q) / (R * R)) * exp(-age / 0.15) * cos(age * 35.0);
+      float hz = transformed.z;
+      transformed.z -= hz * 0.85 * clamp(f, -0.3, 1.0);
+      transformed.xy += normalize(q + 1e-4) * hz * 0.6 * max(f, 0.0);
+    }
+  }
+  vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+  gl_Position = projectionMatrix * mvPosition;`);
   };
+  return m;
+}
+
+// Weed leaves: a faint breeze, and a bob where a raindrop lands (the base stays put).
+function leafMaterial(color, u) {
+  const m = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 0.7 });
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = GLSL_COMMON + shader.vertexShader.replace("#include <project_vertex>", `
+  vec4 mvPosition = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    mvPosition = instanceMatrix * mvPosition;
+  #endif
+  mvPosition = modelMatrix * mvPosition;
+  float sw = transformed.z * transformed.z * 0.004;
+  mvPosition.x += sin(uTime * 1.7 + mvPosition.y * 0.35) * sw;
+  mvPosition.z += leafBob(mvPosition.xyz);
+  mvPosition = viewMatrix * mvPosition;
+  gl_Position = projectionMatrix * mvPosition;`).replace("void main() {", `
+float leafBob(vec3 p) {
+  float dz = 0.0;
+  for (int i = 0; i < ${MAX_IMPACTS}; i++) {
+    float age = uSimT - uImp[i].z;
+    if (age < 0.0 || age > 1.0 || uImp[i].w <= 0.0) continue;
+    vec2 q = p.xy - uImp[i].xy;
+    dz -= 0.12 * uImp[i].w * exp(-dot(q, q) / 9.0) * exp(-age / 0.18) * cos(age * 50.0);
+  }
+  return dz * smoothstep(0.3, 1.5, p.z);
+}
+void main() {`);
+  };
+  return m;
 }
 
 // Leaf outline in the XY plane, base at the origin, pointing +x.
@@ -183,49 +293,56 @@ function seedlingGeometry() {
 export class Terrain {
   constructor(scene, radius) {
     this.radius = radius;
-    this.uniforms = { uTime: { value: 0 }, uFly: { value: new THREE.Vector3() } };
     this.exclusions = [];
-    this.center = null;
+    this.impacts = Array.from({ length: MAX_IMPACTS }, () => new THREE.Vector4(0, 0, -99, 0));
+    this.nextImpact = 0;
+    this.simT = 0;
+    const box = radius + 8;
+    this.leafBox = { x: -box, y: -box, size: 2 * box };
+    this.leafHeights = null; // CPU copy of the baked leaf height map
+    this.uniforms = {
+      uTime: { value: 0 }, uSimT: { value: 0 },
+      uFly: { value: new THREE.Vector3(0, 0, 0) }, uFlyDir: { value: new THREE.Vector2(1, 0) },
+      uImp: { value: this.impacts },
+      uCenter: { value: new THREE.Vector2() }, uArena: { value: radius + 1 },
+      uExcl: { value: Array.from({ length: MAX_EXCL }, () => new THREE.Vector3()) }, uNExcl: { value: 0 },
+      uLeaf: { value: null }, uLeafBox: { value: new THREE.Vector3(-box, -box, 2 * box) },
+    };
     this._ray = new THREE.Raycaster(undefined, undefined, 0, 40);
     this.group = new THREE.Group(); // toggled as a whole by the floor switch
     scene.add(this.group);
     scene = this.group;
 
-    this.floor = new THREE.Mesh(new THREE.CircleGeometry(radius, 128),
-      new THREE.MeshStandardMaterial({ map: soilTexture(), roughness: 1 }));
+    // Outdoors the ground carries on past the glass wall to the horizon.
+    this.floor = new THREE.Mesh(new THREE.CircleGeometry(GROUND, 160),
+      new THREE.MeshStandardMaterial({ map: soilTexture(16 * GROUND / radius), roughness: 1 }));
     this.floor.receiveShadow = true;
     scene.add(this.floor);
 
-    const bladeMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.8 });
-    addWind(bladeMat, this.uniforms);
-    this.blades = new THREE.InstancedMesh(bladeGeometry(), bladeMat, MAX_BLADES);
-    this.blades.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.blades.setColorAt(0, new THREE.Color());
+    this.blades = new THREE.Mesh(bladeGeometry(), grassMaterial(this.uniforms));
     this.blades.receiveShadow = true;
     this.blades.frustumCulled = false;
-    this.blades.count = 0;
     scene.add(this.blades);
 
     this._addWeeds(scene);
   }
 
+  get bladeCount() {
+    return this.blades.geometry.instanceCount;
+  }
+
   _addWeeds(scene) {
     const r = rng(7);
-    const leafMat = (color) => {
-      const m = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 0.7 });
-      addWind(m, this.uniforms, 0.004, 0); // leaves barely sway, so a fly standing on one stays on it
-      return m;
-    };
     const kinds = [
-      { geo: cloverGeometry(), mat: leafMat(0x3f7a2e), n: 160, scale: [0.8, 1.3], hue: [0.27, 0.32] },
-      { geo: dandelionGeometry(), mat: leafMat(0x4d7f2c), n: 22, scale: [0.7, 1.2], hue: [0.22, 0.27] },
-      { geo: seedlingGeometry(), mat: leafMat(0x6aa13a), n: 260, scale: [0.7, 1.4], hue: [0.22, 0.3] },
+      { geo: cloverGeometry(), color: 0x3f7a2e, n: 160, scale: [0.8, 1.3], hue: [0.27, 0.32] },
+      { geo: dandelionGeometry(), color: 0x4d7f2c, n: 22, scale: [0.7, 1.2], hue: [0.22, 0.27] },
+      { geo: seedlingGeometry(), color: 0x6aa13a, n: 260, scale: [0.7, 1.4], hue: [0.22, 0.3] },
     ];
     this.weeds = [];
     this.weedMeshes = [];
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color();
     for (const k of kinds) {
-      const mesh = new THREE.InstancedMesh(k.geo, k.mat, k.n);
+      const mesh = new THREE.InstancedMesh(k.geo, leafMaterial(k.color, this.uniforms), k.n);
       for (let i = 0; i < k.n; i++) {
         // Uniform in the disc, clear of the wall.
         const rad = Math.sqrt(r()) * (this.radius - 8), a = r() * 2 * Math.PI;
@@ -244,10 +361,98 @@ export class Terrain {
     }
   }
 
+  // Render the weeds from straight above into a height map (top surface z, packed into
+  // two 8-bit channels at 0.4 um steps). The grass shader reads it on the GPU; rain and
+  // snow read the CPU copy.
+  bake(renderer) {
+    const { x, y, size } = this.leafBox;
+    const rt = new THREE.WebGLRenderTarget(HMAP, HMAP, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+    const mat = new THREE.ShaderMaterial({
+      side: THREE.DoubleSide,
+      vertexShader: `varying float vZ;
+        void main() {
+          vec4 p = vec4(position, 1.0);
+          #ifdef USE_INSTANCING
+            p = instanceMatrix * p;
+          #endif
+          p = modelMatrix * p;
+          vZ = p.z;
+          gl_Position = projectionMatrix * viewMatrix * p;
+        }`,
+      fragmentShader: `varying float vZ;
+        void main() {
+          float v = clamp(floor(vZ * 2500.0 + 0.5), 0.0, 65535.0);
+          gl_FragColor = vec4(floor(v / 256.0) / 255.0, mod(v, 256.0) / 255.0, 0.0, 1.0);
+        }`,
+    });
+    const bakeScene = new THREE.Scene();
+    for (const w of this.weedMeshes) {
+      const copy = new THREE.InstancedMesh(w.geometry, mat, w.count);
+      copy.instanceMatrix = w.instanceMatrix;
+      copy.frustumCulled = false;
+      bakeScene.add(copy);
+    }
+    const cam = new THREE.OrthographicCamera(-size / 2, size / 2, size / 2, -size / 2, 0.1, 100);
+    cam.position.set(x + size / 2, y + size / 2, 60); // looking straight down, +y up in the image
+    cam.lookAt(x + size / 2, y + size / 2, 0);
+    const prevTarget = renderer.getRenderTarget(), prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
+    const prevTone = renderer.toneMapping;
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(bakeScene, cam);
+    const buf = new Uint8Array(HMAP * HMAP * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, HMAP, HMAP, buf);
+    renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(prevClear, prevAlpha);
+    renderer.toneMapping = prevTone;
+    const hm = new Float32Array(HMAP * HMAP);
+    for (let i = 0; i < hm.length; i++) hm[i] = (buf[4 * i] * 256 + buf[4 * i + 1]) / 2500;
+    this.leafHeights = hm;
+    this.uniforms.uLeaf.value = rt.texture;
+    mat.dispose();
+  }
+
+  // Height of the top of any weed at (x, y), from the baked map; 0 where there is none.
+  leafHeightAt(x, y) {
+    if (!this.leafHeights) return 0;
+    const { x: x0, y: y0, size } = this.leafBox;
+    const i = Math.floor(((x - x0) / size) * HMAP), j = Math.floor(((y - y0) / size) * HMAP);
+    if (i < 0 || j < 0 || i >= HMAP || j >= HMAP) return 0;
+    return this.leafHeights[j * HMAP + i];
+  }
+
+  // Top of everything at (x, y) that rain or snow can land on: leaves, or the turf.
+  topAt(x, y) {
+    if (!this.group.visible) return 0;
+    return Math.max(TURF_TOP + 0.2, this.leafHeightAt(x, y));
+  }
+
+  // A raindrop landed: the grass and leaves there react (see the shaders).
+  addImpact(x, y, t, D) {
+    this.impacts[this.nextImpact].set(x, y, t, D);
+    this.nextImpact = (this.nextImpact + 1) % MAX_IMPACTS;
+  }
+
+  // Same leaf bob as the shader, for a fly standing on a leaf.
+  leafBobAt(x, y, z) {
+    let dz = 0;
+    for (const im of this.impacts) {
+      const age = this.simT - im.z;
+      if (age < 0 || age > 1 || im.w <= 0) continue;
+      const q2 = (x - im.x) ** 2 + (y - im.y) ** 2;
+      dz -= 0.12 * im.w * Math.exp(-q2 / 9) * Math.exp(-age / 0.18) * Math.cos(age * 50);
+    }
+    const s = Math.min(1, Math.max(0, (z - 0.3) / 1.2));
+    return dz * s * s * (3 - 2 * s);
+  }
+
   // Keep blades out of food drops and from under odor sources.
   setExclusions(list) {
-    this.exclusions = list;
-    this.center = null;
+    this.exclusions = list.slice(0, MAX_EXCL);
+    this.exclusions.forEach((e, i) => this.uniforms.uExcl.value[i].set(e.x, e.y, e.r));
+    this.uniforms.uNExcl.value = this.exclusions.length;
   }
 
   // Where a fly at (x, y) stands: the top walkable leaf, or the matted turf.
@@ -276,47 +481,16 @@ export class Terrain {
 
   set visible(v) {
     this.group.visible = v;
-    this.center = null;
   }
 
-  // Rebuild the bladed window when the fly has moved far enough.
-  update(x, y, timeS, flyZ = 0) {
-    if (!this.group.visible) return;
+  // Per frame: time, where the fly is and where its feet are, which way it faces.
+  update(x, y, timeS, feetZ = 0, headingDeg = 0, simT = 0) {
+    this.simT = simT;
     this.uniforms.uTime.value = timeS;
-    this.uniforms.uFly.value.set(x, y, flyZ);
-    if (this.center && Math.hypot(x - this.center[0], y - this.center[1]) < 5) return;
-    this.center = [x, y];
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
-    const c = new THREE.Color(), Z = new THREE.Vector3(0, 0, 1), tilt = new THREE.Quaternion(), X = new THREE.Vector3(1, 0, 0);
-    let n = 0;
-    const R = this.radius - 1.5;
-    for (let gx = Math.floor(x - WINDOW); gx <= Math.ceil(x + WINDOW); gx++) {
-      for (let gy = Math.floor(y - WINDOW); gy <= Math.ceil(y + WINDOW); gy++) {
-        for (let k = 0; k < PER_CELL && n < MAX_BLADES; k++) {
-          const bx = gx + hash(gx, gy, 3 * k), by = gy + hash(gx, gy, 3 * k + 1);
-          const d = Math.hypot(bx - x, by - y);
-          if (d > WINDOW || Math.hypot(bx, by) > R) continue;
-          if (this.exclusions.some((e) => (bx - e.x) ** 2 + (by - e.y) ** 2 < e.r * e.r)) continue;
-          const h0 = hash(gx, gy, 3 * k + 2);
-          // Fade blade height toward the window edge so the boundary is invisible.
-          const fade = Math.min(1, (WINDOW - d) / 8);
-          const h = (0.4 + 1.4 * h0 * h0) * fade; // fine, freshly mown turf at fly scale
-          if (h < 0.1) continue;
-          q.setFromAxisAngle(Z, h0 * 97.3);
-          tilt.setFromAxisAngle(X, (hash(gy, gx, k) - 0.5) * 0.5);
-          q.multiply(tilt);
-          const w = 0.12 + 0.22 * hash(gy, gx, k + 11);
-          m.compose(p.set(bx, by, 0), q, s.set(w, w, h));
-          this.blades.setMatrixAt(n, m);
-          const dry = hash(gx, gy, k + 23) < 0.06;
-          c.setHSL(dry ? 0.13 : 0.24 + 0.08 * hash(gx, gy, k + 5), dry ? 0.35 : 0.55, dry ? 0.55 : 0.28 + 0.2 * hash(gx, gy, k + 7));
-          this.blades.setColorAt(n, c);
-          n++;
-        }
-      }
-    }
-    this.blades.count = n;
-    this.blades.instanceMatrix.needsUpdate = true;
-    this.blades.instanceColor.needsUpdate = true;
+    this.uniforms.uSimT.value = simT;
+    this.uniforms.uFly.value.set(x, y, feetZ);
+    const h = (headingDeg * Math.PI) / 180;
+    this.uniforms.uFlyDir.value.set(Math.cos(h), Math.sin(h));
+    this.uniforms.uCenter.value.set(x, y);
   }
 }
