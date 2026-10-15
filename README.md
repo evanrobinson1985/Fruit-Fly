@@ -17,6 +17,40 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
 |---|---|
 | ![escape](results/escape-realistic.gif) | ![feed](results/feed-realistic.gif) |
 
+## In the browser
+
+**Live page:** https://claude.ai/artifact/KsHLMrs8zWvsWUA4qxfG1G (private until you share it)
+
+`web/` is a static site that runs the whole simulation client-side:
+
+- **Brain:** a JavaScript port of the `realistic` preset (`web/src/brain-engine.js`) runs all
+  165,122 neurons and 23.4M connections in a Web Worker. It updates a neuron only while it
+  could reach threshold; quiet neurons are advanced in closed form when input arrives. It
+  matches the Python engine (`node web/tools/check_engine.mjs`) and runs at about real time
+  on a desktop CPU. The connectome is a one-time 46 MB download.
+- **Body:** the [FlyBody](https://github.com/TuragaLab/flybody) model (Vaxenburg et al.
+  2025, *Nature*; 272k triangles, 99 joints), rigged by
+  [flygym](https://github.com/NeLy-EPFL/flygym). Legs replay single-step trajectories
+  recorded from a real walking fly in a tripod gait. Stepping frequency follows walking
+  speed, and stride length on each side follows turning. Wings, halteres, proboscis and
+  antennae are posed from the same model and behavioral state.
+- **World:** click to place food drops and odor sources (vinegar, CO₂, geosmin), and
+  launch looming threats. The panels show descending-neuron rates, sensory input, and a
+  dorsal map of the whole CNS that flashes on every spike.
+
+Rebuild the assets and serve locally:
+
+```bash
+PYTHONPATH=. python web/tools/export_brain.py          # connectome -> web/assets/brain*.png
+pip install flygym                                     # only for re-exporting the body
+python web/tools/export_body.py --flybody-repo ../flybody  # -> web/assets/fly.{json,png}
+python -m http.server -d web 8000                      # open http://localhost:8000
+```
+
+Binary data is stored as grayscale PNGs (`web/tools/pngpack.py`) because static hosts that
+only serve web media types still serve PNG. The browser inflates the pixel rows directly,
+so the bytes are exact.
+
 ## Quick start
 
 ```bash
