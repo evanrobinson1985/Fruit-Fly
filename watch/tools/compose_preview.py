@@ -94,11 +94,13 @@ if __name__ == "__main__":
         "3-feeding": screen(5.4, 0, 1, "feed_05", food=[(6.5, 22)], stats=(55, 70, 75)),
         "4-escape-flight": screen(14, 6.5, -1, "fly_02"),
         "5-sugar-off-screen": screen(-20, 0, -1, "idle_02", food=[(12, 30)]),
-        "6-asleep": screen(-2, 0, 1, "sleep_00", night=True, stats=(60, 20, 50)),
+        "6-grooming": screen(-12.5, 0, 1, "groom_02"),
+        "7-asleep": screen(-2, 0, 1, "sleep_00", night=True, stats=(60, 20, 50)),
     }
     for name, im in shots.items():
         im.save(out / f"{name}.png")
-    sheet = Image.new("RGBA", (3 * SIZE + 40, 2 * SIZE + 20), (0, 0, 0, 0))
+    rows = (len(shots) + 2) // 3
+    sheet = Image.new("RGBA", (3 * SIZE + 40, rows * SIZE + (rows - 1) * 20), (0, 0, 0, 0))
     for i, im in enumerate(shots.values()):
         sheet.alpha_composite(im, ((i % 3) * (SIZE + 20), (i // 3) * (SIZE + 20)))
     sheet.save(out / "screens.png")

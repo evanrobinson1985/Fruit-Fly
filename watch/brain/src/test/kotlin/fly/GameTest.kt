@@ -59,6 +59,19 @@ class GameTest {
     }
 
     @Test
+    fun tickleMakesTheFlyGroom() {
+        // Head bristles -> DNg12 -> grooming, decided by the circuit.
+        val groomed = (1..4).count { seed ->
+            val w = FlyWorld(c, Pet(), seed = seed)
+            runUntil(w, 0.3)
+            w.tickle()
+            runUntil(w, 1.5) { it.anim == Anim.GROOM }
+        }
+        println("tickle: groomed in $groomed of 4 trials")
+        assertTrue(groomed >= 3)
+    }
+
+    @Test
     fun timePassesWhileAway() {
         val pet = Pet.newborn(0L)
         pet.advance((6 * Pet.HOUR_MS).toLong(), asleepFraction = 0.0)

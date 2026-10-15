@@ -26,6 +26,10 @@ rules (`tools/compose_preview.py`). They are not captures from a watch.
 - **Tap the fly** and a hand looms in from that side. Its looming detectors (LC4, LPLC2)
   drive the **Giant Fiber**; if that crosses threshold, the fly takes off. Chasing it
   around too often upsets it.
+- **Long-press the fly** to tickle its head. Its head bristles drive the **DNg12** grooming
+  neurons; if they fire, it stops and cleans itself: front-leg sweeps over the eyes
+  alternating with leg rubbing. It also grooms after meals (sugar on its face) and now and then
+  when dust settles on it, whenever the circuit decides to.
 - **Food, energy and mood** are the three arcs at the top of the face. Food drains over
   about 12 hours, energy while it's awake, and it sleeps from 22:00 to 07:00 (sleeping
   flies are harder to startle). If food runs out, the fly lies still until you feed it.

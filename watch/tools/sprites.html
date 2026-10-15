@@ -32,17 +32,19 @@ cam.position.set(1.4, -10.5, 4.2);
 cam.lookAt(-0.6, 0, 1.0);
 const TAU = Math.PI * 2;
 function pose(kind, t) {
-  fly.setWalk(0, 0, 0); fly.setFlightLegs(0); fly.setWings(0, 0); fly.setProboscis(0);
+  fly.setWalk(0, 0, 0); fly.setFlightLegs(0); fly.setWings(0, 0); fly.setProboscis(0); fly.setGroom(0);
   for (const s of ["l", "r"]) fly.set(`c_head-${s}_antenna-pitch`, 0);
   fly.root.position.set(0, 0, -fly.groundOffset);
   if (kind === "walk") fly.setWalk(t * TAU, 1, 1);
   if (kind === "idle") for (const s of ["l", "r"]) fly.set(`c_head-${s}_antenna-pitch`, 0.25 * Math.sin(t * TAU + (s === "l" ? 0 : 1)));
   if (kind === "feed") fly.setProboscis(Math.sin(t * Math.PI));
   if (kind === "fly") { fly.setFlightLegs(1); fly.setWings(1, t * TAU); fly.root.position.z = 0.6 - fly.groundOffset; fly.root.position.x = -0.6; }
+  // Grooming (DNg12): head sweeps by the near (right) front leg, then front-leg rubbing.
+  if (kind === "groom") { const sweep = t < 0.5; fly.setGroom(1, sweep ? "sweep" : "rub", ((t * 2) % 1) * TAU, "r"); }
   if (kind === "sleep") { fly.setWalk(Math.PI, 0, 0); fly.root.position.z = -fly.groundOffset - 0.12; fly.set("c_thorax-c_head-pitch", 0.25); }
   fly.update();
 }
-const ANIMS = { idle: 8, walk: 16, feed: 10, fly: 6, sleep: 1 };
+const ANIMS = { idle: 8, walk: 16, feed: 10, fly: 6, sleep: 1, groom: 12 };
 window.render = () => {
   const out = {};
   for (const [kind, n] of Object.entries(ANIMS)) {

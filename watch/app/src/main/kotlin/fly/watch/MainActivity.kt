@@ -88,6 +88,11 @@ class Sprites(val frames: Map<String, List<ImageBitmap>>) {
         Anim.FEED -> frames.getValue("feed").let { it[(f.proboscis * 5).roundToInt().coerceIn(0, 5)] }
         Anim.FLY -> frames.getValue("fly").let { it[(f.animTime * 25).toInt() % it.size] }
         Anim.SLEEP -> frames.getValue("sleep")[0]
+        // Frames 0-5 head sweeps, 6-11 leg rubbing, alternating every 1.1 s (DNg12).
+        Anim.GROOM -> frames.getValue("groom").let {
+            val rub = (f.animTime / 1.1).toInt() % 2 == 1
+            it[(if (rub) 6 else 0) + ((f.animTime * (if (rub) 5 else 3) * 6).toInt() % 6)]
+        }
     }
 
     companion object {
@@ -160,7 +165,12 @@ fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery) {
         val flySize = sizePx * 0.46f
         Canvas(
             Modifier.fillMaxSize().pointerInput(Unit) {
-                detectTapGestures { pos ->
+                detectTapGestures(onLongPress = { pos ->
+                    val cur = engine.frame.value
+                    val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySize)
+                    val flyPx = size.width / 2f + (cur.x.toFloat() - v.camX) * v.k
+                    if (kotlin.math.abs(pos.x - flyPx) < flySize * 0.4f) engine.tickle() // tickle its head
+                }) { pos ->
                     val cur = engine.frame.value
                     val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySize)
                     val xMm = v.camX + (pos.x - size.width / 2f) / v.k
@@ -314,7 +324,8 @@ private fun InfoPanel(f: Frame, close: () -> Unit) {
         )
         Text(
             "Tap the ground or Feed to drop sugar. A hungry fly's taste neurons drive MN9 and it drinks; a full one refuses. " +
-                "Tap the fly and a hand looms in: its Giant Fiber decides whether to flee.",
+                "Tap the fly and a hand looms in: its Giant Fiber decides whether to flee. " +
+                "Long-press it to tickle its head: its head bristles drive the DNg12 grooming neurons, and if they fire it cleans itself.",
             color = Color(0xFFBDB2A2), fontSize = 10.sp, textAlign = TextAlign.Center,
         )
         Text(

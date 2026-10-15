@@ -57,6 +57,10 @@ class PreviewRender {
         Anim.FEED -> sprites.getValue("feed").let { it[(w.proboscis * 5).roundToInt().coerceIn(0, 5)] }
         Anim.FLY -> sprites.getValue("fly").let { it[(w.animTime * 25).toInt() % it.size] }
         Anim.SLEEP -> sprites.getValue("sleep")[0]
+        Anim.GROOM -> sprites.getValue("groom").let {
+            val rub = (w.animTime / 1.1).toInt() % 2 == 1
+            it[(if (rub) 6 else 0) + ((w.animTime * (if (rub) 5 else 3) * 6).toInt() % 6)]
+        }
     }
 
     fun render(w: FlyWorld, night: Boolean = false, file: File) {

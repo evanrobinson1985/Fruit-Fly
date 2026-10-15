@@ -18,16 +18,27 @@ from flysim import data, interface, model, subcircuit
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "app/src/main/assets"
-MIN_SYN, HOPS = 8, 3
+MIN_SYN, HOPS, GROOM_HOPS = 8, 3, 2
 
 
-def groups(io, rmap):
+def head_touch(raw):
+    """Head mechanosensory (bristle) neurons by side: what a tickle or dust stimulates."""
+    nn = raw.neurons
+    sc, cl, sub = (nn[k].fillna("") for k in ("superclass", "class", "subclass"))
+    idx = np.flatnonzero((sc.eq("cb_sensory") & cl.eq("mechanosensory") & sub.isin(["", "grooming"])).to_numpy())
+    side = nn.side.to_numpy()
+    return {s: idx[side[idx] == s] for s in "LR"}
+
+
+def groups(io, rmap, touch, groom):
     m = lambda idx: [int(i) for i in rmap[np.asarray(idx)] if i >= 0]
     return {
         "taste": m(io.grn),
         "odor": {s: m(v) for s, v in io.orn.items()},
         "loom": {s: m(v) for s, v in io.loom.items()},
-        "motor": {k: {s: m(v) for s, v in d.items()} for k, d in io.motor.items()},
+        "touch": {s: m(v) for s, v in touch.items()},
+        # groom: DNg12, head sweeps alternating with front-leg rubbing (Guo et al. 2022).
+        "motor": {**{k: {s: m(v) for s, v in d.items()} for k, d in io.motor.items()}, "groom": {s: m(v) for s, v in groom.items()}},
     }
 
 
@@ -50,10 +61,15 @@ def main():
     params = model.LIFParams(**lif)
     full = data.functional(raw, **edits)
     io = interface.Interface(raw, odor="vinegar")
+    touch = head_touch(raw)
+    groom = interface.motor_pools(raw.neurons)["groomHead"]
     inputs = np.unique(np.r_[io.grn, io.orn["L"], io.orn["R"], io.loom["L"], io.loom["R"]])
     keep = subcircuit.select(full, inputs, io.readout, MIN_SYN, HOPS)
+    # Grooming: head bristles -> DNg12 on paths of at most 3 synapses (GROOM_HOPS + 1). This adds
+    # ~1,400 neurons and keeps DNg12's response to head touch within a few % of the full brain.
+    keep = np.union1d(keep, subcircuit.select(full, np.r_[touch["L"], touch["R"]], np.r_[groom["L"], groom["R"]], MIN_SYN, GROOM_HOPS))
     sub, newid = subcircuit.subset(full, keep)
-    gs, gf = groups(io, newid), groups(io, np.arange(full.n))
+    gs, gf = groups(io, newid, touch, groom), groups(io, np.arange(full.n), touch, groom)
     print(f"subcircuit: {sub.n} neurons, {sub.n_edges} connections")
 
     import sys
@@ -63,7 +79,8 @@ def main():
     rows = []
     probes = [("Looming (LC4+LPLC2) 100 Hz", lambda g: g["loom"]["L"] + g["loom"]["R"], 100),
               ("Taste neurons 80 Hz", lambda g: g["taste"], 80),
-              ("Vinegar ORNs 60 Hz", lambda g: g["odor"]["L"] + g["odor"]["R"], 60)]
+              ("Vinegar ORNs 60 Hz", lambda g: g["odor"]["L"] + g["odor"]["R"], 60),
+              ("Head bristles 120 Hz", lambda g: g["touch"]["L"] + g["touch"]["R"], 120)]
     for name, pick, hz in probes:
         for label, cc, g in (("full brain", full, gf), ("watch circuit", sub, gs)):
             r = []
@@ -93,7 +110,8 @@ def main():
 
     md = ["# Watch circuit validation", "",
           f"The watch game runs the connectome subcircuit on paths of at most {HOPS + 1} synapses "
-          f"from its sensory inputs to its motor outputs, using connections of {MIN_SYN}+ synapses to "
+          f"from its sensory inputs to its motor outputs (at most {GROOM_HOPS + 1} from the head "
+          f"bristles to the DNg12 grooming neurons), using connections of {MIN_SYN}+ synapses to "
           f"choose neurons and keeping every connection among them: {sub.n:,} of {full.n:,} neurons "
           f"and {sub.n_edges:,} of {full.n_edges:,} connections. Same neuron model and parameters as "
           "the `realistic` preset.", "",
@@ -119,7 +137,7 @@ def write(sub, gs, params):
     # Plain-text groups and parameters for the Kotlin loader: "<key> <values...>" per line.
     lines = [f"param {k} {v}" for k, v in params.__dict__.items()]
     lines.append("group taste " + " ".join(map(str, gs["taste"])))
-    for kind in ("odor", "loom"):
+    for kind in ("odor", "loom", "touch"):
         for side, idx in gs[kind].items():
             lines.append(f"group {kind}.{side} " + " ".join(map(str, idx)))
     for name, sides in gs["motor"].items():

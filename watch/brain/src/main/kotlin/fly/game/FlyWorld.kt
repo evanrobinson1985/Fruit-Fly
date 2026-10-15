@@ -10,7 +10,7 @@ import kotlin.math.min
 import kotlin.math.sign
 import kotlin.random.Random
 
-enum class Anim { IDLE, WALK, FEED, FLY, SLEEP }
+enum class Anim { IDLE, WALK, FEED, FLY, SLEEP, GROOM }
 
 /** A sugar drop on the ground. Units: mm along the stage. */
 data class Food(val x: Double, var amount: Double = 30.0, var ignoredUntil: Double = 0.0)
@@ -33,6 +33,7 @@ private data class Loom(val fromLeft: Boolean, val t0: Double) {
  *  - taste neurons (recruited by hunger) -> MN9 -> proboscis extension -> eating
  *  - looming on one eye -> LC4/LPLC2 -> Giant Fiber -> takeoff
  *  - P9 / MDN / DNa -> walking speed, backing up, turning around
+ *  - head bristles (a tickle, sugar on the face, dust) -> DNg12 -> grooming
  *
  * Walking toward food and wandering are body-level behaviors (the circuit has no
  * validated odor-steering), as in the browser version.
@@ -58,7 +59,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     var timeS = 0.0; private set
 
     /** Smoothed motor-group rates (Hz), max over sides. */
-    val motor = mutableMapOf("forward" to 0.0, "backward" to 0.0, "turn" to 0.0, "escape" to 0.0, "feed" to 0.0)
+    val motor = mutableMapOf("forward" to 0.0, "backward" to 0.0, "turn" to 0.0, "escape" to 0.0, "feed" to 0.0, "groom" to 0.0)
     val turnLR = doubleArrayOf(0.0, 0.0)
 
     private var loom: Loom? = null
@@ -71,6 +72,9 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     private var pauseLeft = 0.0
     private val escapeTimes = ArrayDeque<Double>()
     private var lastInputs = ""
+    private var touchHz = 0.0              // head bristle stimulation
+    private var touchUntil = 0.0
+    private var groomLeft = 0.0
 
     fun dropFood(atX: Double = (rng.nextDouble() - 0.5) * 2 * (HALF_WIDTH - 6)) {
         food.removeAll { it.amount <= 0 }
@@ -83,6 +87,17 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     fun tap(atX: Double) {
         if (loom != null || anim == Anim.FLY) return
         loom = Loom(fromLeft = atX < x, t0 = timeS)
+    }
+
+    /** Long-press on the fly: tickle its head bristles. The circuit decides whether it grooms. */
+    fun tickle() {
+        if (anim == Anim.FLY) return
+        touchHead(TICKLE_HZ, 0.6)
+    }
+
+    private fun touchHead(hz: Double, seconds: Double) {
+        touchHz = max(if (timeS < touchUntil) touchHz else 0.0, hz)
+        touchUntil = max(touchUntil, timeS + seconds)
     }
 
     fun setAsleep(value: Boolean) {
@@ -126,13 +141,17 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
             }
         }
         val tasteHz = if (tasteSince >= 0) TASTE_HZ else 0.0
-        val key = "$tasteHz ${tasteIdx.size} $loomL $loomR"
+        // Now and then dust settles on an awake fly's head.
+        if (!asleep && anim != Anim.FLY && rng.nextDouble() < dt / DUST_EVERY_S) touchHead(DUST_HZ, 0.8)
+        val headHz = if (timeS < touchUntil) touchHz else 0.0
+        val key = "$tasteHz ${tasteIdx.size} $loomL $loomR $headHz"
         if (key != lastInputs) {
             lastInputs = key
             brain.clearRates()
             if (tasteHz > 0) brain.setRates(tasteIdx, tasteHz)
             if (loomL > 0) brain.setRates(c.group("loom.L"), loomL)
             if (loomR > 0) brain.setRates(c.group("loom.R"), loomR)
+            if (headHz > 0) { brain.setRates(c.group("touch.L"), headHz); brain.setRates(c.group("touch.R"), headHz) }
         }
 
         // ---------- brain ----------
@@ -167,6 +186,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
             pet.ate(bite)
             if (boutLeft <= 0 || onFood.amount <= 0) {
                 tasteSince = -1.0 // next contact recruits a fresh set of taste neurons
+                touchHead(SUGAR_FACE_HZ, 1.0) // sugar left on the face and proboscis
                 if (onFood.amount <= 0) say("Yum!")
             }
             speed = 0.0
@@ -181,6 +201,15 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
             wanderTarget = x - sign(onFood.x - x + 1e-6) * 15
         }
         if (asleep && !pet.weak) { speed = 0.0; return setAnim(Anim.SLEEP) }
+
+        // Grooming: while DNg12 fires, stop and clean the head (sweeps alternating with leg rubs).
+        if (motor["groom"]!! > GROOM_HZ) groomLeft = max(groomLeft, GROOM_BOUT_S)
+        if (groomLeft > 0) {
+            groomLeft -= dt
+            speed = 0.0
+            if (anim != Anim.GROOM && rng.nextDouble() < 0.3) say("Cleaning up", 1.2)
+            return setAnim(Anim.GROOM)
+        }
 
         // Wander or approach food (body-level), modulated by P9 (forward) and MDN (backward).
         // Only a completely full fly ignores food; otherwise the circuit decides at the drop.
@@ -236,6 +265,12 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
 
     companion object {
         const val STEP_MS = 20
+        const val TICKLE_HZ = 120.0       // head bristles during a tickle
+        const val SUGAR_FACE_HZ = 70.0    // after a meal
+        const val DUST_HZ = 60.0
+        const val DUST_EVERY_S = 75.0     // mean interval between dust specks
+        const val GROOM_HZ = 3.0          // DNg12 (smoothed) above this -> grooming
+        const val GROOM_BOUT_S = 1.5
         const val SMOOTH_MS = 60.0
         const val HALF_WIDTH = 30.0       // mm of ground visible either side of center
         const val FOOD_RADIUS = 2.0

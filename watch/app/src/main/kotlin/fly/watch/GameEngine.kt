@@ -42,6 +42,9 @@ class GameEngine(private val context: Context) {
     /** Tap at a stage position (mm): a hand looms in from that side. */
     fun tap(xMm: Double) = commands.add { it.tap(xMm) }
 
+    /** Long-press on the fly: tickle its head. */
+    fun tickle() = commands.add { it.tickle() }
+
     fun start(scope: CoroutineScope) {
         if (job != null) return
         job = scope.launch(Dispatchers.Default) {
