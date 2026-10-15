@@ -283,6 +283,9 @@ $("cam").onclick = () => {
   camera.position.copy(controls.target).addScaledVector(dir, d);
 };
 
+$("credits-open").onclick = $("credits-open-2").onclick = () => $("credits").showModal();
+$("credits-close").onclick = () => $("credits").close();
+
 // ---------- render loop ----------
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;

@@ -59,12 +59,28 @@
   .hint { font-size: 12px; color: var(--muted); min-height: 1.4em; }
   .right { width: 290px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-width: 0; }
   .right .panel { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .right .panel.credits { gap: 5px; }
   canvas.chart { width: 100%; height: 110px; display: block; }
   #brainmap { width: 100%; max-width: 260px; aspect-ratio: 260 / 340; image-rendering: pixelated; align-self: center; }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font: 11px var(--mono); color: var(--muted); }
   .legend i { display: inline-block; width: 9px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
   .credits { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .credits p { margin: 0; }
+  .credits b { color: var(--ink); font-weight: 600; }
   .credits a { color: var(--ink); }
+  dialog#credits {
+    width: min(680px, calc(100% - 32px)); max-height: min(80vh, 900px); overflow-y: auto;
+    background: #1a1612; color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px 24px; font-size: 13.5px; line-height: 1.55;
+  }
+  dialog#credits::backdrop { background: rgba(8, 7, 6, 0.6); }
+  dialog#credits h2 { font-family: var(--display); font-style: italic; font-weight: 500; font-size: 24px; margin: 0; }
+  dialog#credits h3 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cuticle); margin: 18px 0 4px; font-weight: 600; }
+  dialog#credits p { margin: 0 0 8px; max-width: 65ch; }
+  dialog#credits a { color: var(--cuticle); }
+  .dlg-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .dlg-head button { flex: 0 0 auto; }
+  button.linkish { background: none; border: 0; padding: 0; color: var(--cuticle); text-decoration: underline; font: inherit; cursor: pointer; }
   #loading { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 12px 16px; width: min(420px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
   .bar { height: 4px; background: rgba(255, 240, 220, 0.1); border-radius: 2px; overflow: hidden; }
   .bar > div { height: 100%; width: 0; background: var(--cuticle); transition: width 0.2s; }
@@ -106,6 +122,7 @@
       <button id="cam">Close-up</button>
     </div>
     <div class="hint" id="hint">Drag to orbit. Scroll to zoom.</div>
+    <p class="sub">Built on the MaleCNS connectome, the Shiu <i>et al.</i> neuron model, the FlyBody 3D fly and NeuroMechFly leg recordings. <button id="credits-open-2" class="linkish">Credits &amp; citations</button></p>
     <dl class="stats">
       <dt>Behavior</dt><dd><span class="state" id="st-state" data-s="walking">loading</span></dd>
       <dt>Sim time</dt><dd id="st-time">0.00 s</dd>
@@ -133,14 +150,59 @@
       <canvas id="brainmap"></canvas>
     </div>
     <div class="panel credits">
-      Wiring: <a href="https://male-cns.janelia.org" target="_blank" rel="noopener">MaleCNS v1.0</a> (Janelia FlyEM &amp; Google, CC-BY).
-      Neuron model: Shiu et al. 2024, with short-term depression.
-      Body: <a href="https://github.com/TuragaLab/flybody" target="_blank" rel="noopener">FlyBody</a> (Apache-2.0).
-      Leg kinematics: <a href="https://github.com/NeLy-EPFL/flygym" target="_blank" rel="noopener">NeuroMechFly / flygym</a> recordings (Apache-2.0).
-      Code: <a href="https://github.com/evanrobinson1985/Fruit-Fly" target="_blank" rel="noopener">Fruit-Fly</a>.
+      <div class="label">Credits</div>
+      <p><b>Connectome:</b> <a href="https://male-cns.janelia.org" target="_blank" rel="noopener">MaleCNS v1.0</a>, HHMI Janelia FlyEM, Google Research, Cambridge Connectomics / MRC LMB and consortium (CC-BY 4.0).</p>
+      <p><b>Neuron model:</b> Shiu, Sterne <i>et al.</i>, <i>Nature</i> 2024.</p>
+      <p><b>3D fly:</b> <a href="https://github.com/TuragaLab/flybody" target="_blank" rel="noopener">FlyBody</a>, Vaxenburg, Siwanowicz <i>et al.</i>, <i>Nature</i> 2025 (Apache-2.0).</p>
+      <p><b>Rigging &amp; leg recordings:</b> <a href="https://github.com/NeLy-EPFL/flygym" target="_blank" rel="noopener">NeuroMechFly / flygym</a>, Ramdya lab, EPFL (Apache-2.0).</p>
+      <button id="credits-open">Full credits &amp; citations</button>
     </div>
   </aside>
 </div>
+
+<dialog id="credits" aria-labelledby="credits-title">
+  <div class="dlg-head">
+    <h2 id="credits-title">Credits &amp; citations</h2>
+    <button id="credits-close" aria-label="Close credits">Close</button>
+  </div>
+  <p>This simulation is assembled from other people's research. Please cite their work.</p>
+
+  <h3>Connectome: MaleCNS v1.0</h3>
+  <p>The neurons, connections, neurotransmitter predictions, cell types and positions are from the complete male <i>Drosophila</i> CNS connectome, produced by the HHMI Janelia FlyEM project team with Google Research, the Cambridge Connectomics Group and MRC Laboratory of Molecular Biology (Jefferis group), and an international proofreading consortium.
+  Berg, S. <i>et al.</i> Sexual dimorphism in the complete <i>Drosophila</i> male central nervous system connectome. <i>Cell</i> (2026).
+  Released under CC-BY 4.0. Full author list and citation: <a href="https://male-cns.janelia.org" target="_blank" rel="noopener">male-cns.janelia.org</a>.</p>
+
+  <h3>Neuron model</h3>
+  <p>Shiu, P. K., Sterne, G. R., Spiller, N., Franconville, R., Sandoval, A., Zhou, J., Simha, N., Kang, C. H., Yu, S., Kim, J. S., Dorkenwald, S., Matsliah, A., Schlegel, P., Yu, S.-c., McKellar, C. E., Sterling, A., Costa, M., Eichler, K., Bates, A. S., Eckstein, N., Funke, J., Jefferis, G. S. X. E., Murthy, M., Bidaye, S. S., Hampel, S., Seeds, A. M. &amp; Scott, K.
+  A <i>Drosophila</i> computational brain model reveals sensorimotor processing. <i>Nature</i> 634, 210–219 (2024).
+  <a href="https://doi.org/10.1038/s41586-024-07763-9" target="_blank" rel="noopener">doi:10.1038/s41586-024-07763-9</a>.
+  Short-term depression, the connectome edits and the browser engine were added by this project.</p>
+
+  <h3>3D fly: FlyBody</h3>
+  <p>Vaxenburg, R., Siwanowicz, I., Merel, J., Robie, A. A., Morrow, C., Novati, G., Stefanidi, Z., Both, G.-J., Card, G. M., Reiser, M. B., Botvinick, M. M., Branson, K. M., Tassa, Y. &amp; Turaga, S. C.
+  Whole-body physics simulation of fruit fly locomotion. <i>Nature</i> 643, 1312–1320 (2025).
+  <a href="https://doi.org/10.1038/s41586-025-09029-4" target="_blank" rel="noopener">doi:10.1038/s41586-025-09029-4</a>.
+  Meshes and skeleton from <a href="https://github.com/TuragaLab/flybody" target="_blank" rel="noopener">TuragaLab/flybody</a>, <a href="licenses/flybody-Apache-2.0.txt" target="_blank" rel="noopener">Apache License 2.0</a>; re-encoded for the web, geometry unchanged.</p>
+
+  <h3>Rigging and recorded leg movements: NeuroMechFly / flygym</h3>
+  <p>Wang-Chen, S., Stimpfling, V. A., Lam, T. K. C., Özdil, P. G., Genoud, L., Hurtak, F. &amp; Ramdya, P. NeuroMechFly v2: simulating embodied sensorimotor control in adult <i>Drosophila</i>. <i>Nature Methods</i> 21, 2353–2362 (2024).
+  <a href="https://doi.org/10.1038/s41592-024-02497-y" target="_blank" rel="noopener">doi:10.1038/s41592-024-02497-y</a>.</p>
+  <p>Lobato-Rios, V., Ramalingasetty, S. T., Özdil, P. G., Arreguit, J., Ijspeert, A. J. &amp; Ramdya, P. NeuroMechFly, a neuromechanical model of adult <i>Drosophila melanogaster</i>. <i>Nature Methods</i> 19, 620–627 (2022).
+  <a href="https://doi.org/10.1038/s41592-022-01466-7" target="_blank" rel="noopener">doi:10.1038/s41592-022-01466-7</a>.
+  Joint rigging and the single-step leg trajectories (recorded from a real fly walking on a ball) come from <a href="https://github.com/NeLy-EPFL/flygym" target="_blank" rel="noopener">NeLy-EPFL/flygym</a>, <a href="licenses/flygym-Apache-2.0.txt" target="_blank" rel="noopener">Apache License 2.0</a>.</p>
+
+  <h3>Which neurons sense and act</h3>
+  <p>Vinegar glomeruli: Semmelhack &amp; Wang, <i>Nature</i> 2009. CO₂: Suh <i>et al.</i>, <i>Nature</i> 2004. Geosmin: Stensmyr <i>et al.</i>, <i>Cell</i> 2012.
+  LC4 and LPLC2 looming detectors: von Reyn <i>et al.</i>, <i>Nat. Neurosci.</i> 2017; Ache <i>et al.</i>, <i>Curr. Biol.</i> 2019.
+  Giant Fiber escape: von Reyn <i>et al.</i>, <i>Nat. Neurosci.</i> 2014; Card &amp; Dickinson, <i>Curr. Biol.</i> 2008.
+  P9 forward walking: Bidaye <i>et al.</i>, <i>Neuron</i> 2020. Moonwalker backward walking: Bidaye <i>et al.</i>, <i>Science</i> 2014.
+  DNa01/DNa02 steering: Rayshubskiy <i>et al.</i>, bioRxiv 2020; Yang <i>et al.</i>, <i>Cell</i> 2024.
+  MN9 proboscis extension: Gordon &amp; Scott, <i>Neuron</i> 2009. Synaptic depression: Kazama &amp; Wilson, <i>Neuron</i> 2008.</p>
+
+  <h3>Software and fonts</h3>
+  <p><a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> (MIT, © three.js authors). Fonts from Google Fonts under the SIL Open Font License: Newsreader (Production Type), Hanken Grotesk (Hanken Design Co.), JetBrains Mono (JetBrains).
+  Source code and the full credits file (CREDITS.md): <a href="https://github.com/evanrobinson1985/Fruit-Fly" target="_blank" rel="noopener">github.com/evanrobinson1985/Fruit-Fly</a>.</p>
+</dialog>
 
 <div id="loading" class="panel" role="status">
   <div class="label" id="load-stage">Loading fly</div>

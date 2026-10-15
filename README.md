@@ -166,7 +166,20 @@ counts = brain.run(200.0)                    # spikes per neuron in 200 ms
 print(model.rate_hz(counts, c.select(type="DNp01"), 200.0))
 ```
 
-## Data credit
+## Credits
 
-MaleCNS v1.0, HHMI Janelia FlyEM and Google Research, released under CC-BY 4.0.
-See https://male-cns.janelia.org for citation details.
+This project is built on other people's work. Full citations, licenses and details are in
+[CREDITS.md](CREDITS.md); please cite those works, not this repository.
+
+| What | Who | License |
+|---|---|---|
+| **Connectome** (neurons, connections, transmitter predictions, annotations) | MaleCNS v1.0: HHMI Janelia FlyEM, Google Research, Cambridge Connectomics Group / MRC LMB and consortium. Berg *et al.*, *Cell* (2026). [male-cns.janelia.org](https://male-cns.janelia.org) | CC-BY 4.0 |
+| **Neuron model** (LIF equations and parameters) | Shiu, Sterne *et al.*, "A *Drosophila* computational brain model reveals sensorimotor processing", *Nature* 634 (2024) | paper / [code](https://github.com/philshiu/Drosophila_brain_model) |
+| **3D fly model** (meshes, skeleton, materials) | FlyBody: Vaxenburg, Siwanowicz *et al.*, "Whole-body physics simulation of fruit fly locomotion", *Nature* 643 (2025). [TuragaLab/flybody](https://github.com/TuragaLab/flybody) | Apache 2.0 |
+| **Rigging and recorded leg movements** | NeuroMechFly / flygym (NeLy lab, EPFL): Wang-Chen *et al.*, *Nature Methods* 21 (2024); Lobato-Rios *et al.*, *Nature Methods* 19 (2022). [NeLy-EPFL/flygym](https://github.com/NeLy-EPFL/flygym) | Apache 2.0 |
+| **Sensory and motor neuron roles** | Studies cited in [CREDITS.md](CREDITS.md) and next to each entry in `flysim/interface.py` | — |
+| **Rendering** | three.js authors | MIT |
+| **Fonts** | Newsreader (Production Type), Hanken Grotesk (Hanken Design Co.), JetBrains Mono (JetBrains) | SIL OFL |
+
+Copies of the upstream Apache 2.0 licenses are in [`licenses/`](licenses). The website
+shows the same credits in its **Credits** panel.
