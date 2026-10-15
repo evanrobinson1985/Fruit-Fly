@@ -271,6 +271,7 @@ export class Weather {
     const D = this.spec.sample(Math.random());
     const a = Math.random() * 2 * Math.PI, r = radius * Math.sqrt(Math.random());
     const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+    if (x * x + y * y > this.env.arenaRadius ** 2) return; // it only rains and snows in the arena
     if (this.mode === "rain") {
       const v = rainSpeed(D);
       const d = { x, y, z: top + v * early, vx: this.wind.x, vy: this.wind.y, vz: -v, D, m: dropMass(D), kind: "rain" };

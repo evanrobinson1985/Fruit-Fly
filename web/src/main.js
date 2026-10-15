@@ -95,14 +95,12 @@ function setFloor(grass) {
   try { localStorage.setItem("floor", grass ? "grass" : "lab"); } catch {}
 }
 
-// Sky: a dark lab, or daylight outdoors that clouds over in rain or snow.
+// Sky: the dark lab, a little lighter when it rains or snows in the arena.
 function applySky() {
-  const out = terrain.visible, w = weather?.mode || "off";
-  const sky = !out ? (w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22)
-    : w === "rain" ? 0x7b8893 : w === "snow" ? 0xc3cbd3 : 0x9db4c6;
+  const w = weather?.mode || "off";
+  const sky = w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22;
   scene.background.setHex(sky);
   scene.fog.color.setHex(sky);
-  [scene.fog.near, scene.fog.far] = out ? (w === "off" ? [120, 420] : [70, 300]) : [60, 260];
   sun.intensity = w === "rain" ? 1.1 : w === "snow" ? 1.5 : 2.4;
 }
 

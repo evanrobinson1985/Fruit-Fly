@@ -4,7 +4,7 @@
 // nested level-of-detail rings around the fly (cells double in size per ring), and the
 // vertex shader places the blade at a hashed spot in that world cell. Every blade has a
 // fixed place in the world, nothing is rebuilt on the CPU as the fly moves, and grass
-// reaches the horizon. The same shader bends blades only where the fly's body and legs
+// covers the whole arena. The same shader bends blades only where the fly's body and legs
 // actually press them, keeps them under any leaf lying on the turf (from a baked height
 // map of the weeds) and knocks them down where raindrops hit.
 import * as THREE from "three";
@@ -14,7 +14,6 @@ export const TURF_TOP = 0.35; // a fly walks on the matted turf, about this high
 const C0 = 0.29;              // level-0 cell size (mm): 12 blades per mm^2 next to the fly
 const R0 = 16;                // radius of level 0; level L reaches R0 * 2^L
 const LEVELS = 5;             // out to 256 mm
-const GROUND = 520;           // radius of the outdoor ground disc
 const MAX_IMPACTS = 16;       // raindrop impacts the shaders animate at once
 const MAX_EXCL = 16;
 const HMAP = 1024;            // leaf height map resolution over the arena
@@ -136,7 +135,7 @@ float leafTop(vec2 p) {
   float keep = (1.0 - smoothstep(0.8 * rOut, rOut, d)) * (lvl < 0.5 ? 1.0 : smoothstep(0.8 * rIn, rIn, d));
   float alive = step(h01(cell, L + 3u), keep);
   float rr = length(bpos);
-  alive *= step(rr, ${GROUND - 4}.0) * (1.0 - step(uArena - 1.2, rr) * step(rr, uArena + 2.5));
+  alive *= 1.0 - step(uArena - 1.2, rr); // grass only inside the arena
   for (int i = 0; i < ${MAX_EXCL}; i++) { if (i >= uNExcl) break; if (distance(bpos, uExcl[i].xy) < uExcl[i].z) alive = 0.0; }
   float h0 = h01(cell, L + 4u);
   float bh = (0.4 + 1.4 * h0 * h0) * (1.0 + 0.25 * lvl);             // fine, freshly mown turf
@@ -313,9 +312,8 @@ export class Terrain {
     scene.add(this.group);
     scene = this.group;
 
-    // Outdoors the ground carries on past the glass wall to the horizon.
-    this.floor = new THREE.Mesh(new THREE.CircleGeometry(GROUND, 160),
-      new THREE.MeshStandardMaterial({ map: soilTexture(16 * GROUND / radius), roughness: 1 }));
+    this.floor = new THREE.Mesh(new THREE.CircleGeometry(radius, 128),
+      new THREE.MeshStandardMaterial({ map: soilTexture(16), roughness: 1 }));
     this.floor.receiveShadow = true;
     scene.add(this.floor);
 
@@ -425,7 +423,7 @@ export class Terrain {
 
   // Top of everything at (x, y) that rain or snow can land on: leaves, or the turf.
   topAt(x, y) {
-    if (!this.group.visible) return 0;
+    if (!this.group.visible || x * x + y * y > this.radius * this.radius) return 0;
     return Math.max(TURF_TOP + 0.2, this.leafHeightAt(x, y));
   }
 

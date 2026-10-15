@@ -55,8 +55,8 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   on the ground. Bigger height changes (stepping onto a leaf or off one, more than 0.6 mm)
   are short wing-assisted hops rather than a slide; in flight it holds altitude over plants
   and settles onto whatever is below as it lands.
-  Grass covers the whole view out to the horizon (blades are placed on the GPU in rings
-  that coarsen with distance). Only blades under the fly's body and legs are pressed down,
+  Grass covers the whole arena floor (blades are placed on the GPU in rings that coarsen
+  with distance). Only blades under the fly's body and legs are pressed down,
   and leaves are solid: grass stays under a leaf lying on the turf.
 - **Weather:** rain or snow at five intensities each, with real fly-scale physics. Rain
   uses measured drop sizes (Marshall–Palmer) and terminal fall speeds (up to 9 m/s); a 2 mm
