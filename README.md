@@ -49,6 +49,18 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   on the ground. Bigger height changes (stepping onto a leaf or off one, more than 0.6 mm)
   are short wing-assisted hops rather than a slide; in flight it holds altitude over plants
   and settles onto whatever is below as it lands.
+  Grass covers the whole view out to the horizon (blades are placed on the GPU in rings
+  that coarsen with distance). Only blades under the fly's body and legs are pressed down,
+  and leaves are solid: grass stays under a leaf lying on the turf.
+- **Weather:** rain or snow at five intensities each, with real fly-scale physics. Rain
+  uses measured drop sizes (Marshall–Palmer) and terminal fall speeds (up to 9 m/s); a 2 mm
+  drop weighs four times the fly. Drops land on leaves, turf, food or the fly, splash
+  crown droplets, bead on leaves, and knock grass and leaves down, which then spring back;
+  a fly under a leaf is sheltered. Snowflakes (Locatelli & Hobbs masses and speeds) drift
+  down, settle on everything including the fly, and melt. A hit on the fly pushes it,
+  can force it down in flight, and fires the touch neurons where it landed; a leaf the
+  fly stands on bobs and its legs feel it. Rain drives the moist-air receptor neurons
+  (HRN_VP5) and snow the cold receptors (TRN_VP3). Gusts from the wind tool slant both.
 - **What you can do:** drop food, place odor sources (vinegar, CO₂, geosmin), launch
   looming threats, **poke** a body part (head, back, legs or abdomen: that side's touch
   neurons fire), **blow wind** from any direction (Johnston's-organ wind neurons, stronger

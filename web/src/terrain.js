@@ -484,13 +484,19 @@ export class Terrain {
   }
 
   // Per frame: time, where the fly is and where its feet are, which way it faces.
-  update(x, y, timeS, feetZ = 0, headingDeg = 0, simT = 0) {
+  update(x, y, timeS, feetZ = 0, headingDeg = 0, simT = 0, camera = null) {
     this.simT = simT;
     this.uniforms.uTime.value = timeS;
     this.uniforms.uSimT.value = simT;
     this.uniforms.uFly.value.set(x, y, feetZ);
     const h = (headingDeg * Math.PI) / 180;
     this.uniforms.uFlyDir.value.set(Math.cos(h), Math.sin(h));
-    this.uniforms.uCenter.value.set(x, y);
+    // Finest grass between the fly and a nearby camera, so both are in it.
+    const c = this.uniforms.uCenter.value.set(x, y);
+    if (camera) {
+      const dx = camera.position.x - x, dy = camera.position.y - y, d = Math.hypot(dx, dy);
+      const k = Math.min(0.5, 12 / Math.max(d, 1e-3));
+      c.set(x + dx * k, y + dy * k);
+    }
   }
 }

@@ -650,7 +650,7 @@ function frame(now) {
       .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
     camera.position.add(delta);
     controls.target.set(x, y, 0.8 + z + perch.z);
-    terrain.update(x, y, now / 1000, feet, h, simT);
+    terrain.update(x, y, now / 1000, feet, h, simT, camera);
     sun.position.set(x + 8, y - 6, 20);
     sun.target.position.set(x, y, 0);
     // Pose.

@@ -24,7 +24,7 @@ const MAX_RINGS = 160;
 const MAX_BEADS = 400;
 const MAX_SETTLED = 5000;
 const MAX_ON_FLY = 40;
-const SHUTTER = 1 / 250;     // motion blur of the falling streaks (s)
+const SHUTTER = 1 / 60;      // motion blur of the falling streaks, about what an eye integrates (s)
 
 export const RAIN_LEVELS = [
   { name: "Drizzle", rate: 1 }, { name: "Light", rate: 2.5 }, { name: "Moderate", rate: 8 },
@@ -311,8 +311,8 @@ export class Weather {
     this._fx = fly.x; this._fy = fly.y;
     dt = Math.min(dt, 0.25);
     // Fill the air the camera looks through: wider and higher when zoomed out.
-    const top = 40 + view.dist;
-    const radius = Math.min(260, 60 + 1.2 * view.dist);
+    const top = 120 + view.dist;
+    const radius = Math.min(300, 120 + 1.5 * view.dist);
     if (this.spec) {
       this.spawnDebt += this.spec.rate * Math.PI * radius * radius * dt;
       // Each new drop enters at a random moment within this step (it starts above the top
