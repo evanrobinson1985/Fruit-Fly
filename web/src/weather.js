@@ -19,7 +19,7 @@
 import * as THREE from "three";
 
 const GRAVITY = 9810;        // mm/s^2
-const MAX_FALLING = 2500;    // streaks drawn at once (drops, splash droplets, flakes)
+const MAX_FALLING = 6000;    // streaks drawn at once (drops, splash droplets, flakes)
 const MAX_RINGS = 160;
 const MAX_BEADS = 400;
 const MAX_SETTLED = 5000;
@@ -130,7 +130,7 @@ function streakMesh(max, snow) {
         float a = max(head, trail);
         ${snow
           ? "gl_FragColor = vec4(vec3(0.97, 0.98, 1.0), a * 0.85);"
-          : "gl_FragColor = vec4(mix(vec3(0.62, 0.7, 0.8), vec3(0.95), smoothstep(0.6, 0.0, w)), a * (0.3 + 0.25 * smoothstep(0.8, 0.0, w)));"}
+          : "gl_FragColor = vec4(mix(vec3(0.62, 0.7, 0.8), vec3(0.95), smoothstep(0.6, 0.0, w)), a * (0.45 + 0.3 * smoothstep(0.8, 0.0, w)));"}
       }`,
   });
   const mesh = new THREE.Mesh(quad, mat);
@@ -254,7 +254,8 @@ export class Weather {
   _landing(d) {
     let z = Math.min(d.z, 14);
     const kx = d.vx / d.vz, ky = d.vy / d.vz;
-    for (; z > -0.01; z -= 0.04) {
+    const step = Math.hypot(d.x - this._fx, d.y - this._fy) < 60 ? 0.04 : 0.25; // fine near the fly
+    for (; z > -0.01; z -= step) {
       const x = d.x + kx * (z - d.z), y = d.y + ky * (z - d.z);
       if (z <= this.env.topAt(x, y)) return z;
     }
@@ -289,7 +290,7 @@ export class Weather {
       this.beads.push({ x, y, z, r: 0.35 * D, age: 0, life: 25 + 20 * Math.random() });
       if (this.beads.length > MAX_BEADS) this.beads.shift();
     }
-    if (D < 0.8) return;
+    if (D < 0.8 || Math.hypot(x - this._fx, y - this._fy) > 60) return; // crown droplets only near the fly
     const n = Math.min(14, Math.round(D * D * 2));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * 2 * Math.PI, el = 0.35 + Math.random() * 0.7;
@@ -311,8 +312,9 @@ export class Weather {
     this._fx = fly.x; this._fy = fly.y;
     dt = Math.min(dt, 0.25);
     // Fill the air the camera looks through: wider and higher when zoomed out.
-    const top = 120 + view.dist;
-    const radius = Math.min(300, 120 + 1.5 * view.dist);
+    // Fill all the air the camera sees, out to the fog (about 300 mm).
+    const top = 300;
+    const radius = 300;
     if (this.spec) {
       this.spawnDebt += this.spec.rate * Math.PI * radius * radius * dt;
       // Each new drop enters at a random moment within this step (it starts above the top
@@ -339,9 +341,11 @@ export class Weather {
       d.x += d.vx * dt; d.y += d.vy * dt;
       p1.set(d.x, d.y, d.z);
       // The fly first: it can be hit before the drop reaches the ground under it.
-      const seg = segSeg(p0, p1, A, B);
       const rr = rad + d.D / 2;
-      if (seg.d2 < rr * rr && seg.point.z > (d.hitZ ?? -1) - 0.01) {
+      const near = Math.min(p0.z, p1.z) < cz + rr && Math.max(p0.z, p1.z) > cz - rr
+        && Math.hypot((p0.x + p1.x) / 2 - fly.x, (p0.y + p1.y) / 2 - fly.y) < half + rr + p0.distanceTo(p1) / 2;
+      const seg = near ? segSeg(p0, p1, A, B) : null;
+      if (seg && seg.d2 < rr * rr && seg.point.z > (d.hitZ ?? -1) - 0.01) {
         const along = (seg.t - 0.5) * 2; // -1 tail .. +1 head
         const side = (ax * (seg.point.y - fly.y) - ay * (seg.point.x - fly.x)) >= 0 ? "L" : "R";
         const zone = !fly.flying && seg.point.z < fly.feetZ + 0.35 ? "legs" : along > 0.55 ? "head" : along < -0.25 ? "abdomen" : "thorax";
@@ -364,7 +368,7 @@ export class Weather {
       } else {
         const ground = this.env.topAt(d.x, d.y);
         if (d.z <= ground) {
-          if (d.kind === "flake") this._settle(d.x, d.y, ground, d.D);
+          if (d.kind === "flake" && Math.hypot(d.x - fly.x, d.y - fly.y) < 120) this._settle(d.x, d.y, ground, d.D);
           else if (d.D > 0.3) this.rings.push({ x: d.x, y: d.y, z: ground, D: d.D, age: 0 });
           continue;
         }
