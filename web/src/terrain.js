@@ -379,10 +379,11 @@ function stem(h, r = 0.12) {
   return g;
 }
 
-function cloverGeometry() {
+function cloverGeometry(leaflets = 3) {
   const h = 3.5;
   const parts = [stem(h, 0.15)];
-  for (let k = 0; k < 3; k++) parts.push(placed(heartLeaflet(3.2), { yaw: (k * 2 * Math.PI) / 3, lift: 0.15, z: h, droop: 0.03, kind: KIND.clover }));
+  const r = leaflets === 4 ? 2.9 : 3.2; // four-leaf clovers: same plant, one more (slightly smaller) leaflet
+  for (let k = 0; k < leaflets; k++) parts.push(placed(heartLeaflet(r), { yaw: (k * 2 * Math.PI) / leaflets, lift: 0.15, z: h, droop: 0.03, kind: KIND.clover }));
   return mergeGeometries(parts.map((g) => g.toNonIndexed()));
 }
 
@@ -450,6 +451,8 @@ export class Terrain {
       { geo: cloverGeometry(), color: 0x3f7a2e, n: 160, scale: [0.8, 1.3], hue: [0.27, 0.32] },
       { geo: dandelionGeometry(), color: 0x4d7f2c, n: 22, scale: [0.7, 1.2], hue: [0.22, 0.27] },
       { geo: seedlingGeometry(), color: 0x6aa13a, n: 260, scale: [0.7, 1.4], hue: [0.22, 0.3] },
+      // Two lucky ones: just ahead of where the fly starts, and beside the watch game's path.
+      { geo: cloverGeometry(4), color: 0x3f7a2e, n: 2, scale: [1.05, 1.15], hue: [0.28, 0.3], at: [[6, 9], [-14, 5]] },
     ];
     this.weeds = [];
     this.weedMeshes = [];
@@ -459,7 +462,7 @@ export class Terrain {
       for (let i = 0; i < k.n; i++) {
         // Uniform in the disc, clear of the wall.
         const rad = Math.sqrt(r()) * (this.radius - 8), a = r() * 2 * Math.PI;
-        const x = rad * Math.cos(a), y = rad * Math.sin(a);
+        const [x, y] = k.at ? k.at[i] : [rad * Math.cos(a), rad * Math.sin(a)];
         const s = k.scale[0] + r() * (k.scale[1] - k.scale[0]);
         q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), r() * 2 * Math.PI);
         m.compose(new THREE.Vector3(x, y, 0), q, new THREE.Vector3(s, s, s));

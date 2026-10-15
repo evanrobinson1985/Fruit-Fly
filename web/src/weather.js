@@ -414,8 +414,8 @@ export class Weather {
     const n = this.settled.length;
     this.settled = this.settled.filter((s) => s.age < s.life);
     if (this.settled.length !== n) this._settledDirty = true;
-    // Flakes melt; a flying fly sheds them.
-    for (const f of this.onFly) f.age += fly.flying ? dt * 20 : dt;
+    // Flakes melt; a flying fly sheds them, a grooming one wipes them off.
+    for (const f of this.onFly) f.age += fly.flying ? dt * 20 : fly.grooming ? dt * 4 : dt; // a grooming fly cleans them off
     this.onFly = this.onFly.filter((f) => f.age < f.life);
   }
 

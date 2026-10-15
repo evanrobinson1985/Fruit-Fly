@@ -29,6 +29,10 @@ export const BODY = {
   flightOnHz: 15, flightOnS: 0.16, flightOffHz: 6, flightMinS: 0.6, flightMaxS: 5,
   wingSteerGain: 8,                 // deg/s per Hz of left-right wing motor-neuron difference
   feedHz: 20,                       // MN9 -> proboscis extension
+  // Grooming: the DNg12 descending neurons drive head sweeps alternating with front-leg
+  // rubbing, DNg11 leg rubbing alone (Guo et al. 2022). Touching the head bristles drives
+  // DNg12 to ~10 Hz in this connectome; at rest it stays near 0.
+  groomOnHz: 3, groomBout: 1.5, sweepHz: 3, rubHz: 5, groomSwitchS: 1.1,
   feedBout: 1.0,                    // s of feeding started by one proboscis extension
   escapeTime: 0.45, flightSpeed: 120, // escape flight (s, mm/s)
   stride: 1.6,                      // mm per step cycle at full amplitude
@@ -118,15 +122,18 @@ export class Body {
   act(m, dt, world, rng, spontaneous = true) {
     const mean = (g) => (m[g] ? (m[g].L + m[g].R) / 2 : 0);
     const k200 = Math.min(1, dt / 0.2);
-    const sm = (this.slow ??= { legsL: 0, legsR: 0, flight: 0, wingL: 0, wingR: 0 });
+    const sm = (this.slow ??= { legsL: 0, legsR: 0, flight: 0, wingL: 0, wingR: 0, groomL: 0, groomR: 0, rub: 0 });
     sm.legsL += k200 * ((m.legs?.L || 0) - sm.legsL);
     sm.legsR += k200 * ((m.legs?.R || 0) - sm.legsR);
     sm.flight += k200 * (mean("flight") - sm.flight);
     sm.wingL += k200 * ((m.wing?.L || 0) - sm.wingL);
     sm.wingR += k200 * ((m.wing?.R || 0) - sm.wingR);
+    sm.groomL += k200 * ((m.groomHead?.L || 0) - sm.groomL);
+    sm.groomR += k200 * ((m.groomHead?.R || 0) - sm.groomR);
+    sm.rub += k200 * (mean("groomLegs") - sm.rub);
     const gf = Math.max(m.escape.L, m.escape.R);
 
-    if (this.airborne > 0) return this._fly(m, dt, world, sm);
+    if (this.airborne > 0) { this.groomLeft = 0; this.groomBlend = 0; return this._fly(m, dt, world, sm); }
     this.wingOpen = Math.max(0, this.wingOpen - dt * 6);
     this.gfOn = gf > BODY.escapeSustainHz ? (this.gfOn || 0) + dt : 0;
     if (gf > BODY.escapeHz || this.gfOn >= BODY.escapeSustainS) {
@@ -151,8 +158,27 @@ export class Body {
       this.speed = 0;
       this.foodEaten += dt;
       this._gait(dt, 0);
+      this.groomBlend = Math.max(0, (this.groomBlend || 0) - dt * 5);
       return (this.state = "feeding");
     }
+    // Grooming: stop and clean the head while the grooming command neurons are active.
+    const head = Math.max(sm.groomL, sm.groomR);
+    if (Math.max(head, sm.rub) > BODY.groomOnHz) this.groomLeft = Math.max(this.groomLeft || 0, BODY.groomBout);
+    this.groomLeft = Math.max(0, (this.groomLeft || 0) - dt);
+    if (this.groomLeft > 0) {
+      this.groomT = (this.groomT || 0) + dt;
+      this.groomSide = sm.groomL >= sm.groomR ? "l" : "r";
+      // DNg12 alternates head sweeps with leg rubbing; DNg11 alone only rubs.
+      const sweep = head >= sm.rub && Math.floor(this.groomT / BODY.groomSwitchS) % 2 === 0;
+      this.groomMode = sweep ? "sweep" : "rub";
+      this.groomPhase = (this.groomPhase || 0) + 2 * Math.PI * (sweep ? BODY.sweepHz : BODY.rubHz) * dt;
+      this.groomBlend = Math.min(1, (this.groomBlend || 0) + dt * 5);
+      this.speed += (0 - this.speed) * Math.min(1, dt / 0.08);
+      this._gait(dt, 0);
+      return (this.state = "grooming");
+    }
+    this.groomT = 0;
+    this.groomBlend = Math.max(0, (this.groomBlend || 0) - dt * 5);
     // Walking: leg motor-neuron pools set vigor and turning; P9 adds, MDN reverses.
     const legs = (sm.legsL + sm.legsR) / 2;
     const back = Math.max(0, mean("backward") - BODY.backHz);

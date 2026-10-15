@@ -81,6 +81,7 @@ export class Chart {
     const c = this.canvas, ctx = this.ctx;
     const dpr = window.devicePixelRatio || 1;
     const W = c.clientWidth, H = c.clientHeight;
+    if (!W || !H) return; // folded away
     if (c.width !== W * dpr) { c.width = W * dpr; c.height = H * dpr; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);

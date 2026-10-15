@@ -50,7 +50,7 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   on top of the abdomen, right over left (solved so they clear it by at least 15 µm).
 - **World:** a 200 mm arena with a 50 mm glass wall. The floor switch picks the lab
   arena (filter paper, the default) or grass and small weeds (fine turf, clover, dandelion
-  rosettes, seedlings) at true scale for a 2.5 mm fly. On grass the fly walks on top of
+  rosettes, seedlings, and two four-leaf clovers among the three-leaf ones) at true scale for a 2.5 mm fly. On grass the fly walks on top of
   leaves and the matted turf, tilted to the surface, and tastes food only when it is down
   on the ground. It stands on its six feet: it stays on a leaf while at least two feet are
   on it (so it walks across gaps between leaflets without bobbing), and changes level with a
@@ -64,6 +64,13 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   midrib, pale sheaths and yellowing or dry tips; clover leaflets with fine side veins, a
   vein network and white clover's pale chevron; dandelion leaves with a broad pale midrib
   flushed red-purple at the base; paler undersides and raised or sunken veins on all.
+- **Grooming:** touching the head bristles (a poke, a raindrop, a snowflake) drives the DNg12
+  descending neurons in the connectome (to ~10 Hz; near 0 at rest), and while they fire the
+  fly stops and cleans its head: front-leg sweeps over the eyes alternating with leg rubbing
+  (Guo et al. 2022). The leg poses were solved by forward kinematics so the tarsi reach the
+  eye, the underside of the head and each other.
+- **Panels:** every control and readout panel folds away (each section, or a whole side),
+  and the layout is remembered.
 - **Weather:** rain or snow at five intensities each, with real fly-scale physics. Rain
   uses measured drop sizes (Marshall–Palmer) and terminal fall speeds (up to 9 m/s); a 2 mm
   drop weighs four times the fly. Drops land on leaves, turf, food or the fly, splash

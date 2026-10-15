@@ -363,6 +363,28 @@ export class Fly {
     }
   }
 
+  // Anterior grooming (blend 0..1). "sweep": the `side` front leg strokes down over its eye
+  // to the underside of the head; "rub": the two front legs slide past each other under the
+  // face. Poses were solved so the tarsi reach those points (GROOM below); phase in radians.
+  setGroom(blend, mode, phase, side = "l") {
+    if (blend <= 0) { this.set("c_thorax-c_head-pitch", 0); return; }
+    const mix = (pose, f) => {
+      for (const [j, v] of Object.entries(pose)) {
+        const i = this.jointIdx[j];
+        if (i !== undefined) this.q[i] += (v - this.q[i]) * f;
+      }
+    };
+    const between = (a, b, f) => Object.fromEntries(Object.keys(a).map((j) => [j, a[j] + (b[j] - a[j]) * f]));
+    const w = 0.5 - 0.5 * Math.cos(phase); // 0..1..0
+    for (const s of ["l", "r"]) {
+      let pose;
+      if (mode === "sweep") pose = s === side ? between(GROOM.sweepHigh[s], GROOM.sweepLow[s], w) : GROOM.rubBack[s];
+      else pose = between(GROOM.rubBack[s], GROOM.rubFwd[s], s === "l" ? w : 1 - w); // in antiphase
+      mix(pose, blend);
+    }
+    this.set("c_thorax-c_head-pitch", blend * (mode === "sweep" ? 0.18 : 0.08)); // head tips down to meet the legs
+  }
+
   // Proboscis: 0 retracted, 1 fully extended toward the substrate.
   setProboscis(ext) {
     this.set("c_head-c_rostrum-pitch", PROBOSCIS.rostrum[0] + ext * (PROBOSCIS.rostrum[1] - PROBOSCIS.rostrum[0]));
@@ -430,6 +452,11 @@ const v3 = (a, i) => new THREE.Vector3(a[i], a[i + 1], a[i + 2]);
 // and the right wing lies over the left, as a fly crosses its wings at rest.
 const WING_FOLDED = { l: [-0.14, -0.42, -0.11], r: [-0.18, -0.42, -0.19] };
 const WING_SPREAD = [-1.5, -0.9, 2.32];
+
+// Front-leg grooming poses: joint angles solved by forward kinematics so the fourth tarsal
+// segment reaches the front of the eye (sweepHigh), the underside of the head (sweepLow),
+// and points under the face where the legs rub (rubFwd, rubBack). Each solved from the last.
+const GROOM = {"sweepHigh": {"l": {"c_thorax-lf_coxa-yaw": -0.229, "c_thorax-lf_coxa-roll": 0.908, "c_thorax-lf_coxa-pitch": 0.594, "lf_coxa-lf_trochanterfemur-roll": 0.272, "lf_coxa-lf_trochanterfemur-pitch": -0.123, "lf_trochanterfemur-lf_tibia-pitch": -0.278, "lf_tibia-lf_tarsus1-pitch": 2.039}, "r": {"c_thorax-rf_coxa-yaw": -0.25, "c_thorax-rf_coxa-roll": 1.206, "c_thorax-rf_coxa-pitch": 0.894, "rf_coxa-rf_trochanterfemur-roll": 0.267, "rf_coxa-rf_trochanterfemur-pitch": 0.177, "rf_trochanterfemur-rf_tibia-pitch": -0.442, "rf_tibia-rf_tarsus1-pitch": 2.372}}, "sweepLow": {"l": {"c_thorax-lf_coxa-yaw": 0.371, "c_thorax-lf_coxa-roll": 0.908, "c_thorax-lf_coxa-pitch": 0.294, "lf_coxa-lf_trochanterfemur-roll": 0.197, "lf_coxa-lf_trochanterfemur-pitch": -0.123, "lf_trochanterfemur-lf_tibia-pitch": -0.606, "lf_tibia-lf_tarsus1-pitch": 2.477}, "r": {"c_thorax-rf_coxa-yaw": 0.387, "c_thorax-rf_coxa-roll": 1.056, "c_thorax-rf_coxa-pitch": 0.594, "rf_coxa-rf_trochanterfemur-roll": 0.192, "rf_coxa-rf_trochanterfemur-pitch": 0.177, "rf_trochanterfemur-rf_tibia-pitch": -0.686, "rf_tibia-rf_tarsus1-pitch": 2.813}}, "rubFwd": {"l": {"c_thorax-lf_coxa-yaw": 0.352, "c_thorax-lf_coxa-roll": 0.929, "c_thorax-lf_coxa-pitch": 0.444, "lf_coxa-lf_trochanterfemur-roll": 0.162, "lf_coxa-lf_trochanterfemur-pitch": -0.104, "lf_trochanterfemur-lf_tibia-pitch": -0.426, "lf_tibia-lf_tarsus1-pitch": 1.352}, "r": {"c_thorax-rf_coxa-yaw": 0.668, "c_thorax-rf_coxa-roll": 1.089, "c_thorax-rf_coxa-pitch": 0.613, "rf_coxa-rf_trochanterfemur-roll": 0.19, "rf_coxa-rf_trochanterfemur-pitch": 0.177, "rf_trochanterfemur-rf_tibia-pitch": -0.095, "rf_tibia-rf_tarsus1-pitch": 1.965}}, "rubBack": {"l": {"c_thorax-lf_coxa-yaw": 0.652, "c_thorax-lf_coxa-roll": 0.929, "c_thorax-lf_coxa-pitch": 0.444, "lf_coxa-lf_trochanterfemur-roll": 0.155, "lf_coxa-lf_trochanterfemur-pitch": -0.104, "lf_trochanterfemur-lf_tibia-pitch": -0.482, "lf_tibia-lf_tarsus1-pitch": 2.088}, "r": {"c_thorax-rf_coxa-yaw": 0.668, "c_thorax-rf_coxa-roll": 1.152, "c_thorax-rf_coxa-pitch": 0.613, "rf_coxa-rf_trochanterfemur-roll": 0.171, "rf_coxa-rf_trochanterfemur-pitch": 0.177, "rf_trochanterfemur-rf_tibia-pitch": -0.388, "rf_tibia-rf_tarsus1-pitch": 2.476}}};
 
 // Retracted -> extended (rostrum, haustellum) pitch; found by posing the mesh.
 const PROBOSCIS = { rostrum: [0.18, -1.1], haustellum: [0.7, -1.4] };

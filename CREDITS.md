@@ -93,6 +93,14 @@ cited next to each entry in `flysim/interface.py`):
 - Synaptic depression in the antennal lobe: Kazama, H. & Wilson, R. I. *Neuron* 58,
   401–413 (2008).
 
+## Grooming
+
+- Guo, L., Zhang, N. & Simpson, J. H. Descending neurons coordinate anterior grooming behavior
+  in *Drosophila*. *Curr. Biol.* 32, 823–833 (2022): DNg12 drives head sweeps alternating with
+  front-leg rubbing, DNg11 front-leg rubbing. Read out as the fly's grooming command here.
+- Hampel, S., Franconville, R., Simpson, J. H. & Seeds, A. M. A neural command circuit for
+  grooming movement control. *eLife* 4, e08758 (2015).
+
 ## Rain and snow (website)
 
 - Raindrop size spectrum: Marshall, J. S. & Palmer, W. M. The distribution of raindrops with size.

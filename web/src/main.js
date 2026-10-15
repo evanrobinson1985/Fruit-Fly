@@ -181,6 +181,7 @@ const MOTOR = [
   { key: "turnR", label: "DNa R", color: "#4f8fc0" },
   { key: "escape", label: "Giant Fiber", color: "#e5533d" },
   { key: "feed", label: "MN9", color: "#8fc77a" },
+  { key: "groom", label: "DNg12 groom", color: "#d6c7f2" },
 ];
 const SENSE_SERIES = [
   { key: "odorL", label: "ORN L", color: "#e9b949" },
@@ -289,6 +290,7 @@ function advanceBody(t) {
     legs: (m.legs.L + m.legs.R) / 2, flight: (m.flight.L + m.flight.R) / 2,
     forward: (m.forward.L + m.forward.R) / 2, backward: (m.backward.L + m.backward.R) / 2,
     turnL: m.turn.L, turnR: m.turn.R, escape: Math.max(m.escape.L, m.escape.R), feed: Math.max(m.feed.L, m.feed.R),
+    groom: m.groomHead ? Math.max(m.groomHead.L, m.groomHead.R) : 0,
   });
   if (lastSense) {
     const r = lastSense.rates;
@@ -435,6 +437,30 @@ $("cam").onclick = () => {
   const dir = camera.position.clone().sub(controls.target).normalize();
   camera.position.copy(controls.target).addScaledVector(dir, d);
 };
+
+// Every panel folds away: sections open and close, and each side can be hidden whole.
+// The layout is remembered for the next visit.
+const layout = (() => { try { return JSON.parse(localStorage.getItem("layout") || "{}"); } catch { return {}; } })();
+const saveLayout = () => { try { localStorage.setItem("layout", JSON.stringify(layout)); } catch {} };
+for (const d of document.querySelectorAll("details.sec, details.panel")) {
+  if (d.id in layout) d.open = layout[d.id];
+  d.addEventListener("toggle", () => { layout[d.id] = d.open; saveLayout(); });
+}
+function foldable(btnId, bodyId, panel) {
+  const btn = $(btnId), body = $(bodyId);
+  const set = (open) => {
+    body.hidden = !open;
+    btn.textContent = open ? "Hide" : "Show";
+    btn.setAttribute("aria-expanded", open);
+    panel?.classList.toggle("folded", !open);
+    layout[btnId] = open;
+    saveLayout();
+  };
+  btn.onclick = () => set(body.hidden);
+  set(layout[btnId] ?? true);
+}
+foldable("left-toggle", "left-body", document.querySelector(".left"));
+foldable("right-toggle", "right-body");
 
 $("credits-open").onclick = $("credits-open-2").onclick = () => $("credits").showModal();
 $("credits-close").onclick = () => $("credits").close();
@@ -680,7 +706,7 @@ function frame(now) {
     weatherT = simT;
     if (simT < stim.windUntil) weather.wind.copy(stim.windVec); else weather.wind.set(0, 0);
     const feet = perch.z + z;
-    const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0 },
+    const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0, grooming: body.state === "grooming" },
       { x: controls.target.x, y: controls.target.y, dist: camera.position.distanceTo(controls.target), camera, height: canvas.clientHeight });
     for (const hit of hits) onWeatherHit(hit);
     // A leaf bobs when a drop lands on it, and so does a fly standing on it (its legs feel it).
@@ -703,6 +729,7 @@ function frame(now) {
     const wings = Math.max(body.wingOpen, hopWing);
     fly.setWalk(phase, wings > 0.02 ? 0 : body.ampL, wings > 0.02 ? 0 : body.ampR);
     fly.setFlightLegs(wings);
+    fly.setGroom(body.groomBlend || 0, body.groomMode, body.groomPhase || 0, body.groomSide);
     fly.setWings(wings, (now / 1000) * 2 * Math.PI * 25); // shown at 25 Hz (real: ~200 Hz)
     fly.setProboscis(body.proboscis);
     const sniff = lastSense ? Math.min(0.4, (lastSense.odor.L + lastSense.odor.R) * 2) : 0;

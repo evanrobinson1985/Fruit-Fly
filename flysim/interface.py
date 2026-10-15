@@ -79,6 +79,8 @@ def motor_pools(neurons) -> dict:
     jump: tergotrochanteral motor neurons (TTMn), the jump muscle of escape takeoff.
     flight: indirect flight-muscle motor neurons (DLMn, DVMn) -> wing power.
     wing: all wing motor neurons per side -> steering in flight.
+    groomHead: DNg12 descending neurons -> head sweeps alternating with front-leg rubbing.
+    groomLegs: DNg11 descending neurons -> front-leg rubbing (Guo et al. 2022).
     """
     ty = neurons["type"].fillna("")
     sub = neurons["subclass"].fillna("")
@@ -90,6 +92,8 @@ def motor_pools(neurons) -> dict:
         "jump": {s: np.flatnonzero(ty.eq("Tergotr. MN").to_numpy() & (side == s)) for s in "LR"},
         "flight": {s: np.flatnonzero((ty.str.startswith("DLMn") | ty.str.startswith("DVMn")).to_numpy() & (side == s)) for s in "LR"},
         "wing": {s: np.flatnonzero(wing & (side == s)) for s in "LR"},
+        "groomHead": {s: np.flatnonzero(ty.str.match(r"^DNg12").to_numpy() & (side == s)) for s in "LR"},
+        "groomLegs": {s: np.flatnonzero(ty.eq("DNg11").to_numpy() & (side == s)) for s in "LR"},
     }
 
 
