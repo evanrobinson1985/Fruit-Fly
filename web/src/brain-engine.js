@@ -37,10 +37,13 @@ export function decodeConnectome(bytes, n, nEdges) {
     for (let k = 1; k < deg[i]; k++) post[e + k] += post[e + k - 1];
     e += deg[i];
   }
+  // Zigzag weights, decoded straight into int16 (no temporary array: phones are tight on memory).
   const w = new Int16Array(nEdges);
-  const zz = new Uint32Array(nEdges);
-  decodeVarints(bytes, nEdges, zz, p);
-  for (let e = 0; e < nEdges; e++) w[e] = (zz[e] >>> 1) ^ -(zz[e] & 1);
+  for (let e = 0; e < nEdges; e++) {
+    let v = 0, shift = 0, b;
+    do { b = bytes[p++]; v += (b & 0x7f) * 2 ** shift; shift += 7; } while (b & 0x80);
+    w[e] = (v >>> 1) ^ -(v & 1);
+  }
   return { indptr, post, w };
 }
 

@@ -1,7 +1,7 @@
 // Loads the connectome and runs the spiking brain. Used inside a Web Worker
 // (brain-worker.js) or, if workers are unavailable, on the main thread.
 import { Brain, decodeConnectome } from "./brain-engine.js";
-import { loadPng } from "./pngdata.js";
+import { streamPngInto } from "./pngdata.js";
 
 const MAX_EVENTS = 60000;
 
@@ -10,20 +10,33 @@ export function createBrainServer(post) {
 
   async function load(base) {
     meta = await (await fetch(base + "brain.json")).json();
-    let loaded = 0;
     const total = meta.png_bytes;
     const size = meta.sections.reduce((a, b) => a + b, 0);
-    const bytes = new Uint8Array(size);
-    const progress = (n) => {
-      loaded += n;
-      post({ type: "progress", stage: "Downloading connectome", loaded, total });
-    };
-    // Fetch the parts in parallel; each is a PNG holding a slice of the stream.
-    const parts = await Promise.all(meta.chunks.map((c) => loadPng(base + c.file, c.bytes, progress)));
-    let off = 0;
-    for (const p of parts) { bytes.set(p, off); off += p.length; }
+    let bytes = new Uint8Array(size);
+    // One part at a time (small local servers stall on parallel large files), each
+    // streamed straight into place, retried if it stalls.
+    let done = 0, offset = 0;
+    for (const [k, c] of meta.chunks.entries()) {
+      for (let attempt = 1; ; attempt++) {
+        let got = 0;
+        const stage = `Downloading connectome (part ${k + 1} of ${meta.chunks.length}${attempt > 1 ? `, retry ${attempt - 1}` : ""})`;
+        post({ type: "progress", stage, loaded: done, total });
+        try {
+          await streamPngInto(base + c.file, bytes, offset, c.bytes, (n) => {
+            got += n;
+            post({ type: "progress", stage, loaded: done + got, total });
+          });
+          done += c.png_bytes;
+          break;
+        } catch (e) {
+          if (attempt >= 4) throw new Error(`${e.message} after ${attempt} tries. Check that web/assets/${c.file} is on the server.`);
+        }
+      }
+      offset += c.bytes;
+    }
     post({ type: "progress", stage: "Decoding 23 million connections", loaded: total, total });
     const net = decodeConnectome(bytes, meta.n, meta.edges);
+    bytes = null;
     brain = new Brain(net, meta.params, (Math.random() * 2 ** 31) | 0);
     counts = new Uint16Array(meta.n);
     post({ type: "ready", n: meta.n, edges: meta.edges, groups: meta.groups });
