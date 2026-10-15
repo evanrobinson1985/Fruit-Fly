@@ -42,7 +42,10 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   launch looming threats. The panels show descending-neuron rates, sensory input, and a
   dorsal map of the whole CNS that flashes on every spike.
 
-Rebuild the assets and serve locally:
+All assets are in the repository, so the site runs straight from a download or clone:
+`python -m http.server -d web 8000`, then open http://localhost:8000.
+
+To rebuild the assets:
 
 ```bash
 PYTHONPATH=. python web/tools/export_brain.py          # connectome -> web/assets/brain*.png
