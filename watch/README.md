@@ -11,7 +11,9 @@ The fly lives in the same grass arena as the website: the GPU grass, clover, dan
 seedlings with their detailed skins (web/src/terrain.js), rendered at the fly sprites' scale and
 viewing angle into three layers (`tools/scenery.html`): the plants just behind the fly's path,
 the grass in front of it (drawn over its feet), and a far view to the arena's edge that
-scrolls with parallax. The view follows the fly and rises when it flies.
+scrolls with parallax, under the website's daylight sky and clouds. The view follows the fly
+and rises when it flies. The fly buzzes in flight (a synthesized ~210 Hz wingbeat) and rubs
+softly while it grooms; switch sound off in the info panel.
 
 These previews are composed on a computer from the game's own assets with the app's placement
 rules (`tools/compose_preview.py`). They are not captures from a watch.

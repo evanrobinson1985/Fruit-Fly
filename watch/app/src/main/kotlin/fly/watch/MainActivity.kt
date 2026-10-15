@@ -60,22 +60,26 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private lateinit var engine: GameEngine
+    private lateinit var sound: FlySound
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         engine = GameEngine(applicationContext)
+        sound = FlySound(applicationContext)
         val sprites = Sprites.load(this)
         val scenery = Scenery.load(this)
-        setContent { MaterialTheme { Game(engine, sprites, scenery) } }
+        setContent { MaterialTheme { Game(engine, sprites, scenery, sound) } }
     }
 
     override fun onStart() {
         super.onStart()
         engine.start(lifecycleScope)
+        sound.start()
     }
 
     override fun onStop() {
         engine.stop()
+        sound.stop()
         super.onStop()
     }
 }
@@ -153,12 +157,16 @@ private val MoodPink = Color(0xFFE88FA8)
 private val Ink = Color(0xFFF4EDE2)
 
 @Composable
-fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery) {
+fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound) {
     val f by engine.frame.collectAsState()
     var info by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(f.anim) {
         if (f.anim == Anim.FLY || f.anim == Anim.FEED) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    var soundOn by remember { mutableStateOf(sound.enabled) }
+    LaunchedEffect(f.anim, soundOn) { // buzz in flight, rub while grooming
+        sound.set(wing = if (f.anim == Anim.FLY) 1.0 else 0.0, groom = if (f.anim == Anim.GROOM) 1.0 else 0.0)
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val sizePx = constraints.maxWidth.coerceAtMost(constraints.maxHeight).toFloat()
@@ -206,7 +214,7 @@ fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery) {
                 .background(Color(0x99302822)).clickable { info = true },
             contentAlignment = Alignment.Center,
         ) { Text("i", color = Ink, fontWeight = FontWeight.Bold) }
-        if (info) InfoPanel(f) { info = false }
+        if (info) InfoPanel(f, soundOn, { soundOn = it; sound.enabled = it }) { info = false }
     }
 }
 
@@ -303,7 +311,7 @@ private fun DrawScope.drawStats(f: Frame) {
 }
 
 @Composable
-private fun InfoPanel(f: Frame, close: () -> Unit) {
+private fun InfoPanel(f: Frame, soundOn: Boolean, setSound: (Boolean) -> Unit, close: () -> Unit) {
     Column(
         Modifier.fillMaxSize().background(Color(0xF0141210)).clickable { close() }
             .verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 30.dp),
@@ -316,6 +324,11 @@ private fun InfoPanel(f: Frame, close: () -> Unit) {
         Stat("Energy", f.energy, EnergyBlue)
         Stat("Mood", f.mood, MoodPink)
         Text("Meals ${f.feedings} · Escapes ${f.escapes}", color = Ink, fontSize = 12.sp)
+        Text(
+            if (soundOn) "Sound on" else "Sound off", color = Color(0xFF2A1C0A), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (soundOn) Amber else Color(0xFF8A8076))
+                .clickable { setSound(!soundOn) }.padding(horizontal = 12.dp, vertical = 4.dp),
+        )
         Text("Live neurons", color = Amber, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
         Text(
             "MN9 (proboscis) ${f.mn9.roundToInt()} Hz\nGiant Fiber ${f.gf.roundToInt()} Hz\nP9 walk ${f.p9.roundToInt()} · MDN back ${f.mdn.roundToInt()} Hz\n" +

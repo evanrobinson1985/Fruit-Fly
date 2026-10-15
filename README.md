@@ -87,6 +87,18 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   can force it down in flight, and fires the touch neurons where it landed; a leaf the
   fly stands on bobs and its legs feel it. Rain drives the moist-air receptor neurons
   (HRN_VP5) and snow the cold receptors (TRN_VP3). Gusts from the wind tool slant both.
+- **Sky:** outdoors on the grass arena, a physically based daylight sky (Preetham scattering)
+  with drifting clouds lit from the sun's side. Rain and snow thicken and darken the
+  clouds and haze the horizon. In rain, with the sun behind you, a rainbow appears where
+  raindrop optics put it: the primary bow 40.5–42.3° from the antisolar point with red
+  outside, the fainter secondary at 50–53.5° with its colors reversed, a brighter sky
+  inside the primary and Alexander's dark band between them. The sun sits 32° up, low
+  enough for the bow to clear the horizon; a downpour's clouds hide most of it.
+- **Sound:** synthesized live from what the simulation does (no recordings), after your
+  first click: the wingbeat buzz in flight (~210 Hz, rising with wing power), the pulse
+  song (220 Hz pulses every 35 ms) when it sings, rubbing while it grooms, rain hiss with
+  plinks of nearby drops, snowy wind, and a whoosh for gusts and looming threats. It is
+  louder the closer the camera is to the fly. Mute or set the volume in the Scene panel.
 - **What you can do:** drop food, place odor sources (vinegar, CO₂, geosmin), launch
   looming threats, **poke** a body part (head, back, legs or abdomen: that side's touch
   neurons fire), **blow wind** from any direction (Johnston's-organ wind neurons, stronger

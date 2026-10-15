@@ -132,6 +132,19 @@ cited next to each entry in `flysim/interface.py`):
   *Curr. Biol.* 27, 2381–2388 (2017); Gallio, M. *et al.* *Cell* 144, 614–624 (2011);
   Marin, E. C. *et al.* *Curr. Biol.* 30, 3167–3182 (2020).
 
+## Sky and sound (website)
+
+- Daylight sky: Preetham, A. J., Shirley, P. & Smits, B. A practical analytic model for daylight.
+  *Proc. SIGGRAPH '99*, 91–100 (1999), via the three.js `Sky` add-on (MIT).
+- Rainbow angles and Alexander's dark band: Minnaert, M. *Light and Color in the Outdoors*
+  (Springer, 1993); Lee, R. L. & Fraser, A. B. *The Rainbow Bridge* (Penn State Press, 2001).
+- Wingbeat frequency and the pulse song of *D. melanogaster*: Bennet-Clark, H. C. & Ewing, A. W.
+  Pulse interval as a critical parameter in the courtship song of *Drosophila melanogaster*.
+  *Anim. Behav.* 17, 755–759 (1969).
+
+All sounds are synthesized (Web Audio on the website, AudioTrack on the watch); there are no
+recorded samples.
+
 ## Feed the Fly (watch game)
 
 Uses the same connectome, neuron model, FlyBody fly and NeuroMechFly leg recordings as above;

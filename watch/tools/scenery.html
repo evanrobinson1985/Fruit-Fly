@@ -12,6 +12,7 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { Terrain, TURF_TOP } from "/src/terrain.js";
+import { SkyDome } from "/src/sky.js";
 
 // The strip: the fly walks along world y = Y0 from x = X0 - SPAN to X0 + SPAN (game stage
 // x = world x - X0). Pixels per mm, and how far below and above the path the strip reaches.
@@ -72,7 +73,12 @@ const planes = {
   front: { plants: [above(Y0 - FRONT), below(Y0 - 0.3)], floor: [above(Y0 - FRONT - 30), below(Y0 - FRONT)] },
   far: { plants: [above(Y0 + NEAR)], floor: [above(Y0 + NEAR)] },
 };
-scene.fog = new THREE.Fog(0x0d0c0a, 60, 260);
+// The far view looks out over the meadow to the website's sky (fair-weather clouds), with
+// the sun where the scenery's light comes from.
+const skyDome = new SkyDome(scene);
+skyDome.set("off", 2);
+skyDome.setSun(63, 323);
+scene.fog = new THREE.Fog(new THREE.Color().setHex(skyDome.horizon, THREE.LinearSRGBColorSpace), 80, 420);
 const UP = new THREE.Vector3(0, 0, 1).sub(DIR.clone().multiplyScalar(DIR.z)).normalize();
 const W = Math.round(2 * SPAN * P), H = Math.round((BELOW + ABOVE) * P), TILE = 1024;
 const D = 11.16, PARALLAX = D / (D + NEAR);
@@ -81,7 +87,7 @@ const FAR_W = Math.round(2 * (SPAN * PARALLAX + 9) * P);
 const seam = { near: 0, far: 0 };
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
 ortho.up.set(0, 0, 1);
-const persp = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
+const persp = new THREE.PerspectiveCamera(60, 1, 0.1, 1200);
 persp.up.set(0, 0, 1);
 
 function setLayer(layer) {
@@ -90,7 +96,8 @@ function setLayer(layer) {
   terrain.floor.material.needsUpdate = true;
   // Weeds stand behind the path only, so they never hide the fly.
   for (const w of terrain.weedMeshes) w.visible = layer !== "front";
-  scene.background = layer === "far" ? new THREE.Color(0x0d0c0a) : null;
+  skyDome.visible = layer === "far";
+  scene.background = null;
   r.setClearColor(0x000000, 0);
 }
 
@@ -121,6 +128,7 @@ window.render = (layer) => {
     for (let ty = 0; ty < Math.ceil(H / TILE); ty++) for (let tx = 0; tx < Math.ceil(FAR_W / TILE); tx++) {
       r.setSize(TILE, TILE);
       persp.setViewOffset(FULL, FULL, FULL / 2 - FAR_W / 2 + tx * TILE, top + ty * TILE, TILE, TILE);
+      skyDome.update(persp, 0);
       r.render(scene, persp);
       tiles.push({ tx, ty, png: r.domElement.toDataURL("image/png") });
     }

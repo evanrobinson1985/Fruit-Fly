@@ -9,6 +9,8 @@ import { BrainMap, Chart } from "./hud.js";
 import { loadPng } from "./pngdata.js";
 import { Terrain, TURF_TOP } from "./terrain.js";
 import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
+import { SkyDome } from "./sky.js";
+import { FlyAudio } from "./audio.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 const STEP_MS = 20;         // brain/body exchange interval
@@ -95,13 +97,46 @@ function setFloor(grass) {
   try { localStorage.setItem("floor", grass ? "grass" : "lab"); } catch {}
 }
 
-// Sky: the dark lab, a little lighter when it rains or snows in the arena.
+// Sound: synthesized from the simulation (audio.js). Browsers allow it after the first click.
+const audio = new FlyAudio();
+const tmpV = new THREE.Vector3();
+try {
+  audio.enabled = localStorage.getItem("sound") !== "off";
+  audio.volume = +(localStorage.getItem("volume") ?? 0.8);
+} catch {}
+for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, () => audio.enabled && audio.start());
+function setSound(on) {
+  audio.setEnabled(on);
+  if (on) audio.start();
+  $("snd-on").setAttribute("aria-pressed", on);
+  $("snd-off").setAttribute("aria-pressed", !on);
+  try { localStorage.setItem("sound", on ? "on" : "off"); } catch {}
+}
+$("snd-on").onclick = () => setSound(true);
+$("snd-off").onclick = () => setSound(false);
+$("snd-vol").value = audio.volume;
+$("snd-vol").addEventListener("input", () => { audio.setVolume(+$("snd-vol").value); try { localStorage.setItem("volume", $("snd-vol").value); } catch {} });
+setSound(audio.enabled);
+
+// Sky: outdoors (grass floor) a scattering sky with weather clouds and, in rain, a rainbow;
+// indoors the dark lab.
+const skyDome = new SkyDome(scene);
+skyDome.visible = false;
 function applySky() {
-  const w = weather?.mode || "off";
-  const sky = w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22;
-  scene.background.setHex(sky);
-  scene.fog.color.setHex(sky);
-  sun.intensity = w === "rain" ? 1.1 : w === "snow" ? 1.5 : 2.4;
+  const w = weather?.mode || "off", out = terrain.visible;
+  skyDome.visible = out;
+  if (out) {
+    skyDome.set(w, weather?.level ?? 2);
+    scene.background = null;
+    scene.fog.color.setHex(skyDome.horizon, THREE.LinearSRGBColorSpace);
+    [scene.fog.near, scene.fog.far] = w === "off" ? [180, 750] : [110, 520];
+  } else {
+    const dark = w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22;
+    scene.background = new THREE.Color(dark);
+    scene.fog.color.setHex(dark);
+    [scene.fog.near, scene.fog.far] = [60, 260];
+  }
+  sun.intensity = w === "rain" ? 1.3 : w === "snow" ? 1.5 : out ? 2.8 : 2.4;
 }
 
 // Rain and snow. They land on whatever is highest: leaves, turf, food, odor sources.
@@ -118,7 +153,7 @@ let weatherT = 0;
 const weather = new Weather(scene, {
   topAt: obstacleTop,
   isLeaf: (x, y, z) => terrain.visible && z > TURF_TOP + 0.3 && Math.abs(terrain.leafHeightAt(x, y) - z) < 0.05,
-  impact: (x, y, D) => terrain.addImpact(x, y, weatherT, D),
+  impact: (x, y, D) => { terrain.addImpact(x, y, weatherT, D); audio.drop(D, camera.position.distanceTo(tmpV.set(x, y, 0.5))); },
   arenaRadius: world.radius + 1, wallHeight: 50,
 });
 
@@ -358,6 +393,7 @@ function blow(point) {
   // The gust also carries rain and snow: about 1.5 m/s toward the fly.
   stim.windVec.set(body.x - point.x, body.y - point.y).normalize().multiplyScalar(1500);
   showGust(point);
+  audio.whoosh(2.5, 0.22);
   $("hint").textContent = `Wind from the ${Math.abs(az) < 45 ? "front" : Math.abs(az) > 135 ? "back" : az > 0 ? "left" : "right"}: antennal wind neurons fire for 2.5 s.`;
 }
 
@@ -406,6 +442,7 @@ $("loom").onclick = () => {
   const t0 = (curr.t || 0) + 0.05;
   const lo = { t0, azimuth: az, worldAz: body.heading + az, radius: 5, speed: 500, d0: 300, x0: body.x, y0: body.y, mesh: loomMesh() };
   loomGroup.add(lo.mesh);
+  audio.whoosh(1.0, 0.3);
   world.looms.push(lo);
   $("hint").textContent = `A dark disc approaches from ${az > 0 ? "the left" : "the right"} at 0.5 m/s.`;
 };
@@ -734,8 +771,10 @@ function frame(now) {
     camera.position.add(delta);
     controls.target.set(x, y, 0.8 + z + perch.z);
     terrain.update(x, y, now / 1000, feet, h, simT, camera);
-    sun.position.set(x + 8, y - 6, 20);
+    if (skyDome.visible) sun.position.set(x, y, 0).addScaledVector(skyDome.sunDir, 30); // the sky's sun
+    else sun.position.set(x + 8, y - 6, 20);                                               // the lab lamp
     sun.target.position.set(x, y, 0);
+    skyDome.update(camera, now / 1000);
     // Pose.
     const phase = prev.phase + (curr.phase - prev.phase) * f;
     const wings = Math.max(body.wingOpen, hopWing);
@@ -743,6 +782,12 @@ function frame(now) {
     fly.setFlightLegs(wings * (1 - (body.landingLegs || 0))); // landing DNs extend the legs
     fly.setGroom(body.groomBlend || 0, body.groomMode, body.groomPhase || 0, body.groomSide);
     fly.setSong(body.songBlend || 0, body.songSide, body.songPhase || 0);
+    audio.update({
+      wing: body.airborne > 0 ? body.wingOpen : hopWing * 0.6, power: smooth.wingPower ? Math.max(smooth.wingPower.L, smooth.wingPower.R) : 0,
+      song: body.songBlend || 0, groom: body.groomBlend || 0, groomPhase: body.groomPhase || 0,
+      dist: camera.position.distanceTo(flyRoot.position),
+      rain: weather.mode === "rain" ? weather.level : -1, snow: weather.mode === "snow" ? weather.level : -1,
+    });
     fly.setWings(wings, (now / 1000) * 2 * Math.PI * 25); // shown at 25 Hz (real: ~200 Hz)
     fly.setProboscis(body.proboscis);
     const sniff = lastSense ? Math.min(0.4, (lastSense.odor.L + lastSense.odor.R) * 2) : 0;
@@ -809,4 +854,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, get fly() { return fly; } }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, get fly() { return fly; } }; // for debugging from the console
