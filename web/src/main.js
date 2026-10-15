@@ -467,7 +467,57 @@ window.addEventListener("resize", resize);
 resize();
 
 const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion();
-const perch = { z: 0, n: new THREE.Vector3(0, 0, 1) };
+const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, hold: 0 };
+// A fly doesn't glide up a stem: when the surface ahead is much higher or lower (stepping onto a
+// leaf, or off one), it makes a short wing-assisted hop. Small turf bumps are walked over.
+const HOP = { step: 0.6, look: 1.3, holdS: 0.5 };
+const smoothstep = (f) => f * f * (3 - 2 * f);
+function startHop(p, z1, n1, now) {
+  const dz = Math.abs(z1 - p.z);
+  p.hop = { z0: p.z, z1, n0: p.n.clone(), n1: n1.clone(), t0: now, dur: 1000 * Math.min(0.6, 0.28 + 0.04 * dz), arc: 0.6 + 0.25 * dz };
+  p.hold = 0;
+}
+/** Moves the perch height/tilt for this frame; returns how far the wings open for a hop (0..1). */
+function updatePerch(p, surf, x, y, hDeg, now, dt) {
+  if (body.airborne > 0) {
+    // In flight: hold altitude over plants; settle onto whatever is below during the landing.
+    p.hop = null; p.hold = 0;
+    if (body.airborne < 0.3) {
+      const k = Math.min(1, dt / Math.max(body.airborne, dt));
+      p.z += (surf.z - p.z) * k;
+      p.n.lerp(surf.normal, k).normalize();
+    }
+    return 0;
+  }
+  if (p.hop) {
+    const hp = p.hop, f = Math.min(1, (now - hp.t0) / hp.dur);
+    p.z = hp.z0 + (hp.z1 - hp.z0) * smoothstep(f) + hp.arc * Math.sin(Math.PI * f);
+    p.n.copy(hp.n0).lerp(hp.n1, smoothstep(f)).normalize();
+    if (f >= 1) { p.z = hp.z1; p.hop = null; }
+    return Math.min(1, 2.5 * Math.sin(Math.PI * f));
+  }
+  // Look a little way along the direction of travel so the hop starts at the edge, not inside the leaf.
+  const moving = Math.abs(body.speed) > 1;
+  let ahead = surf;
+  if (moving) {
+    const a = (hDeg * Math.PI) / 180, d = Math.sign(body.speed) * HOP.look;
+    ahead = terrain.surfaceAt(x + Math.cos(a) * d, y + Math.sin(a) * d);
+  }
+  const offHere = Math.abs(surf.z - p.z) > HOP.step, offAhead = Math.abs(ahead.z - p.z) > HOP.step;
+  if (!offHere && !offAhead) {
+    const k = Math.min(1, dt / 0.08);
+    p.z += (surf.z - p.z) * k;
+    p.n.lerp(surf.normal, k).normalize();
+    p.hold = 0;
+  } else if (!offHere && moving) {
+    startHop(p, ahead.z, ahead.normal, now); // the edge is just ahead: hop up/down onto it
+  } else if (offHere && !offAhead && moving && p.hold < HOP.holdS) {
+    p.hold += dt; // just hopped to the surface ahead; the body is still over the edge
+  } else if (offHere) {
+    startHop(p, surf.z, surf.normal, now);
+  } else p.hold = 0;
+  return 0;
+}
 const lerpAngle = (a, b, f) => a + ((((b - a) % 360) + 540) % 360 - 180) * f;
 let lastFrame = performance.now(), lastStats = 0;
 function frame(now) {
@@ -480,9 +530,8 @@ function frame(now) {
     const delta = new THREE.Vector3(x - flyRoot.position.x, y - flyRoot.position.y, 0);
     // Stand on whatever is underneath (a leaf, the turf, the floor), tilted to its slope.
     const surf = terrain.surfaceAt(x, y);
-    const k = Math.min(1, (now - lastFrame) / 80);
-    perch.z += (surf.z - perch.z) * k;
-    perch.n.lerp(surf.normal, k).normalize();
+    const dtf = Math.min(0.1, (now - lastFrame) / 1000);
+    const hopWing = updatePerch(perch, surf, x, y, h, now, dtf);
     body.perch = perch.z;
     flyRoot.position.set(x, y, perch.z + z - fly.groundOffset);
     flyRoot.quaternion.setFromUnitVectors(UP, perch.n)
@@ -494,10 +543,10 @@ function frame(now) {
     sun.target.position.set(x, y, 0);
     // Pose.
     const phase = prev.phase + (curr.phase - prev.phase) * f;
-    const flying = body.wingOpen > 0.02;
-    fly.setWalk(phase, flying ? 0 : body.ampL, flying ? 0 : body.ampR);
-    fly.setFlightLegs(body.wingOpen);
-    fly.setWings(body.wingOpen, (now / 1000) * 2 * Math.PI * 25); // shown at 25 Hz (real: ~200 Hz)
+    const wings = Math.max(body.wingOpen, hopWing);
+    fly.setWalk(phase, wings > 0.02 ? 0 : body.ampL, wings > 0.02 ? 0 : body.ampR);
+    fly.setFlightLegs(wings);
+    fly.setWings(wings, (now / 1000) * 2 * Math.PI * 25); // shown at 25 Hz (real: ~200 Hz)
     fly.setProboscis(body.proboscis);
     const sniff = lastSense ? Math.min(0.4, (lastSense.odor.L + lastSense.odor.R) * 2) : 0;
     for (const s of ["l", "r"]) fly.set(`c_head-${s}_antenna-pitch`, sniff * Math.sin(now / 90 + (s === "l" ? 0 : 1.3)) * 0.5);
@@ -559,4 +608,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, chooseOpto }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto }; // for debugging from the console
