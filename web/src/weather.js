@@ -130,7 +130,8 @@ function streakMesh(max, snow) {
         // A round drop at the head (u = 0.5 drop widths from the front), its blur trailing behind.
         float u = vUv.x * vLen, w = abs(vUv.y);
         float head = smoothstep(1.0, 0.7, length(vec2((u - 0.5) * 2.0, vUv.y)));
-        float trail = u > 0.5 ? smoothstep(1.0, 0.6, w) * (1.0 - vUv.x) / max(1.0, 0.35 * vLen) : 0.0;
+        // Drops catch the bright sky, so streaks read clearly to the eye (as in film rain).
+        float trail = u > 0.5 ? smoothstep(1.0, 0.5, w) * (0.25 + 0.6 * (1.0 - vUv.x)) : 0.0;
         float a = max(head, trail) * vFade;
         ${snow
           ? "gl_FragColor = vec4(vec3(0.97, 0.98, 1.0), a * 0.85);"
