@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 results/*.csv
 results/forage-realistic.gif
+watch/tools/node_modules

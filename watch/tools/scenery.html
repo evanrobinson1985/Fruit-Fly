@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Feed the Fly scenery renderer</title>
+<!-- Renders the website's grass arena (web/src/terrain.js: GPU grass, weeds and their skins)
+     as a side-view strip for the watch game, at the same scale and viewing angle as the fly
+     sprites (sprites.html). Two layers: everything behind the fly's path, and the grass in
+     front of it (drawn over the fly). Driven by watch/tools/render_scenery.mjs; serve the
+     repository's web/ folder as the root. -->
+<body style="margin:0;background:transparent">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { Terrain, TURF_TOP } from "/src/terrain.js";
+
+// The strip: the fly walks along world y = Y0 from x = X0 - SPAN to X0 + SPAN (game stage
+// x = world x - X0). Pixels per mm, and how far below and above the path the strip reaches.
+const P = 40, X0 = 0, Y0 = 0, SPAN = 37, BELOW = 5, ABOVE = 20;
+// Same view direction as the sprite camera, minus its slight three-quarter turn: looking along
+// +y, 17 degrees down.
+const DIR = new THREE.Vector3(0, 10.5, -3.2).normalize();
+
+const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+r.setSize(16, 16);
+r.toneMapping = THREE.ACESFilmicToneMapping;
+r.shadowMap.enabled = true;
+r.shadowMap.type = THREE.PCFSoftShadowMap;
+r.localClippingEnabled = true;
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+scene.add(new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.7));
+const sun = new THREE.DirectionalLight(0xfff0dd, 2.4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 80 });
+sun.shadow.bias = -0.0004;
+scene.add(sun, sun.target);
+
+const terrain = new Terrain(scene, 100);
+// Keep the fly's path clear of weeds: move any that would stand on it to either side.
+const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+for (const mesh of terrain.weedMeshes) {
+  for (let i = 0; i < mesh.count; i++) {
+    mesh.getMatrixAt(i, m);
+    m.decompose(p, q, s);
+    const clear = 2.6 * s.x + 1.2;
+    if (Math.abs(p.x - X0) < SPAN + 10 && Math.abs(p.y - Y0) < clear) {
+      p.y = Y0 + Math.sign(p.y - Y0 || 1) * clear;
+      m.compose(p, q, s);
+      mesh.setMatrixAt(i, m);
+    }
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+}
+terrain.bake(r);
+terrain.visible = true;
+// No fly to press the grass, no wind.
+terrain.update(X0, Y0, 0, 1000, 0, 0);
+
+// Two layers, split by planes either side of the path (a hand's breadth of bare track between).
+const behind = [new THREE.Plane(new THREE.Vector3(0, 1, 0), -(Y0 + 0.25))];   // keep y > Y0 + 0.25
+const front = [new THREE.Plane(new THREE.Vector3(0, -1, 0), Y0 - 0.3)];       // keep y < Y0 - 0.3
+const mats = [terrain.blades.material, terrain.floor.material, ...terrain.weedMeshes.map((w) => w.material)];
+
+// Push-broom panorama: narrow vertical slices, each from a perspective camera with the sprite
+// camera's optics (11.16 mm from a point 1 mm above the feet, 17 degrees down), stepped along
+// the path. Columns are side by side as the fly walks; each column has the sprites' perspective.
+const D = 11.16, F = P * D;                 // focal length in px: P px per mm at the fly
+const FULL = 6000, SW = 16;                 // virtual full frame, slice width
+const cam = new THREE.PerspectiveCamera(2 * Math.atan(FULL / 2 / F) * 180 / Math.PI, 1, 0.1, 600);
+cam.up.set(0, 0, 1);
+scene.fog = new THREE.Fog(0x0d0c0a, 60, 260);
+const W = Math.round(2 * SPAN * P), H = Math.round((BELOW + ABOVE) * P);
+const v = new THREE.Vector3();
+
+window.render = (layer) => {
+  for (const mt of mats) { mt.clippingPlanes = layer === "front" ? front : behind; mt.needsUpdate = true; }
+  terrain.floor.visible = layer !== "front";
+  scene.background = layer === "front" ? null : new THREE.Color(0x0d0c0a);
+  r.setClearColor(0x000000, 0);
+  r.setSize(SW, H);
+  const slices = [];
+  for (let i = 0; i * SW < W; i++) {
+    const cx = X0 - SPAN + (i * SW + SW / 2) / P;
+    const target = new THREE.Vector3(cx, Y0, TURF_TOP + 1.0);
+    cam.position.copy(target).addScaledVector(DIR, -D);
+    cam.lookAt(target);
+    cam.clearViewOffset();
+    cam.updateMatrixWorld();
+    // Row of the feet (on the path, at the turf) in the full frame: put it at the strip's feet row.
+    v.set(cx, Y0, TURF_TOP).project(cam);
+    const feetRowFull = (1 - v.y) / 2 * FULL;
+    cam.setViewOffset(FULL, FULL, FULL / 2 - SW / 2, feetRowFull - ABOVE * P, SW, H);
+    terrain.update(cx, Y0, 0, 1000, 0, 0); // finest grass where this slice looks
+    sun.position.set(cx + 8, Y0 - 6, 20);
+    sun.target.position.set(cx, Y0, 0);
+    r.render(scene, cam);
+    slices.push(r.domElement.toDataURL("image/png"));
+  }
+  return { slices, W, H, SW };
+};
+// Where things are in the strip: stage x = 0 at column x0, feet line at row feetRow.
+window.meta = { pxPerMm: P, x0: SPAN * P, feetRow: ABOVE * P, span: SPAN, width: W, height: H };
+window.ready = true;
+</script>
