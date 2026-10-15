@@ -19,6 +19,9 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // Optional screen previews (see PreviewRender.kt): -PpreviewDir=... -PspriteDir=...
+    providers.gradleProperty("previewDir").orNull?.let { systemProperty("previewDir", it) }
+    providers.gradleProperty("spriteDir").orNull?.let { systemProperty("spriteDir", it) }
     maxHeapSize = "2g"
     testLogging { events("passed", "failed"); showStandardStreams = true }
 }

@@ -183,7 +183,8 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         if (asleep && !pet.weak) { speed = 0.0; return setAnim(Anim.SLEEP) }
 
         // Wander or approach food (body-level), modulated by P9 (forward) and MDN (backward).
-        val target = food.filter { it.amount > 0 && timeS >= it.ignoredUntil && pet.satiety < 95 }.minByOrNull { abs(it.x - x) }
+        // Only a completely full fly ignores food; otherwise the circuit decides at the drop.
+        val target = food.filter { it.amount > 0 && timeS >= it.ignoredUntil && pet.satiety < 99 }.minByOrNull { abs(it.x - x) }
         val goal = target?.x ?: wanderTarget
         if (target == null && (abs(goal - x) < 1 || pauseLeft > 0)) {
             if (pauseLeft <= 0) pauseLeft = 1.0 + rng.nextDouble() * 4
@@ -225,7 +226,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         val total = max(0.2, flightLeft + animTime)
         val f = (animTime / total).coerceIn(0.0, 1.0)
         x += (flightTarget - x) * min(1.0, dt * 3)
-        z = 18 * Math.sin(Math.PI * f)
+        z = 12 * Math.sin(Math.PI * f)
         if (flightLeft <= 0) { z = 0.0; setAnim(Anim.IDLE) }
     }
 

@@ -39,7 +39,7 @@ class GameTest {
             w.dropFood(6.0)
             runUntil(w, 12.0) { it.anim == Anim.FEED }
         }
-        val full = feedRate(99.0)
+        val full = feedRate(96.0)
         val starving = feedRate(0.0)
         println("feeding in 6 trials: full=$full starving=$starving")
         assertTrue(starving >= 5)

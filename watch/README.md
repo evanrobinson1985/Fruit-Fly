@@ -5,6 +5,14 @@ using the same fly and neuron model as the rest of this repository. Your fly liv
 wrist: it gets hungry, sleeps at night, and decides for itself, with real connectome
 wiring, whether to eat what you give it and whether to flee when you poke at it.
 
+![Feed the Fly screens](previews/screens.png)
+
+![Feed the Fly animation](previews/feed-the-fly.gif)
+
+These previews are rendered on a computer from the game's real logic and connectome circuit,
+redrawing the screen with the app's own layout, colors and sprite frames
+(`brain/src/test/kotlin/fly/PreviewRender.kt`). They are not captures from a watch.
+
 ## Playing
 
 - **Feed** (or tap the ground) drops sugar. The fly walks over, and when its feet touch

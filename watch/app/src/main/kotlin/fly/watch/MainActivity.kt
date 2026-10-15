@@ -126,7 +126,7 @@ fun Game(engine: GameEngine, sprites: Sprites) {
                     val cur = engine.frame.value
                     val xMm = (pos.x - size.width / 2f) / scale
                     val flyPx = size.width / 2f + cur.x.toFloat() * scale
-                    val flyY = groundY - cur.z.toFloat() * scale - flySize * 0.25f
+                    val flyY = groundY + size.height * STAND_DEPTH - cur.z.toFloat() * scale - flySize * 0.25f
                     if (kotlin.math.abs(pos.x - flyPx) < flySize * 0.35f && kotlin.math.abs(pos.y - flyY) < flySize * 0.3f) {
                         engine.tap(xMm.toDouble())          // a hand looms in: the brain decides whether to flee
                     } else if (pos.y > groundY - 10) {
@@ -161,6 +161,9 @@ fun Game(engine: GameEngine, sprites: Sprites) {
     }
 }
 
+private const val STAND_DEPTH = 0.035f // fraction of the screen below the horizon where feet rest
+private const val FEET_LINE = 0.756f   // claws' row in the 320 px sprite frames (watch/tools/sprites.html)
+
 private val stars = List(40) { Offset(Random(it).nextFloat(), Random(it + 99).nextFloat() * 0.6f) }
 private val tufts = List(70) { Triple(Random(it * 7).nextFloat(), Random(it * 13).nextFloat(), Random(it * 3).nextFloat()) }
 
@@ -179,18 +182,20 @@ private fun DrawScope.drawScene(f: Frame, sprites: Sprites, scale: Float, ground
         drawLine(Color(0xFF6E9E45), Offset(bx, by), Offset(bx - 3f, by - len), 2f, StrokeCap.Round)
         drawLine(Color(0xFF5C8A3A), Offset(bx + 3f, by), Offset(bx + 6f, by - len * 0.8f), 2f, StrokeCap.Round)
     }
+    // Things stand a little into the grass strip, not on the horizon line.
+    val standY = groundY + h * STAND_DEPTH
     // Sugar drops: size shows how much is left.
     for ((fx, amount) in f.food) {
         val cx = w / 2 + fx.toFloat() * scale
         val r = 7f + 9f * (amount / 30.0).toFloat()
-        drawOval(Color(0xFFD9A441), Offset(cx - r, groundY - r * 0.55f), Size(2 * r, r * 0.9f))
-        drawOval(Color(0x99FFF4D6), Offset(cx - r * 0.45f, groundY - r * 0.45f), Size(r * 0.5f, r * 0.25f))
+        drawOval(Color(0xFFD9A441), Offset(cx - r, standY - r * 0.55f), Size(2 * r, r * 0.9f))
+        drawOval(Color(0x99FFF4D6), Offset(cx - r * 0.45f, standY - r * 0.45f), Size(r * 0.5f, r * 0.25f))
     }
-    // The fly; its feet sit on the ground line (sprite feet are ~81% down the frame).
+    // The fly: its claws are FEET_LINE of the way down each sprite frame.
     val img = sprites.pick(f)
     val px = w / 2 + f.x.toFloat() * scale
-    val top = groundY - f.z.toFloat() * scale - flySize * 0.81f
-    drawOval(Color(0x33000000), Offset(px - flySize * 0.22f, groundY - 3f), Size(flySize * 0.44f, 7f))
+    val top = standY - f.z.toFloat() * scale - flySize * FEET_LINE
+    drawOval(Color(0x33000000), Offset(px - flySize * 0.22f, standY - 3f), Size(flySize * 0.44f, 7f))
     scale(scaleX = f.facing.toFloat(), scaleY = 1f, pivot = Offset(px, top + flySize / 2)) {
         drawImage(
             img, dstOffset = IntOffset((px - flySize / 2).toInt(), top.toInt()),
