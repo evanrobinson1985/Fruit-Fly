@@ -385,6 +385,18 @@ export class Fly {
     this.set("c_thorax-c_head-pitch", blend * (mode === "sweep" ? 0.18 : 0.08)); // head tips down to meet the legs
   }
 
+  // Courtship song (blend 0..1): one wing swung out to the side and vibrated (phase in
+  // radians; shown far slower than the real ~200 Hz). Call after setWings.
+  setSong(blend, side = "l", phase = 0) {
+    if (blend <= 0) return;
+    const o = this.override[this.byName[`${side}_wing`].id];
+    const sign = side === "l" ? 1 : -1;
+    const Z = new THREE.Vector3(0, 0, 1);
+    // From the spread (flight) orientation, swing back to point out sideways, and tremble.
+    o.q.copy(this.wingSpread[side]).premultiply(new THREE.Quaternion().setFromAxisAngle(Z, -sign * (0.55 + 0.06 * Math.sin(phase))));
+    o.blend = Math.max(o.blend, 0.8 * blend);
+  }
+
   // Proboscis: 0 retracted, 1 fully extended toward the substrate.
   setProboscis(ext) {
     this.set("c_head-c_rostrum-pitch", PROBOSCIS.rostrum[0] + ext * (PROBOSCIS.rostrum[1] - PROBOSCIS.rostrum[0]));

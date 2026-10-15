@@ -69,6 +69,13 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   fly stops and cleans its head: front-leg sweeps over the eyes alternating with leg rubbing
   (Guo et al. 2022). The leg poses were solved by forward kinematics so the tarsi reach the
   eye, the underside of the head and each other.
+- **More command neurons:** the body also reads out the non-Giant-Fiber escape neurons
+  (DNp02/DNp04/DNp11: long-mode takeoffs with the wings raised first, forward or backward),
+  the landing neurons DNp07/DNp10 (legs extend, the fly comes down), DNg02 (wing power in
+  flight), DNb01 (flight saccades) and pIP10/pMP2 (courtship song: one wing out and
+  vibrating). Looming drives the escape neurons by itself; the rest can be driven from the
+  optogenetics presets, since nothing in the arena excites them (the landing neurons'
+  visual responses need the flight state, which the model does not include).
 - **Panels:** every control and readout panel folds away (each section, or a whole side),
   and the layout is remembered.
 - **Weather:** rain or snow at five intensities each, with real fly-scale physics. Rain

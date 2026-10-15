@@ -181,7 +181,10 @@ const MOTOR = [
   { key: "turnR", label: "DNa R", color: "#4f8fc0" },
   { key: "escape", label: "Giant Fiber", color: "#e5533d" },
   { key: "feed", label: "MN9", color: "#8fc77a" },
-  { key: "groom", label: "DNg12 groom", color: "#d6c7f2" },
+  { key: "groom", label: "Groom DNs", color: "#d6c7f2" },
+  { key: "longTakeoff", label: "DNp02/04/11", color: "#ff9a7a" },
+  { key: "landing", label: "DNp07/10 land", color: "#9fe0c9" },
+  { key: "song", label: "pIP10 song", color: "#f5d36b" },
 ];
 const SENSE_SERIES = [
   { key: "odorL", label: "ORN L", color: "#e9b949" },
@@ -291,6 +294,9 @@ function advanceBody(t) {
     forward: (m.forward.L + m.forward.R) / 2, backward: (m.backward.L + m.backward.R) / 2,
     turnL: m.turn.L, turnR: m.turn.R, escape: Math.max(m.escape.L, m.escape.R), feed: Math.max(m.feed.L, m.feed.R),
     groom: m.groomHead ? Math.max(m.groomHead.L, m.groomHead.R) : 0,
+    longTakeoff: m.takeoffFwd ? Math.max(m.takeoffFwd.L + m.takeoffBack.L, m.takeoffFwd.R + m.takeoffBack.R) / 2 : 0,
+    landing: m.landing ? Math.max(m.landing.L, m.landing.R) : 0,
+    song: m.song ? Math.max(m.song.L, m.song.R) : 0,
   });
   if (lastSense) {
     const r = lastSense.rates;
@@ -525,9 +531,14 @@ function onWeatherHit(h) {
 // ---------- optogenetics ----------
 // Drive every neuron of a chosen cell type with Poisson input while the light is on,
 // as in experiments with light-gated channels (e.g. CsChrimson).
+// Known command-like neurons and what activating them does in real flies. "X*" means every
+// cell type whose name starts with X (several subtypes).
 const OPTO_PRESETS = [
-  ["Walk backward", "MDN"], ["Walk forward", "DNp09"], ["Escape", "DNp01"],
-  ["Proboscis", "MN9"], ["Steering", "DNa02"], ["Flight muscles", "DLMn c-f"], ["Looming detectors", "LC4"],
+  ["Walk backward", "MDN"], ["Walk forward", "DNp09"], ["Escape (Giant Fiber)", "DNp01"],
+  ["Long takeoff, forward", "DNp11"], ["Long takeoff, backward", "DNp04"],
+  ["Proboscis", "MN9"], ["Steering", "DNa02"], ["Head grooming", "DNg12*"], ["Leg rubbing", "DNg11"],
+  ["Courtship song", "pIP10"], ["Landing legs", "DNp07"], ["Flight saccade", "DNb01"],
+  ["Wing power", "DNg02*"], ["Flight muscles", "DLMn c-f"], ["Looming detectors", "LC4"],
 ];
 let optoTypes = null, optoChoice = null, optoSel = -1;
 fetch(ASSETS + "brain-types.json").then((r) => r.json()).then((t) => {
@@ -536,14 +547,15 @@ fetch(ASSETS + "brain-types.json").then((r) => r.json()).then((t) => {
   for (const b of $("opto-chips").children) b.onclick = () => chooseOpto(b.dataset.type);
 });
 function chooseOpto(type) {
-  const k = optoTypes.types.indexOf(type);
-  if (k < 0) return;
-  optoChoice = { type: k + 1, name: type, n: optoTypes.counts[k] };
+  const pre = type.endsWith("*") ? type.slice(0, -1) : null;
+  const ks = pre ? optoTypes.types.flatMap((t, i) => (t.startsWith(pre) ? [i] : [])) : [optoTypes.types.indexOf(type)].filter((i) => i >= 0);
+  if (!ks.length) return;
+  optoChoice = { types: ks.map((k) => k + 1), name: type, n: ks.reduce((a, k) => a + optoTypes.counts[k], 0) };
   $("opto-type").value = type;
   $("opto-list").hidden = true;
   $("opto-go").disabled = false;
   $("opto-note").textContent = `${type}: ${optoChoice.n} neuron${optoChoice.n === 1 ? "" : "s"}. Press Light on to activate them.`;
-  if (stim.opto) stim.opto = { type: optoChoice.type, hz: +$("opto-hz").value };
+  if (stim.opto) stim.opto = { types: optoChoice.types, hz: +$("opto-hz").value };
 }
 function renderOptoList() {
   const q = $("opto-type").value.trim().toLowerCase();
@@ -579,7 +591,7 @@ $("opto-hz").addEventListener("input", () => {
 $("opto-go").onclick = () => {
   if (!optoChoice) return;
   const on = !stim.opto;
-  stim.opto = on ? { type: optoChoice.type, hz: +$("opto-hz").value } : null;
+  stim.opto = on ? { types: optoChoice.types, hz: +$("opto-hz").value } : null;
   $("opto-go").setAttribute("aria-pressed", on);
   $("opto-go").textContent = on ? "Light off" : "Light on";
   $("hint").textContent = on ? `Light on: ${optoChoice.n} ${optoChoice.name} neuron${optoChoice.n === 1 ? "" : "s"} driven at ${stim.opto.hz} Hz.` : "Light off.";
@@ -728,8 +740,9 @@ function frame(now) {
     const phase = prev.phase + (curr.phase - prev.phase) * f;
     const wings = Math.max(body.wingOpen, hopWing);
     fly.setWalk(phase, wings > 0.02 ? 0 : body.ampL, wings > 0.02 ? 0 : body.ampR);
-    fly.setFlightLegs(wings);
+    fly.setFlightLegs(wings * (1 - (body.landingLegs || 0))); // landing DNs extend the legs
     fly.setGroom(body.groomBlend || 0, body.groomMode, body.groomPhase || 0, body.groomSide);
+    fly.setSong(body.songBlend || 0, body.songSide, body.songPhase || 0);
     fly.setWings(wings, (now / 1000) * 2 * Math.PI * 25); // shown at 25 Hz (real: ~200 Hz)
     fly.setProboscis(body.proboscis);
     const sniff = lastSense ? Math.min(0.4, (lastSense.odor.L + lastSense.odor.R) * 2) : 0;
@@ -753,7 +766,8 @@ function frame(now) {
     motorChart.draw();
     senseChart.draw();
     brainMap?.draw();
-    $("st-state").textContent = brainReady ? body.state : "loading brain";
+    const mode = ["takeoff", "escape"].includes(body.state) && body.takeoffMode ? ` · ${body.takeoffMode}` : "";
+    $("st-state").textContent = brainReady ? body.state + mode : "loading brain";
     $("st-state").dataset.s = body.state;
     $("st-time").textContent = `${(curr.t || 0).toFixed(2)} s`;
     $("st-speed").textContent = brainReady ? `${Math.min(1, STEP_MS / Math.max(1, brainWall)).toFixed(2)}×` : "–";

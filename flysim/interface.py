@@ -79,8 +79,17 @@ def motor_pools(neurons) -> dict:
     jump: tergotrochanteral motor neurons (TTMn), the jump muscle of escape takeoff.
     flight: indirect flight-muscle motor neurons (DLMn, DVMn) -> wing power.
     wing: all wing motor neurons per side -> steering in flight.
-    groomHead: DNg12 descending neurons -> head sweeps alternating with front-leg rubbing.
+    groomHead: DNg12 (head sweeps alternating with front-leg rubbing; Guo et al. 2022) and
+        DNg07/DNg08 (head grooming; Cande et al. 2018).
     groomLegs: DNg11 descending neurons -> front-leg rubbing (Guo et al. 2022).
+    takeoffFwd / takeoffBack: the looming-driven non-Giant-Fiber escape DNs. DNp11 drives
+        forward jumps, DNp02 and DNp04 backward ones; all give long-mode takeoffs (wings
+        raised first) rather than the Giant Fiber's short mode (Peek 2018; von Reyn 2014).
+    landing: DNp07 and DNp10, which extend all six legs for landing in flight (Ache et al. 2019).
+    wingPower: DNg02, a population that sets wingbeat amplitude (Namiki et al. 2022).
+    saccade: DNb01, which drives flight saccades to its side (Schretter et al. 2023).
+    song: pIP10 and pMP2, which drive male courtship song: one wing extended and vibrated
+        (von Philipsborn et al. 2011).
     """
     ty = neurons["type"].fillna("")
     sub = neurons["subclass"].fillna("")
@@ -92,8 +101,14 @@ def motor_pools(neurons) -> dict:
         "jump": {s: np.flatnonzero(ty.eq("Tergotr. MN").to_numpy() & (side == s)) for s in "LR"},
         "flight": {s: np.flatnonzero((ty.str.startswith("DLMn") | ty.str.startswith("DVMn")).to_numpy() & (side == s)) for s in "LR"},
         "wing": {s: np.flatnonzero(wing & (side == s)) for s in "LR"},
-        "groomHead": {s: np.flatnonzero(ty.str.match(r"^DNg12").to_numpy() & (side == s)) for s in "LR"},
+        "groomHead": {s: np.flatnonzero(ty.str.match(r"^(DNg12|DNg07$|DNg08$)").to_numpy() & (side == s)) for s in "LR"},
         "groomLegs": {s: np.flatnonzero(ty.eq("DNg11").to_numpy() & (side == s)) for s in "LR"},
+        "takeoffFwd": {s: np.flatnonzero(ty.eq("DNp11").to_numpy() & (side == s)) for s in "LR"},
+        "takeoffBack": {s: np.flatnonzero(ty.isin(["DNp02", "DNp04"]).to_numpy() & (side == s)) for s in "LR"},
+        "landing": {s: np.flatnonzero(ty.isin(["DNp07", "DNp10"]).to_numpy() & (side == s)) for s in "LR"},
+        "wingPower": {s: np.flatnonzero(ty.str.match(r"^DNg02").to_numpy() & (side == s)) for s in "LR"},
+        "saccade": {s: np.flatnonzero(ty.eq("DNb01").to_numpy() & (side == s)) for s in "LR"},
+        "song": {s: np.flatnonzero(ty.isin(["pIP10", "pMP2"]).to_numpy() & (side == s)) for s in "LR"},
     }
 
 

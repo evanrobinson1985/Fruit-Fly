@@ -101,6 +101,22 @@ cited next to each entry in `flysim/interface.py`):
 - Hampel, S., Franconville, R., Simpson, J. H. & Seeds, A. M. A neural command circuit for
   grooming movement control. *eLife* 4, e08758 (2015).
 
+## Other descending neurons read out as behavior
+
+- Takeoff modes: von Reyn, C. R. *et al.* A spike-timing mechanism for action selection.
+  *Nat. Neurosci.* 17, 962–970 (2014); Peek, M. Y. PhD thesis, University of Chicago (2018):
+  DNp02/DNp04/DNp11 receive looming input; DNp11 forward and DNp02/DNp04 backward takeoffs.
+- Landing: Ache, J. M. *et al.* State-dependent decoupling of sensory and motor circuits
+  underlies behavioral flexibility in *Drosophila*. *Nat. Neurosci.* 22, 1132–1139 (2019): DNp07, DNp10.
+- Wingbeat amplitude: Namiki, S. *et al.* A population of descending neurons that regulates
+  the flight motor of *Drosophila*. *Curr. Biol.* 32, 1189–1196 (2022): DNg02.
+- Flight saccades: Schretter, C. E. *et al.* Descending control and regulation of spontaneous
+  flight turns in *Drosophila*. bioRxiv (2023): DNb01.
+- Courtship song: von Philipsborn, A. C. *et al.* Neuronal control of *Drosophila* courtship
+  song. *Neuron* 69, 509–522 (2011): pIP10 (with pMP2).
+- Head grooming: Cande, J. *et al.* Optogenetic dissection of descending behavioral control in
+  *Drosophila*. *eLife* 7, e34275 (2018): DNg07/DNg08.
+
 ## Rain and snow (website)
 
 - Raindrop size spectrum: Marshall, J. S. & Palmer, W. M. The distribution of raindrops with size.

@@ -33,6 +33,14 @@ export const BODY = {
   // rubbing, DNg11 leg rubbing alone (Guo et al. 2022). Touching the head bristles drives
   // DNg12 to ~10 Hz in this connectome; at rest it stays near 0.
   groomOnHz: 3, groomBout: 1.5, sweepHz: 3, rubHz: 5, groomSwitchS: 1.1,
+  // Long-mode escape: the non-Giant-Fiber looming DNs (DNp02, DNp04, DNp11; looming drives
+  // them to 40-230 Hz here) raise the wings first, then jump; DNp11 biases the jump forward,
+  // DNp02/DNp04 backward (Peek 2018). The Giant Fiber alone gives the short mode.
+  longTakeoffHz: 40, longTakeoffS: 0.08, wingRaiseS: 0.12,
+  landingHz: 15,                    // DNp07/DNp10: extend the legs and land (Ache et al. 2019)
+  wingPowerGain: 0.02,              // flight speed +2% per Hz of DNg02 (wingbeat amplitude)
+  saccadeHz: 25, saccadeDeg: 70, saccadeGapS: 0.3, // DNb01 one-sided burst -> a flight saccade
+  songHz: 15, songS: 0.6,           // pIP10/pMP2 -> one wing out and vibrating (courtship song)
   feedBout: 1.0,                    // s of feeding started by one proboscis extension
   escapeTime: 0.45, flightSpeed: 120, // escape flight (s, mm/s)
   stride: 1.6,                      // mm per step cycle at full amplitude
@@ -122,7 +130,7 @@ export class Body {
   act(m, dt, world, rng, spontaneous = true) {
     const mean = (g) => (m[g] ? (m[g].L + m[g].R) / 2 : 0);
     const k200 = Math.min(1, dt / 0.2);
-    const sm = (this.slow ??= { legsL: 0, legsR: 0, flight: 0, wingL: 0, wingR: 0, groomL: 0, groomR: 0, rub: 0 });
+    const sm = (this.slow ??= { legsL: 0, legsR: 0, flight: 0, wingL: 0, wingR: 0, groomL: 0, groomR: 0, rub: 0, songL: 0, songR: 0 });
     sm.legsL += k200 * ((m.legs?.L || 0) - sm.legsL);
     sm.legsR += k200 * ((m.legs?.R || 0) - sm.legsR);
     sm.flight += k200 * (mean("flight") - sm.flight);
@@ -131,21 +139,49 @@ export class Body {
     sm.groomL += k200 * ((m.groomHead?.L || 0) - sm.groomL);
     sm.groomR += k200 * ((m.groomHead?.R || 0) - sm.groomR);
     sm.rub += k200 * (mean("groomLegs") - sm.rub);
+    sm.songL += k200 * ((m.song?.L || 0) - sm.songL);
+    sm.songR += k200 * ((m.song?.R || 0) - sm.songR);
     const gf = Math.max(m.escape.L, m.escape.R);
 
+    this.songBlend = Math.max(0, (this.songBlend || 0) - dt * 4);
     if (this.airborne > 0) { this.groomLeft = 0; this.groomBlend = 0; return this._fly(m, dt, world, sm); }
+    this.landingLegs = Math.max(0, (this.landingLegs || 0) - dt * 3);
+    // Long-mode takeoff in progress: wings raised, then the jump.
+    if (this.raise > 0) {
+      this.raise -= dt;
+      this.wingOpen = Math.min(0.55, this.wingOpen + dt * 8);
+      this.speed = 0;
+      if (this.raise <= 0) return this._takeoff("escape", BODY.escapeTime);
+      return (this.state = "takeoff");
+    }
     this.wingOpen = Math.max(0, this.wingOpen - dt * 6);
     this.gfOn = gf > BODY.escapeSustainHz ? (this.gfOn || 0) + dt : 0;
     if (gf > BODY.escapeHz || this.gfOn >= BODY.escapeSustainS) {
       this.gfOn = 0;
       // Escape takeoff directed away from the threat (Card & Dickinson 2008).
       this.heading = this.threatDir !== null ? this.threatDir + 180 : this.heading + 180 * (rng() - 0.5);
+      this.takeoffMode = "short";
       return this._takeoff("escape", BODY.escapeTime);
+    }
+    // Long-mode escape from the parallel looming DNs.
+    const jFwd = mean("takeoffFwd"), jBack = mean("takeoffBack");
+    this.longOn = jFwd + jBack > BODY.longTakeoffHz ? (this.longOn || 0) + dt : 0;
+    if (this.longOn >= BODY.longTakeoffS) {
+      this.longOn = 0;
+      const away = this.threatDir !== null ? this.threatDir + 180 : this.heading + 180 * (rng() - 0.5);
+      // Jump direction: away from the threat, nudged toward the body axis the DNs favor.
+      const jump = jFwd >= jBack ? this.heading : this.heading + 180;
+      const d = ((jump - away + 540) % 360) - 180;
+      this.heading = (away + 0.35 * d + 360) % 360;
+      this.takeoffMode = jFwd >= jBack ? "long, forward" : "long, backward";
+      this.raise = BODY.wingRaiseS;
+      return (this.state = "takeoff");
     }
     // Voluntary takeoff when the flight-muscle motor neurons stay active.
     this.flightOn = sm.flight > BODY.flightOnHz ? (this.flightOn || 0) + dt : 0;
     if (this.flightOn >= BODY.flightOnS) {
       this.heading += 120 * (rng() - 0.5);
+      this.takeoffMode = "voluntary";
       return this._takeoff("voluntary", BODY.flightMaxS);
     }
     const onFood = world.onFood(this.x, this.y) && (this.perch || 0) < 0.8;
@@ -160,6 +196,18 @@ export class Body {
       this._gait(dt, 0);
       this.groomBlend = Math.max(0, (this.groomBlend || 0) - dt * 5);
       return (this.state = "feeding");
+    }
+    // Courtship song: pIP10/pMP2 extend one wing and vibrate it (the side driven harder).
+    const song = Math.max(sm.songL, sm.songR);
+    if (song > BODY.songHz) this.songLeft = Math.max(this.songLeft || 0, BODY.songS);
+    this.songLeft = Math.max(0, (this.songLeft || 0) - dt);
+    if (this.songLeft > 0) {
+      this.songSide = sm.songL >= sm.songR ? "l" : "r";
+      this.songBlend = Math.min(1, this.songBlend + dt * 8); // (decay above cancelled while singing)
+      this.songPhase = (this.songPhase || 0) + 2 * Math.PI * 30 * dt;
+      this.speed += (0 - this.speed) * Math.min(1, dt / 0.1);
+      this._gait(dt, 0);
+      return (this.state = "singing");
     }
     // Grooming: stop and clean the head while the grooming command neurons are active.
     const head = Math.max(sm.groomL, sm.groomR);
@@ -209,6 +257,18 @@ export class Body {
 
   _fly(m, dt, world, sm) {
     this.airborne -= dt;
+    // Landing DNs extend all six legs and bring the fly down.
+    const land = Math.max(m.landing?.L || 0, m.landing?.R || 0);
+    this.landingLegs = Math.max(0, Math.min(1, (this.landingLegs || 0) + dt * (land > BODY.landingHz ? 6 : -3)));
+    if (land > BODY.landingHz && this.airTime > 0.3) this.airborne = Math.min(this.airborne, 0.3);
+    // Flight saccades: a one-sided DNb01 burst turns the fly sharply.
+    const sac = (m.saccade?.L || 0) - (m.saccade?.R || 0);
+    this.sacGap = Math.max(0, (this.sacGap || 0) - dt);
+    if (Math.abs(sac) > BODY.saccadeHz && this.sacGap <= 0) {
+      this.heading = (this.heading + Math.sign(sac) * BODY.saccadeDeg + 360) % 360;
+      this.sacGap = BODY.saccadeGapS;
+    }
+    const power = 1 + BODY.wingPowerGain * Math.min(50, Math.max(m.wingPower?.L || 0, m.wingPower?.R || 0));
     this.airTime += dt;
     this.wingOpen = Math.min(1, this.wingOpen + dt * 20);
     if (this.flightKind === "voluntary") {
@@ -217,8 +277,8 @@ export class Body {
       this.heading = (this.heading + BODY.wingSteerGain * (sm.wingL - sm.wingR) * dt + 360) % 360;
     }
     const h = this.heading * Math.PI / 180;
-    this.x += Math.cos(h) * BODY.flightSpeed * dt;
-    this.y += Math.sin(h) * BODY.flightSpeed * dt;
+    this.x += Math.cos(h) * BODY.flightSpeed * power * dt;
+    this.y += Math.sin(h) * BODY.flightSpeed * power * dt;
     const up = Math.min(1, this.airTime / 0.25), down = Math.min(1, Math.max(0, this.airborne) / 0.3);
     this.z = (this.flightKind === "escape" ? 7 : 12) * Math.min(up, down);
     if (this.airborne <= 0) { this.z = 0; this.airborne = 0; }

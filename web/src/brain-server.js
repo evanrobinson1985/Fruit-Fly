@@ -74,7 +74,7 @@ export function createBrainServer(post) {
     add(G.wind.L, inp.windL || 0);
     add(G.wind.R, inp.windR || 0);
     if (inp.touch) add(G.touch[inp.touch.zone][inp.touch.side], inp.touch.hz);
-    if (inp.opto && typeIds) add(neuronsOfType(inp.opto.type), inp.opto.hz);
+    if (inp.opto && typeIds) for (const ty of inp.opto.types || [inp.opto.type]) add(neuronsOfType(ty), inp.opto.hz);
     if (typeIds) for (const e of inp.extra || []) add(neuronsOfType(e.type), e.hz); // weather on the antennae
     brain._dirty = true;
   }
