@@ -29,7 +29,7 @@ def sprite(name):
 def layer(img, cam_x, cam_z, k, stand_y, col0, rate):
     s = k / P
     u0 = col0 + (cam_x * rate - SIZE / 2 / k) * P
-    v0 = meta["feetRow"] - (stand_y + cam_z * rate * k) / s
+    v0 = meta["feetRow"] - (stand_y + cam_z * k) / s
     crop = img.crop((round(u0), round(v0), round(u0 + SIZE / s), round(v0 + SIZE / s)))
     return crop.resize((SIZE, SIZE), Image.LANCZOS)
 

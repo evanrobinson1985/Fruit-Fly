@@ -66,7 +66,7 @@ terrain.update(X0, Y0, 0, 1000, 0, 0);
 const NEAR = 8;
 // Keep y > a: Plane((0, 1, 0), -a); keep y < b: Plane((0, -1, 0), b).
 const above = (a) => new THREE.Plane(new THREE.Vector3(0, 1, 0), -a), below = (b) => new THREE.Plane(new THREE.Vector3(0, -1, 0), b);
-const FRONT = 3.5; // only low grass this close in front of the path is drawn over the fly
+const FRONT = 30; // grass in front of the path (it sits below the feet on screen, so it can reach far)
 const planes = {
   near: { plants: [above(Y0 + 0.25), below(Y0 + NEAR)], floor: [above(Y0 - FRONT), below(Y0 + NEAR)] },
   front: { plants: [above(Y0 - FRONT), below(Y0 - 0.3)], floor: [above(Y0 - FRONT - 30), below(Y0 - FRONT)] },

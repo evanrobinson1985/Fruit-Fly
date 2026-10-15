@@ -205,13 +205,14 @@ private const val FEET_LINE = 0.756f   // claws' row in the 320 px sprite frames
 
 /**
  * Draws the on-screen part of a scenery layer. col0 is the layer's column for stage x = 0 and
- * row0 its row for the feet line; the layer moves `rate` times as fast as the stage.
+ * row0 its row for the feet line; it scrolls sideways `rate` times as fast as the stage (all
+ * layers move together vertically, so their seams stay joined when the view rises).
  */
 private fun DrawScope.drawLayer(img: ImageBitmap, sc: Scenery, v: View, col0: Float, row0: Float, rate: Float) {
     val s = v.k / sc.pxPerMm                      // screen px per layer px
     // Layer pixel under the screen's top-left corner.
     var u0 = col0 + (v.camX * rate - size.width / 2 / v.k) * sc.pxPerMm
-    var v0 = row0 - (v.standY + v.camZ * rate * v.k) / s
+    var v0 = row0 - (v.standY + v.camZ * v.k) / s
     var uw = size.width / s
     var vh = size.height / s
     var dx = 0f
