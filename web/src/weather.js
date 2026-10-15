@@ -261,13 +261,13 @@ export class Weather {
     return 0;
   }
 
-  _spawn(cx, cy, radius, top) {
+  _spawn(cx, cy, radius, top, early = 0) {
     const D = this.spec.sample(Math.random());
     const a = Math.random() * 2 * Math.PI, r = radius * Math.sqrt(Math.random());
     const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
     if (this.mode === "rain") {
       const v = rainSpeed(D);
-      const d = { x, y, z: top, vx: this.wind.x, vy: this.wind.y, vz: -v, D, m: dropMass(D), kind: "rain" };
+      const d = { x, y, z: top + v * early, vx: this.wind.x, vy: this.wind.y, vz: -v, D, m: dropMass(D), kind: "rain" };
       // Start upwind so the slanted streak still lands near the fly.
       const fall = top / v;
       d.x -= d.vx * fall; d.y -= d.vy * fall;
@@ -275,7 +275,7 @@ export class Weather {
       this.falling.push(d);
     } else {
       const v = flakeSpeed(D) * (0.85 + 0.3 * Math.random());
-      this.falling.push({ x, y, z: top, vx: 0, vy: 0, vz: -v, D, m: flakeMass(D), kind: "flake",
+      this.falling.push({ x, y, z: top + v * early, vx: 0, vy: 0, vz: -v, D, m: flakeMass(D), kind: "flake",
         phase: Math.random() * 6.28, wob: 0.6 * D, f: 1 + Math.random(), wx: this.wind.x, wy: this.wind.y });
     }
   }
@@ -309,13 +309,15 @@ export class Weather {
     const hits = [];
     if (dt <= 0) return hits;
     this._fx = fly.x; this._fy = fly.y;
-    dt = Math.min(dt, 0.05);
+    dt = Math.min(dt, 0.25);
     // Fill the air the camera looks through: wider and higher when zoomed out.
     const top = 40 + view.dist;
     const radius = Math.min(260, 60 + 1.2 * view.dist);
     if (this.spec) {
       this.spawnDebt += this.spec.rate * Math.PI * radius * radius * dt;
-      while (this.spawnDebt >= 1 && this.falling.length < MAX_FALLING) { this._spawn(view.x, view.y, radius, top); this.spawnDebt -= 1; }
+      // Each new drop enters at a random moment within this step (it starts above the top
+      // by however far it falls before then), so the rate is right at any frame rate.
+      while (this.spawnDebt >= 1 && this.falling.length < MAX_FALLING) { this._spawn(view.x, view.y, radius, top, Math.random() * dt); this.spawnDebt -= 1; }
       if (this.spawnDebt > 1) this.spawnDebt = 0; // over budget: drop the rest
     }
     // The fly as a capsule along its body axis; with wings beating it sweeps a wider disc.
@@ -331,8 +333,10 @@ export class Weather {
         d.phase += 2 * Math.PI * d.f * dt;
         d.vx = d.wx + d.wob * 2 * Math.PI * d.f * Math.cos(d.phase);
         d.vy = d.wy + d.wob * 2 * Math.PI * d.f * Math.sin(1.3 * d.phase);
-      } else if (d.kind === "splash") d.vz -= GRAVITY * dt;
-      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      }
+      if (d.kind === "splash") { d.z += d.vz * dt - 0.5 * GRAVITY * dt * dt; d.vz -= GRAVITY * dt; } // exact parabola
+      else d.z += d.vz * dt;
+      d.x += d.vx * dt; d.y += d.vy * dt;
       p1.set(d.x, d.y, d.z);
       // The fly first: it can be hit before the drop reaches the ground under it.
       const seg = segSeg(p0, p1, A, B);
