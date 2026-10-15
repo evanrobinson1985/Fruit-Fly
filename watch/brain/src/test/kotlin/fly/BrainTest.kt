@@ -20,8 +20,9 @@ class BrainTest {
 
     @Test
     fun loadsCircuit() {
-        assertEquals(15154, c.n)
+        assertEquals(16540, c.n)
         assertEquals(72, c.group("taste").size)
+        assert(c.group("touch.L").isNotEmpty() && c.group("motor.groom.L").isNotEmpty())
     }
 
     @Test
