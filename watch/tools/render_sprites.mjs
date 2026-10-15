@@ -15,7 +15,7 @@ const three = dirname(dirname(createRequire(import.meta.url).resolve("three")));
 const out = join(repo, "watch/app/src/main/assets/sprites");
 const types = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".png": "image/png" };
 
-const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 400, height: 400 } });
 await page.route("**/*", (route) => {
   const u = new URL(route.request().url());
