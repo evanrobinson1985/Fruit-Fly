@@ -4,6 +4,7 @@
 // tripod gait whose frequency and per-side stride come from the body model.
 import * as THREE from "three";
 import { loadPng } from "./pngdata.js";
+import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 
 const LEGS = ["lf", "lm", "lh", "rf", "rm", "rh"];
 const LEG_POS = { f: 0, m: 1, h: 2 };
@@ -25,7 +26,7 @@ export async function loadFly(base) {
 // follows the viewer; a grainy, waxy cuticle; dark-brown bristles; clear iridescent wings.
 const SRGB = (hex) => new THREE.Color(hex).convertSRGBToLinear();
 const SKIN = {
-  thorax: SRGB(0xa86f35), thoraxDark: SRGB(0x6e4420), head: SRGB(0xb2723a), frons: SRGB(0xc4823e),
+  thorax: SRGB(0x9e6d3c), thoraxDark: SRGB(0x6a4524), head: SRGB(0xa8703c), frons: SRGB(0xc4823e),
   tergite: SRGB(0xc79a5a), band: SRGB(0x2b1a0e), sternite: SRGB(0xe0c69a), leg: SRGB(0xc99a5c),
   tarsus: SRGB(0x8a5e30), mouth: SRGB(0xd8b27a), antenna: SRGB(0xb5743a), haltere: SRGB(0xd9c39a),
   eye: SRGB(0x9e1c12), bristle: SRGB(0x1c120b), vein: SRGB(0x5a3b22), ocelli: SRGB(0x3a1d10),
@@ -82,7 +83,7 @@ function paint(part, body, pts) {
     else if (/antenna/.test(body)) c.copy(SKIN.antenna);
     else if (/haltere/.test(body)) c.copy(SKIN.haltere);
     else c.copy(SKIN.leg);
-    const k = 1 + 0.22 * mott + 0.1 * grain;
+    const k = 1 + (seg ? 0.1 * mott : 0.2 * mott + 0.08 * grain); // coarse abdomen mesh: gentle only
     col[3 * i] = c.r * k; col[3 * i + 1] = c.g * k; col[3 * i + 2] = c.b * k;
   }
   return col;
@@ -244,10 +245,15 @@ export class Fly {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      return { part, geo };
+    }).map(({ part, geo: g0 }) => {
+      // Weld duplicated vertices so low-poly parts (the abdomen) shade smoothly.
+      const geo = part.nv < 20000 && !part.mesh.endsWith("membrane") ? mergeVertices(g0, 1e-6) : g0;
       geo.computeVertexNormals();
+      const pos = geo.attributes.position.array, nv = pos.length / 3;
       // Positions in the root frame at rest, for painting.
       const node = this.nodes[part.body], v = new THREE.Vector3(), root = new Float32Array(pos.length);
-      for (let i = 0; i < part.nv; i++) {
+      for (let i = 0; i < nv; i++) {
         v.fromArray(pos, 3 * i).applyMatrix4(node.matrix);
         root[3 * i] = v.x; root[3 * i + 1] = v.y; root[3 * i + 2] = v.z;
       }
