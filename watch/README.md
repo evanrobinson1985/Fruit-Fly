@@ -37,7 +37,7 @@ rules (`tools/compose_preview.py`). They are not captures from a watch.
 
 ## What's real and what isn't
 
-- **Brain:** the watch runs a **15,154-neuron, 2.4-million-connection subcircuit** of the
+- **Brain:** the watch runs a **16,540-neuron, 2.5-million-connection subcircuit** of the
   MaleCNS v1.0 connectome: every neuron on a strong path of up to 4 synapses from the
   game's senses (taste, looming) to its behaviors (MN9, Giant Fiber, P9, MDN, DNa01/02),
   plus every connection among them. It uses the same neuron model as the website (Shiu et al.

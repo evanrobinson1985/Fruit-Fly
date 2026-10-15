@@ -319,7 +319,7 @@ private fun InfoPanel(f: Frame, close: () -> Unit) {
         Text("Live neurons", color = Amber, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
         Text(
             "MN9 (proboscis) ${f.mn9.roundToInt()} Hz\nGiant Fiber ${f.gf.roundToInt()} Hz\nP9 walk ${f.p9.roundToInt()} · MDN back ${f.mdn.roundToInt()} Hz\n" +
-                "${f.stepping} of 15,154 neurons active\nspeed ${"%.2f".format(f.realtime)}× real time",
+                "${f.stepping} of 16,540 neurons active\nspeed ${"%.2f".format(f.realtime)}× real time",
             color = Ink, fontSize = 11.sp, textAlign = TextAlign.Center,
         )
         Text(
@@ -329,7 +329,7 @@ private fun InfoPanel(f: Frame, close: () -> Unit) {
             color = Color(0xFFBDB2A2), fontSize = 10.sp, textAlign = TextAlign.Center,
         )
         Text(
-            "Brain: 15,154-neuron subcircuit of the MaleCNS v1.0 connectome (Janelia FlyEM, Google Research, Cambridge Connectomics / MRC LMB; CC-BY 4.0), " +
+            "Brain: 16,540-neuron subcircuit of the MaleCNS v1.0 connectome (Janelia FlyEM, Google Research, Cambridge Connectomics / MRC LMB; CC-BY 4.0), " +
                 "neuron model of Shiu et al. 2024. Fly: FlyBody (Vaxenburg, Siwanowicz et al. 2025; Apache-2.0). " +
                 "Rigging and leg recordings: NeuroMechFly / flygym (Ramdya lab, EPFL; Apache-2.0).",
             color = Color(0xFF9A8F80), fontSize = 9.sp, textAlign = TextAlign.Center,
