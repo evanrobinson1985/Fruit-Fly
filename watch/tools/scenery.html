@@ -59,49 +59,98 @@ terrain.visible = true;
 // No fly to press the grass, no wind.
 terrain.update(X0, Y0, 0, 1000, 0, 0);
 
-// Two layers, split by planes either side of the path (a hand's breadth of bare track between).
-const behind = [new THREE.Plane(new THREE.Vector3(0, 1, 0), -(Y0 + 0.25))];   // keep y > Y0 + 0.25
-const front = [new THREE.Plane(new THREE.Vector3(0, -1, 0), Y0 - 0.3)];       // keep y < Y0 - 0.3
-const mats = [terrain.blades.material, terrain.floor.material, ...terrain.weedMeshes.map((w) => w.material)];
-
-// Push-broom panorama: narrow vertical slices, each from a perspective camera with the sprite
-// camera's optics (11.16 mm from a point 1 mm above the feet, 17 degrees down), stepped along
-// the path. Columns are side by side as the fly walks; each column has the sprites' perspective.
-const D = 11.16, F = P * D;                 // focal length in px: P px per mm at the fly
-const FULL = 6000, SW = 16;                 // virtual full frame, slice width
-const cam = new THREE.PerspectiveCamera(2 * Math.atan(FULL / 2 / F) * 180 / Math.PI, 1, 0.1, 600);
-cam.up.set(0, 0, 1);
+// Three layers. "near": the grass and weeds up to NEAR mm behind the path; "front": the grass
+// in front of it (drawn over the fly); both orthographic strips at P px/mm that scroll with
+// the stage. "far": everything beyond NEAR, one wide perspective view with the sprites' optics,
+// scrolled with parallax (what lies NEAR mm behind the fly moves D / (D + NEAR) as fast).
+const NEAR = 8;
+// Keep y > a: Plane((0, 1, 0), -a); keep y < b: Plane((0, -1, 0), b).
+const above = (a) => new THREE.Plane(new THREE.Vector3(0, 1, 0), -a), below = (b) => new THREE.Plane(new THREE.Vector3(0, -1, 0), b);
+const FRONT = 3.5; // only low grass this close in front of the path is drawn over the fly
+const planes = {
+  near: { plants: [above(Y0 + 0.25), below(Y0 + NEAR)], floor: [above(Y0 - FRONT), below(Y0 + NEAR)] },
+  front: { plants: [above(Y0 - FRONT), below(Y0 - 0.3)], floor: [above(Y0 - FRONT - 30), below(Y0 - FRONT)] },
+  far: { plants: [above(Y0 + NEAR)], floor: [above(Y0 + NEAR)] },
+};
 scene.fog = new THREE.Fog(0x0d0c0a, 60, 260);
-const W = Math.round(2 * SPAN * P), H = Math.round((BELOW + ABOVE) * P);
-const v = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 0, 1).sub(DIR.clone().multiplyScalar(DIR.z)).normalize();
+const W = Math.round(2 * SPAN * P), H = Math.round((BELOW + ABOVE) * P), TILE = 1024;
+const D = 11.16, PARALLAX = D / (D + NEAR);
+const FAR_W = Math.round(2 * (SPAN * PARALLAX + 9) * P);
+// Rows in each image of the ground line NEAR mm behind the path, where the layers meet.
+const seam = { near: 0, far: 0 };
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
+ortho.up.set(0, 0, 1);
+const persp = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
+persp.up.set(0, 0, 1);
+
+function setLayer(layer) {
+  for (const mt of [terrain.blades.material, ...terrain.weedMeshes.map((w) => w.material)]) { mt.clippingPlanes = planes[layer].plants; mt.needsUpdate = true; }
+  terrain.floor.material.clippingPlanes = planes[layer].floor;
+  terrain.floor.material.needsUpdate = true;
+  // Weeds stand behind the path only, so they never hide the fly.
+  for (const w of terrain.weedMeshes) w.visible = layer !== "front";
+  scene.background = layer === "far" ? new THREE.Color(0x0d0c0a) : null;
+  r.setClearColor(0x000000, 0);
+}
 
 window.render = (layer) => {
-  for (const mt of mats) { mt.clippingPlanes = layer === "front" ? front : behind; mt.needsUpdate = true; }
-  terrain.floor.visible = layer !== "front";
-  scene.background = layer === "front" ? null : new THREE.Color(0x0d0c0a);
-  r.setClearColor(0x000000, 0);
-  r.setSize(SW, H);
-  const slices = [];
-  for (let i = 0; i * SW < W; i++) {
-    const cx = X0 - SPAN + (i * SW + SW / 2) / P;
-    const target = new THREE.Vector3(cx, Y0, TURF_TOP + 1.0);
-    cam.position.copy(target).addScaledVector(DIR, -D);
-    cam.lookAt(target);
-    cam.clearViewOffset();
-    cam.updateMatrixWorld();
-    // Row of the feet (on the path, at the turf) in the full frame: put it at the strip's feet row.
-    v.set(cx, Y0, TURF_TOP).project(cam);
-    const feetRowFull = (1 - v.y) / 2 * FULL;
-    cam.setViewOffset(FULL, FULL, FULL / 2 - SW / 2, feetRowFull - ABOVE * P, SW, H);
-    terrain.update(cx, Y0, 0, 1000, 0, 0); // finest grass where this slice looks
+  setLayer(layer);
+  const tiles = [];
+  if (layer === "far") {
+    // One shot from the sprite camera's position over the middle of the path; focal length set
+    // so the seam is drawn at P px/mm, like the near strip.
+    const F = P * (D + NEAR);
+    const target = new THREE.Vector3(X0, Y0, TURF_TOP + 1.0);
+    persp.position.copy(target).addScaledVector(DIR, -D);
+    persp.lookAt(target);
+    const FULL = 8000;
+    persp.fov = 2 * Math.atan(FULL / 2 / F) * 180 / Math.PI;
+    persp.aspect = 1;
+    persp.clearViewOffset();
+    persp.updateProjectionMatrix();
+    persp.updateMatrixWorld();
+    const v = new THREE.Vector3(X0, Y0 + NEAR, TURF_TOP).project(persp);
+    const rowFull = (1 - v.y) / 2 * FULL;
+    const top = rowFull - (ABOVE - NEAR * Math.sin(17 * Math.PI / 180)) * P;
+    terrain.update(X0, Y0 + 30, 0, 1000, 0, 0);
+    sun.position.set(X0 + 8, Y0 - 6, 20);
+    sun.target.position.set(X0, Y0, 0);
+    Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60 });
+    sun.shadow.camera.updateProjectionMatrix();
+    for (let ty = 0; ty < Math.ceil(H / TILE); ty++) for (let tx = 0; tx < Math.ceil(FAR_W / TILE); tx++) {
+      r.setSize(TILE, TILE);
+      persp.setViewOffset(FULL, FULL, FULL / 2 - FAR_W / 2 + tx * TILE, top + ty * TILE, TILE, TILE);
+      r.render(scene, persp);
+      tiles.push({ tx, ty, png: r.domElement.toDataURL("image/png") });
+    }
+    seam.far = rowFull - top;
+    return { tiles, W: FAR_W, H, TILE };
+  }
+  Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22 });
+  sun.shadow.camera.updateProjectionMatrix();
+  r.setSize(TILE, TILE);
+  const half = TILE / 2 / P;
+  for (let ty = 0; ty < Math.ceil(H / TILE); ty++) for (let tx = 0; tx < Math.ceil(W / TILE); tx++) {
+    const cx = X0 - SPAN + (tx * TILE + TILE / 2) / P;
+    const cu = ABOVE - (ty * TILE + TILE / 2) / P; // mm above the feet line on screen
+    const target = new THREE.Vector3(cx, Y0, TURF_TOP).addScaledVector(UP, cu);
+    ortho.position.copy(target).addScaledVector(DIR, -150);
+    ortho.lookAt(target);
+    Object.assign(ortho, { left: -half, right: half, top: half, bottom: -half });
+    ortho.updateProjectionMatrix();
+    terrain.update(cx, Y0, 0, 1000, 0, 0); // finest grass where this tile looks
     sun.position.set(cx + 8, Y0 - 6, 20);
     sun.target.position.set(cx, Y0, 0);
-    r.render(scene, cam);
-    slices.push(r.domElement.toDataURL("image/png"));
+    r.render(scene, ortho);
+    tiles.push({ tx, ty, png: r.domElement.toDataURL("image/png") });
   }
-  return { slices, W, H, SW };
+  seam.near = ABOVE * P - NEAR * Math.sin(17 * Math.PI / 180) * P;
+  return { tiles, W, H, TILE };
 };
-// Where things are in the strip: stage x = 0 at column x0, feet line at row feetRow.
-window.meta = { pxPerMm: P, x0: SPAN * P, feetRow: ABOVE * P, span: SPAN, width: W, height: H };
+// Where things are: stage x = 0 at column x0 of the near and front strips (feet line at row
+// feetRow) and at column farX0 of the far view; the far view scrolls at `parallax`.
+window.meta = () => ({ pxPerMm: P, x0: SPAN * P, feetRow: ABOVE * P, span: SPAN, width: W, height: H,
+  farWidth: FAR_W, farX0: FAR_W / 2, parallax: PARALLAX, nearSeamRow: seam.near, farSeamRow: seam.far });
 window.ready = true;
 </script>

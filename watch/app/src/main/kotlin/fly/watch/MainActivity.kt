@@ -34,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
@@ -58,7 +57,6 @@ import androidx.wear.compose.material.Text
 import fly.game.Anim
 import fly.game.FlyWorld
 import kotlin.math.roundToInt
-import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
     private lateinit var engine: GameEngine
@@ -67,7 +65,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         engine = GameEngine(applicationContext)
         val sprites = Sprites.load(this)
-        setContent { MaterialTheme { Game(engine, sprites) } }
+        val scenery = Scenery.load(this)
+        setContent { MaterialTheme { Game(engine, sprites, scenery) } }
     }
 
     override fun onStart() {
@@ -102,13 +101,54 @@ class Sprites(val frames: Map<String, List<ImageBitmap>>) {
     }
 }
 
+/**
+ * The website's grass arena (watch/tools/scenery.html), in three layers at the sprites' scale
+ * and viewing angle: the grass and weeds just behind the fly's path and the grass in front of
+ * it (strips that scroll with the stage), and a far view to the arena's edge that scrolls with
+ * parallax.
+ */
+class Scenery(
+    val near: ImageBitmap, val front: ImageBitmap, val far: ImageBitmap,
+    val pxPerMm: Float, val x0: Float, val farX0: Float, val feetRow: Float, val parallax: Float,
+) {
+    companion object {
+        fun load(a: ComponentActivity): Scenery {
+            val m = org.json.JSONObject(a.assets.open("scenery/scenery.json").use { it.readBytes().decodeToString() })
+            fun img(name: String, opaque: Boolean) = a.assets.open("scenery/$name").use {
+                val o = BitmapFactory.Options().apply { if (opaque) inPreferredConfig = android.graphics.Bitmap.Config.RGB_565 }
+                BitmapFactory.decodeStream(it, null, o)!!.asImageBitmap()
+            }
+            return Scenery(
+                img("near.webp", false), img("front.webp", false), img("far.webp", true),
+                m.getDouble("pxPerMm").toFloat(), m.getDouble("x0").toFloat(), m.getDouble("farX0").toFloat(),
+                m.getDouble("feetRow").toFloat(), m.getDouble("parallax").toFloat(),
+            )
+        }
+    }
+}
+
+/** The view: the sprites' scale (px per mm) and where the camera looks along the stage. */
+data class View(val k: Float, val camX: Float, val camZ: Float, val standY: Float)
+
+/** Sprite frames show a 5.98 mm square at the fly (sprites.html camera: 30 deg at 11.16 mm). */
+private const val SPRITE_MM = 5.98f
+
+private fun viewFor(f: Frame, w: Float, h: Float, flySize: Float): View {
+    val k = flySize / SPRITE_MM
+    val half = w / 2 / k
+    val lim = (FlyWorld.HALF_WIDTH.toFloat() - half).coerceAtLeast(0f)
+    val camX = f.x.toFloat().coerceIn(-lim, lim)
+    val camZ = (f.z.toFloat() - 2.5f).coerceAtLeast(0f) // follow a flying fly up
+    return View(k, camX, camZ, h * STAND_LINE)
+}
+
 private val Amber = Color(0xFFE6A84A)
 private val EnergyBlue = Color(0xFF7FB6E8)
 private val MoodPink = Color(0xFFE88FA8)
 private val Ink = Color(0xFFF4EDE2)
 
 @Composable
-fun Game(engine: GameEngine, sprites: Sprites) {
+fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery) {
     val f by engine.frame.collectAsState()
     var info by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
@@ -117,25 +157,24 @@ fun Game(engine: GameEngine, sprites: Sprites) {
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val sizePx = constraints.maxWidth.coerceAtMost(constraints.maxHeight).toFloat()
-        val scale = sizePx * 0.40f / FlyWorld.HALF_WIDTH.toFloat() // px per mm of stage
-        val groundY = sizePx * 0.68f
         val flySize = sizePx * 0.46f
         Canvas(
             Modifier.fillMaxSize().pointerInput(Unit) {
                 detectTapGestures { pos ->
                     val cur = engine.frame.value
-                    val xMm = (pos.x - size.width / 2f) / scale
-                    val flyPx = size.width / 2f + cur.x.toFloat() * scale
-                    val flyY = groundY + size.height * STAND_DEPTH - cur.z.toFloat() * scale - flySize * 0.25f
+                    val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySize)
+                    val xMm = v.camX + (pos.x - size.width / 2f) / v.k
+                    val flyPx = size.width / 2f + (cur.x.toFloat() - v.camX) * v.k
+                    val flyY = v.standY - (cur.z.toFloat() - v.camZ) * v.k - flySize * 0.25f
                     if (kotlin.math.abs(pos.x - flyPx) < flySize * 0.35f && kotlin.math.abs(pos.y - flyY) < flySize * 0.3f) {
                         engine.tap(xMm.toDouble())          // a hand looms in: the brain decides whether to flee
-                    } else if (pos.y > groundY - 10) {
-                        engine.feed()                         // tapping the ground drops sugar too
+                    } else if (pos.y > v.standY - flySize * 0.2f) {
+                        engine.feed(xMm.toDouble())           // tapping the ground drops sugar there
                     }
                 }
             },
         ) {
-            drawScene(f, sprites, scale, groundY, flySize)
+            drawScene(f, sprites, scenery, viewFor(f, size.width, size.height, flySize), flySize)
             drawStats(f)
         }
         f.message?.let {
@@ -161,47 +200,75 @@ fun Game(engine: GameEngine, sprites: Sprites) {
     }
 }
 
-private const val STAND_DEPTH = 0.035f // fraction of the screen below the horizon where feet rest
+private const val STAND_LINE = 0.71f   // fraction of the screen height where the fly's feet rest
 private const val FEET_LINE = 0.756f   // claws' row in the 320 px sprite frames (watch/tools/sprites.html)
 
-private val stars = List(40) { Offset(Random(it).nextFloat(), Random(it + 99).nextFloat() * 0.6f) }
-private val tufts = List(70) { Triple(Random(it * 7).nextFloat(), Random(it * 13).nextFloat(), Random(it * 3).nextFloat()) }
+/**
+ * Draws the on-screen part of a scenery layer. col0 is the layer's column for stage x = 0 and
+ * row0 its row for the feet line; the layer moves `rate` times as fast as the stage.
+ */
+private fun DrawScope.drawLayer(img: ImageBitmap, sc: Scenery, v: View, col0: Float, row0: Float, rate: Float) {
+    val s = v.k / sc.pxPerMm                      // screen px per layer px
+    // Layer pixel under the screen's top-left corner.
+    var u0 = col0 + (v.camX * rate - size.width / 2 / v.k) * sc.pxPerMm
+    var v0 = row0 - (v.standY + v.camZ * rate * v.k) / s
+    var uw = size.width / s
+    var vh = size.height / s
+    var dx = 0f
+    var dy = 0f
+    if (u0 < 0) { dx = -u0 * s; uw += u0; u0 = 0f }
+    if (v0 < 0) { dy = -v0 * s; vh += v0; v0 = 0f }
+    uw = uw.coerceAtMost(img.width - u0)
+    vh = vh.coerceAtMost(img.height - v0)
+    if (uw <= 1 || vh <= 1) return
+    drawImage(
+        img, srcOffset = IntOffset(u0.toInt(), v0.toInt()), srcSize = IntSize(uw.toInt(), vh.toInt()),
+        dstOffset = IntOffset(dx.toInt(), dy.toInt()), dstSize = IntSize((uw * s).roundToInt(), (vh * s).roundToInt()),
+    )
+}
 
-private fun DrawScope.drawScene(f: Frame, sprites: Sprites, scale: Float, groundY: Float, flySize: Float) {
+private fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySize: Float) {
     val w = size.width
-    val h = size.height
-    // Sky by time of day, then the ground with grass tufts.
-    val sky = if (f.night) listOf(Color(0xFF0B1328), Color(0xFF1E2C4E)) else listOf(Color(0xFF9FD3EA), Color(0xFFF2E6C8))
-    drawRect(Brush.verticalGradient(sky, endY = groundY), size = Size(w, groundY))
-    if (f.night) stars.forEach { drawCircle(Color(0xCCFFFFFF), 1.6f, Offset(it.x * w, it.y * groundY)) }
-    drawRect(Brush.verticalGradient(listOf(Color(0xFF4F7A33), Color(0xFF2C431E)), startY = groundY, endY = h), Offset(0f, groundY), Size(w, h - groundY))
-    tufts.forEach { (tx, ty, th) ->
-        val bx = tx * w
-        val by = groundY + ty * (h - groundY) * 0.5f
-        val len = 6f + th * 14f
-        drawLine(Color(0xFF6E9E45), Offset(bx, by), Offset(bx - 3f, by - len), 2f, StrokeCap.Round)
-        drawLine(Color(0xFF5C8A3A), Offset(bx + 3f, by), Offset(bx + 6f, by - len * 0.8f), 2f, StrokeCap.Round)
-    }
-    // Things stand a little into the grass strip, not on the horizon line.
-    val standY = groundY + h * STAND_DEPTH
-    // Sugar drops: size shows how much is left.
+    // The grass arena behind the path.
+    drawRect(Color(0xFF0D0C0A))
+    drawLayer(sc.far, sc, v, sc.farX0, sc.feetRow, sc.parallax)
+    drawLayer(sc.near, sc, v, sc.x0, sc.feetRow, 1f)
+    val sx = { x: Double -> w / 2 + (x.toFloat() - v.camX) * v.k }
+    val groundY = v.standY + v.camZ * v.k
+    // Sugar drops at true size (2 mm across when full), glossy and flat.
     for ((fx, amount) in f.food) {
-        val cx = w / 2 + fx.toFloat() * scale
-        val r = 7f + 9f * (amount / 30.0).toFloat()
-        drawOval(Color(0xFFD9A441), Offset(cx - r, standY - r * 0.55f), Size(2 * r, r * 0.9f))
-        drawOval(Color(0x99FFF4D6), Offset(cx - r * 0.45f, standY - r * 0.45f), Size(r * 0.5f, r * 0.25f))
+        val cx = sx(fx)
+        val r = FlyWorld.FOOD_RADIUS.toFloat() * v.k * (0.45f + 0.55f * (amount / 30.0).toFloat().coerceIn(0f, 1f))
+        drawOval(Color(0xE6D9A441), Offset(cx - r, groundY - r * 0.32f), Size(2 * r, r * 0.55f))
+        drawOval(Color(0xAAFFF4D6), Offset(cx - r * 0.5f, groundY - r * 0.28f), Size(r * 0.55f, r * 0.16f))
     }
     // The fly: its claws are FEET_LINE of the way down each sprite frame.
     val img = sprites.pick(f)
-    val px = w / 2 + f.x.toFloat() * scale
-    val top = standY - f.z.toFloat() * scale - flySize * FEET_LINE
-    drawOval(Color(0x33000000), Offset(px - flySize * 0.22f, standY - 3f), Size(flySize * 0.44f, 7f))
+    val px = sx(f.x)
+    val top = groundY - f.z.toFloat() * v.k - flySize * FEET_LINE
+    val shadow = (1f - f.z.toFloat() / 15f).coerceIn(0.2f, 1f)
+    drawOval(Color(0x33000000).copy(alpha = 0.2f * shadow), Offset(px - flySize * 0.22f * shadow, groundY - 3f), Size(flySize * 0.44f * shadow, 7f))
     scale(scaleX = f.facing.toFloat(), scaleY = 1f, pivot = Offset(px, top + flySize / 2)) {
         drawImage(
             img, dstOffset = IntOffset((px - flySize / 2).toInt(), top.toInt()),
             dstSize = IntSize(flySize.toInt(), flySize.toInt()),
         )
     }
+    // Grass in front of the path, over the fly's feet.
+    drawLayer(sc.front, sc, v, sc.x0, sc.feetRow, 1f)
+    // Sugar off screen: a small arrow at that edge.
+    for ((fx, _) in f.food) {
+        val cx = sx(fx)
+        if (cx < 0 || cx > w) {
+            val ex = if (cx < 0) 18f else w - 18f
+            val d = if (cx < 0) -1f else 1f
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(ex + d * 10f, groundY - 8f); lineTo(ex - d * 4f, groundY - 16f); lineTo(ex - d * 4f, groundY); close()
+            }
+            drawPath(path, Amber)
+        }
+    }
+    if (f.night) drawRect(Color(0x8C06102A)) // moonlight
     if (f.anim == Anim.SLEEP) {
         val t = (f.animTime % 2.0).toFloat()
         drawContext.canvas.nativeCanvas.apply {

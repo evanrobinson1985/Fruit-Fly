@@ -36,7 +36,8 @@ class GameEngine(private val context: Context) {
     private val _frame = MutableStateFlow(Frame())
     val frame: StateFlow<Frame> = _frame
 
-    fun feed() = commands.add { it.dropFood() }
+    /** Drop sugar at a stage position, or (Feed button) a little ahead of the fly, where it can be seen. */
+    fun feed(atX: Double? = null) = commands.add { it.dropFood(atX ?: (it.x + it.facing * (2.5 + 2.5 * Math.random()))) }
 
     /** Tap at a stage position (mm): a hand looms in from that side. */
     fun tap(xMm: Double) = commands.add { it.tap(xMm) }

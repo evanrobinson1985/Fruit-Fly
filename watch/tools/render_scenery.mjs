@@ -31,10 +31,10 @@ await page.route("**/*", (route) => {
 await page.goto("http://app/scenery.html");
 await page.waitForFunction(() => window.ready, null, { timeout: 300000 });
 mkdirSync(out, { recursive: true });
-for (const layer of ["behind", "front"]) {
-  const { slices, W, H, SW } = await page.evaluate((l) => window.render(l), layer);
-  slices.forEach((d, i) => writeFileSync(join(out, `${layer}_${String(i).padStart(4, "0")}.png`), Buffer.from(d.split(",")[1], "base64")));
-  console.log(layer, slices.length, "slices of", SW, "px for", W, "x", H);
+for (const layer of ["near", "front", "far"]) {
+  const { tiles, W, H, TILE } = await page.evaluate((l) => window.render(l), layer);
+  for (const t of tiles) writeFileSync(join(out, `${layer}_${t.ty}_${t.tx}.png`), Buffer.from(t.png.split(",")[1], "base64"));
+  console.log(layer, tiles.length, "tiles of", TILE, "for", W, "x", H);
 }
-writeFileSync(join(out, "scenery.json"), JSON.stringify(await page.evaluate(() => window.meta)));
+writeFileSync(join(out, "scenery.json"), JSON.stringify(await page.evaluate(() => window.meta())));
 await browser.close();
