@@ -55,6 +55,12 @@ Binary data is stored as grayscale PNGs (`web/tools/pngpack.py`) because static 
 only serve web media types still serve PNG. The browser inflates the pixel rows directly,
 so the bytes are exact.
 
+## On your wrist: Feed the Fly
+
+[`watch/`](watch) is a Tamagotchi-style Wear OS game (built for the Galaxy Watch Ultra)
+where a 15k-neuron subcircuit of the same connectome decides whether your fly eats and
+when it flees. See [watch/README.md](watch/README.md) to install it.
+
 ## Quick start
 
 ```bash

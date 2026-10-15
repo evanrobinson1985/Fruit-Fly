@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Feed the Fly sprite renderer</title>
+<!-- Renders FlyBody animation frames with a transparent background for the watch game.
+     Driven by watch/tools/render_sprites.mjs; serve the repository's web/ folder as the root. -->
+<body style="margin:0;background:transparent">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { loadFly } from "/src/fly.js";
+const SIZE = 320;
+const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+r.setSize(SIZE, SIZE);
+r.setClearColor(0x000000, 0);
+r.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.6;
+scene.add(new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.8));
+const sun = new THREE.DirectionalLight(0xfff0dd, 2.2);
+sun.position.set(2, -4, 6);
+scene.add(sun);
+const fly = await loadFly("/assets/");
+fly.root.position.z = -fly.groundOffset;
+scene.add(fly.root);
+// Three-quarter side view, fly facing screen right (+x), seen slightly from above and the front.
+const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+cam.up.set(0, 0, 1);
+cam.position.set(1.4, -10.5, 4.2);
+cam.lookAt(-0.6, 0, 1.0);
+const TAU = Math.PI * 2;
+function pose(kind, t) {
+  fly.setWalk(0, 0, 0); fly.setFlightLegs(0); fly.setWings(0, 0); fly.setProboscis(0);
+  for (const s of ["l", "r"]) fly.set(`c_head-${s}_antenna-pitch`, 0);
+  fly.root.position.set(0, 0, -fly.groundOffset);
+  if (kind === "walk") fly.setWalk(t * TAU, 1, 1);
+  if (kind === "idle") for (const s of ["l", "r"]) fly.set(`c_head-${s}_antenna-pitch`, 0.25 * Math.sin(t * TAU + (s === "l" ? 0 : 1)));
+  if (kind === "feed") fly.setProboscis(Math.sin(t * Math.PI));
+  if (kind === "fly") { fly.setFlightLegs(1); fly.setWings(1, t * TAU); fly.root.position.z = 0.6 - fly.groundOffset; fly.root.position.x = -0.6; }
+  if (kind === "sleep") { fly.setWalk(Math.PI, 0, 0); fly.root.position.z = -fly.groundOffset - 0.12; fly.set("c_thorax-c_head-pitch", 0.25); }
+  fly.update();
+}
+const ANIMS = { idle: 8, walk: 16, feed: 10, fly: 6, sleep: 1 };
+window.render = () => {
+  const out = {};
+  for (const [kind, n] of Object.entries(ANIMS)) {
+    out[kind] = [];
+    for (let i = 0; i < n; i++) {
+      pose(kind, i / n);
+      r.render(scene, cam);
+      out[kind].push(r.domElement.toDataURL("image/png"));
+    }
+  }
+  return out;
+};
+window.ready = true;
+</script>

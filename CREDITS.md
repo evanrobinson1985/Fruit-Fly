@@ -84,8 +84,15 @@ cited next to each entry in `flysim/interface.py`):
 - Moonwalker (MDN) backward walking: Bidaye, S. S. *et al.* *Science* 344, 97–101 (2014).
 - DNa01/DNa02 steering: Rayshubskiy, A. *et al.* bioRxiv (2020); Yang, H. H. *et al.* *Cell* (2024).
 - MN9 proboscis extension: Gordon, M. D. & Scott, K. *Neuron* 61, 373–384 (2009).
+- Hunger raises sugar-neuron sensitivity (Feed the Fly's hunger mechanic): Inagaki, H. K.
+  *et al.* *Neuron* (2012).
 - Synaptic depression in the antennal lobe: Kazama, H. & Wilson, R. I. *Neuron* 58,
   401–413 (2008).
+
+## Feed the Fly (watch game)
+
+Uses the same connectome, neuron model, FlyBody fly and NeuroMechFly leg recordings as above;
+see [watch/README.md](watch/README.md). Built with Jetpack Compose for Wear OS (Apache 2.0).
 
 ## Software and fonts
 

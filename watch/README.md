@@ -1,0 +1,86 @@
+# Feed the Fly
+
+A Tamagotchi-style pet for **Wear OS** watches (built for the Samsung Galaxy Watch Ultra),
+using the same fly and neuron model as the rest of this repository. Your fly lives on your
+wrist: it gets hungry, sleeps at night, and decides for itself, with real connectome
+wiring, whether to eat what you give it and whether to flee when you poke at it.
+
+## Playing
+
+- **Feed** (or tap the ground) drops sugar. The fly walks over, and when its feet touch
+  the drop its sugar-sensing taste neurons fire. If the proboscis motor neuron **MN9**
+  responds, the proboscis comes out and the fly drinks. A full fly often doesn't respond:
+  it says "Not hungry" and walks off.
+- **Tap the fly** and a hand looms in from that side. Its looming detectors (LC4, LPLC2)
+  drive the **Giant Fiber**; if that crosses threshold, the fly takes off. Chasing it
+  around too often upsets it.
+- **Food, energy and mood** are the three arcs at the top of the face. Food drains over
+  about 12 hours, energy while it's awake, and it sleeps from 22:00 to 07:00 (sleeping
+  flies are harder to startle). If food runs out, the fly lies still until you feed it.
+- **i** opens stats, live neuron rates and credits.
+
+## What's real and what isn't
+
+- **Brain:** the watch runs a **15,154-neuron, 2.4-million-connection subcircuit** of the
+  MaleCNS v1.0 connectome: every neuron on a strong path of up to 4 synapses from the
+  game's senses (taste, looming) to its behaviors (MN9, Giant Fiber, P9, MDN, DNa01/02),
+  plus every connection among them. It uses the same neuron model as the website (Shiu et al.
+  2024 plus short-term depression). [VALIDATION.md](VALIDATION.md) compares it with the
+  full 165k-neuron brain: looming → Giant Fiber 285 vs 285 Hz, taste → MN9 20 vs 21 Hz.
+  Odor responses differ, so the game has no odor lures.
+- **Hunger:** starvation makes sugar-sensing neurons more sensitive (Inagaki et al. 2012),
+  so a hungry fly recruits more of them (up to 40 of 72) when it touches food. Whether
+  that set drives MN9 past threshold is decided by the circuit: with 1–4 neurons it
+  rarely does, with 12 or more it almost always does. In tests a full fly fed in 0 of 6
+  trials and a starving fly in 6 of 6.
+- **Hand-set:** walking toward food, wandering, the sleep schedule, stat decay rates,
+  and how fast it drinks are game rules, not neural.
+- **Fly:** frames are pre-rendered from the FlyBody 3D model (`tools/sprites.html`) with
+  recorded NeuroMechFly leg kinematics, so it looks like the website's fly at little
+  battery cost.
+
+## Installing on your watch
+
+Every push that changes `watch/` builds the app on GitHub Actions
+(`.github/workflows/watch-apk.yml`). Open the latest run of **Feed the Fly (Wear OS APK)**
+in the repository's **Actions** tab and download the `feed-the-fly-apk` artifact (a zip
+with `app-release.apk`).
+
+Wear OS apps that aren't on the Play Store are installed with `adb`
+([Android platform tools](https://developer.android.com/tools/releases/platform-tools)):
+
+1. On the watch: **Settings → About watch → Software information**, tap **Software
+   version** 5 times to enable Developer options.
+2. **Settings → Developer options**: turn on **ADB debugging** and **Wireless debugging**.
+   Put the watch and computer on the same Wi-Fi.
+3. In Wireless debugging, tap **Pair new device** and run, with the shown address and code:
+   `adb pair <ip>:<pair-port>` then `adb connect <ip>:<port>` (the port on the main
+   Wireless debugging screen).
+4. `adb install -r app-release.apk`, then open **Feed the Fly** from the app list.
+
+Phone apps that wrap `adb` (for example Bugjaeger on Android) can do the same without a
+computer. The APK is signed with a public sideload key (`sideload.keystore`), so newer
+builds install over older ones and keep your pet. It is not suitable for Play Store release.
+
+## Building and rebuilding assets
+
+```bash
+cd watch
+./gradlew :brain:test                       # brain + game logic tests (no Android SDK needed)
+./gradlew :app:assembleRelease              # APK (needs the Android SDK)
+# Rebuild the circuit and validation report (from the repo root):
+PYTHONPATH=. python watch/tools/export_brain.py
+# Re-render the fly frames:
+cd watch/tools && npm install three@0.169.0 playwright && node render_sprites.mjs && python sprites_to_webp.py
+```
+
+`:brain` is plain Kotlin (engine in `brain/src/main/kotlin/fly/brain`, game in
+`fly/game`), tested on the JVM. `:app` is the Wear OS Compose UI.
+
+## Credits
+
+Brain: MaleCNS v1.0 connectome (Janelia FlyEM, Google Research, Cambridge Connectomics
+Group / MRC LMB and consortium; CC-BY 4.0) and the neuron model of Shiu, Sterne *et al.*,
+*Nature* 2024. Fly: FlyBody (Vaxenburg, Siwanowicz *et al.*, *Nature* 2025; Apache-2.0),
+rigged with NeuroMechFly / flygym (Ramdya lab, EPFL; Apache-2.0). Hunger and sugar
+sensitivity: Inagaki *et al.*, *Neuron* 2012. Full citations: [../CREDITS.md](../CREDITS.md).
