@@ -42,6 +42,12 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   recorded from a real walking fly in a tripod gait. Stepping frequency follows walking
   speed, and stride length on each side follows turning. Wings, halteres, proboscis and
   antennae are posed from the same model and behavioral state.
+- **Skin (switchable):** "Realistic" paints the FlyBody mesh from *Drosophila* anatomy:
+  a golden-brown thorax with faint scutal stripes, the male abdomen's tan tergites with dark
+  posterior bands and wholly dark A5–A6, pale sternites and legs with darker tarsi, about
+  780 hexagonal lens facets per eye with the dark pseudopupil, a fine-grained waxy cuticle
+  and clear iridescent wings. "Plain" restores FlyBody's flat colours. Folded wings rest
+  on top of the abdomen, right over left (solved so they clear it by at least 15 µm).
 - **World:** a 200 mm arena with a 50 mm glass wall. The floor switch picks the lab
   arena (filter paper, the default) or grass and small weeds (fine turf, clover, dandelion
   rosettes, seedlings) at true scale for a 2.5 mm fly. On grass the fly walks on top of
