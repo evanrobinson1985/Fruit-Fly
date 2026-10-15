@@ -182,12 +182,14 @@ def rate_hz(counts: np.ndarray, idx, ms: float) -> np.ndarray:
 # but on the full male CNS (brain + VNC + optic lobes) it falls into
 # self-sustaining whole-brain activity within a few hundred ms of any olfactory
 # or gustatory input.
-# "realistic": adds short-term synaptic depression and the connectome edits in
-# data.functional(). Activity stays stimulus-locked and decays after the input
-# ends, which closed-loop behavior needs.
+# "realistic": adds short-term synaptic depression, spike-frequency adaptation and
+# the connectome edits in data.functional(). Activity stays stimulus-locked and
+# decays after the input ends, which closed-loop behavior needs. Adaptation
+# (1 mV per spike, 200 ms) stops the antennal lobe's excitatory local neurons
+# (lLN1_bc) from locking into ~250 Hz self-sustained firing under background input.
 PRESETS = {
     "shiu2024": (dict(), dict(drop_kc_kc=False, drop_sensory_inputs=False, drop_unclear=False)),
-    "realistic": (dict(stp_u=0.2, tau_rec=500.0), dict()),
+    "realistic": (dict(stp_u=0.2, tau_rec=500.0, adapt=1.0, tau_adapt=200.0), dict()),
 }
 
 

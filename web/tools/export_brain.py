@@ -94,14 +94,36 @@ def main():
         chunks.append({"file": name, "bytes": int(b - a), "png_bytes": len(png)})
 
     io = interface.Interface(raw)
-    side = c.neurons.side.to_numpy()
+    nn = c.neurons
+    side = nn.side.to_numpy()
     by_side = lambda idx: {s: idx[side[idx] == s].tolist() for s in "LR"}
+    sc, cl, sub = (nn[k].fillna("") for k in ("superclass", "class", "subclass"))
+    pick = lambda m: np.flatnonzero(np.asarray(m))
+    motor = {k: {s: v.tolist() for s, v in d.items()} for k, d in io.motor.items()}
+    motor |= {k: {s: v.tolist() for s, v in d.items()} for k, d in interface.motor_pools(nn).items()}
+    bg = interface.spontaneous_rates(nn)
     groups = {
         "odor": {o: by_side(raw.select(type=t)) for o, t in interface.ODORS.items()},
         "taste": io.grn.tolist(),
         "loom": {s: v.tolist() for s, v in io.loom.items()},
-        "motor": {k: {s: v.tolist() for s, v in d.items()} for k, d in io.motor.items()},
+        "motor": motor,
+        # Mechanosensory neurons for poking a body part, by side.
+        "touch": {
+            "head": by_side(pick(sc.eq("cb_sensory") & cl.eq("mechanosensory") & sub.isin(["", "grooming"]))),
+            "thorax": by_side(pick(sc.eq("vnc_sensory") & cl.eq("mechanosensory_tactile") & sub.eq("notum"))),
+            "legs": by_side(pick(sc.eq("vnc_sensory") & cl.eq("mechanosensory_tactile") & sub.isin(["leg", "mechanosensory bristle"]))),
+            "abdomen": by_side(pick(sc.eq("vnc_sensory") & sub.eq("abdomen"))),
+        },
+        # Johnston's organ wind/gravity neurons in each antenna.
+        "wind": by_side(pick(sc.eq("cb_sensory") & sub.eq("wind_gravity"))),
+        "background": {"idx": np.flatnonzero(bg).tolist(), "hz": bg[bg > 0].round(2).tolist()},
     }
+    # Cell-type names for the optogenetics panel: type id per neuron (0 = untyped).
+    names = sorted(nn["type"].dropna().unique())
+    tid = nn["type"].map({t: i + 1 for i, t in enumerate(names)}).fillna(0).to_numpy(np.uint16)
+    (OUT / "brain-type.png").write_bytes(pngpack.encode(tid.astype("<u2").tobytes()))
+    counts = np.bincount(tid, minlength=len(names) + 1)
+    (OUT / "brain-types.json").write_text(json.dumps({"types": names, "counts": counts[1:].tolist()}))
     xyz = positions(c, data.DEFAULT_DATA_DIR / data.ANNOT)
     lo, hi = xyz.min(0), xyz.max(0)
     q = np.round((xyz - lo) / (hi - lo) * 65535).astype(np.uint16)

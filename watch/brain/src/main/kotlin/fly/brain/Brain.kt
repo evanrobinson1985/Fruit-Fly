@@ -14,6 +14,7 @@ data class LifParams(
     val dt: Double = 0.1, val v0: Double = -52.0, val vReset: Double = -52.0, val vTh: Double = -45.0,
     val tauM: Double = 20.0, val tauSyn: Double = 5.0, val tRef: Double = 2.2, val delay: Double = 1.8,
     val wSyn: Double = 0.275, val fPoi: Double = 250.0, val stpU: Double = 0.2, val tauRec: Double = 500.0,
+    val adapt: Double = 0.0, val tauAdapt: Double = 200.0,
 )
 
 /** The watch circuit: connections stored by presynaptic neuron, plus named neuron groups. */
@@ -44,6 +45,7 @@ class Connectome(val indptr: IntArray, val post: IntArray, val w: ShortArray, va
                 dt = p["dt"]!!, v0 = p["v0"]!!, vReset = p["v_reset"]!!, vTh = p["v_th"]!!, tauM = p["tau_m"]!!,
                 tauSyn = p["tau_syn"]!!, tRef = p["t_ref"]!!, delay = p["delay"]!!, wSyn = p["w_syn"]!!,
                 fPoi = p["f_poi"]!!, stpU = p["stp_u"]!!, tauRec = p["tau_rec"]!!,
+                adapt = p["adapt"] ?: 0.0, tauAdapt = p["tau_adapt"] ?: 200.0,
             )
             return Connectome(indptr, post, w, groups, params)
         }
@@ -51,7 +53,8 @@ class Connectome(val indptr: IntArray, val post: IntArray, val w: ShortArray, va
 }
 
 /**
- * Leaky integrate-and-fire network with short-term depression: a port of
+ * Leaky integrate-and-fire network with short-term depression and spike-frequency
+ * adaptation: a port of
  * web/src/brain-engine.js (itself a port of flysim/model.py, Shiu et al. 2024).
  *
  * Event-driven: a neuron is stepped only while it could reach threshold. When the
@@ -68,13 +71,18 @@ class Brain(private val c: Connectome, seed: Int = 1) {
     private val recKeep = 1.0 - p.dt / p.tauRec
     private val kick = (p.fPoi * p.wSyn).toFloat()
     private val bFac = p.tauSyn / (p.tauSyn - p.tauM)
+    private val bAd = p.adapt.toFloat()
+    private val decayA = exp(-p.dt / p.tauAdapt).toFloat()
+    private val cFac = p.tauAdapt / (p.tauAdapt - p.tauM)
     private val uTh = p.vTh - p.v0 - 0.5
     private val kPeak: Double
     private val expM: DoubleArray
     private val expS: DoubleArray
+    private val expA: DoubleArray
 
     private val v = FloatArray(n)
     private val g = FloatArray(n)
+    private val ad = FloatArray(n)
     private val ref = ByteArray(n)
     private val x = FloatArray(n)
     private val xStep = IntArray(n)
@@ -103,11 +111,12 @@ class Brain(private val c: Connectome, seed: Int = 1) {
         val k = (3000 / p.dt).roundToInt()
         expM = DoubleArray(k) { exp(-it * p.dt / p.tauM) }
         expS = DoubleArray(k) { exp(-it * p.dt / p.tauSyn) }
+        expA = DoubleArray(k) { exp(-it * p.dt / p.tauAdapt) }
         reset()
     }
 
     fun reset() {
-        v.fill(p.v0.toFloat()); g.fill(0f); ref.fill(0); x.fill(1f); xStep.fill(0); tLast.fill(0)
+        v.fill(p.v0.toFloat()); g.fill(0f); ad.fill(0f); ref.fill(0); x.fill(1f); xStep.fill(0); tLast.fill(0)
         isActive.fill(false); nActive = 0
         buf.forEach { it.fill(0f) }; nTouched.fill(0)
         step = 0
@@ -130,17 +139,22 @@ class Brain(private val c: Connectome, seed: Int = 1) {
         return (s.toLong() and 0xffffffffL) / 4294967296.0
     }
 
+    /** Advance a dormant neuron exactly: u(t) = A e^-t/tm + B e^-t/ts + C e^-t/ta. */
     private fun catchUp(i: Int, t: Int) {
         val steps = t - 1 - tLast[i]
         if (steps <= 0) return
         val g0 = g[i].toDouble()
         val u0 = v[i] - p.v0
-        if (g0 == 0.0 && u0 == 0.0) return
-        if (steps >= expM.size) { g[i] = 0f; v[i] = p.v0.toFloat(); return }
+        val a0 = ad[i].toDouble()
+        if (g0 == 0.0 && u0 == 0.0 && a0 == 0.0) return
+        if (steps >= expM.size) { g[i] = 0f; ad[i] = 0f; v[i] = p.v0.toFloat(); return }
         val b = g0 * bFac
+        val cc = -a0 * cFac
         val es = expS[steps]
+        val ea = expA[steps]
         g[i] = (g0 * es).toFloat()
-        v[i] = (p.v0 + (u0 - b) * expM[steps] + b * es).toFloat()
+        ad[i] = (a0 * ea).toFloat()
+        v[i] = (p.v0 + (u0 - b - cc) * expM[steps] + b * es + cc * ea).toFloat()
     }
 
     private fun activate(i: Int, t: Int) {
@@ -189,9 +203,10 @@ class Brain(private val c: Connectome, seed: Int = 1) {
                 catchUp(i, t)
                 if (ref[i].toInt() == 0) {
                     val gn = g[i] * decay + row[i]
-                    val un = v[i] - v0 + dtTau * (gn - (v[i] - v0))
+                    val an = ad[i] * decayA
+                    val un = v[i] - v0 + dtTau * (gn - (v[i] - v0) - an)
                     if (max(un.toDouble(), 0.0) + kPeak * max(gn.toDouble(), 0.0) < uTh) {
-                        g[i] = gn; v[i] = v0 + un; row[i] = 0f; tLast[i] = t
+                        g[i] = gn; ad[i] = an; v[i] = v0 + un; row[i] = 0f; tLast[i] = t
                         continue
                     }
                 }
@@ -214,13 +229,16 @@ class Brain(private val c: Connectome, seed: Int = 1) {
                 row[i] = 0f
                 if (gi < 1e-6f && gi > -1e-6f) gi = 0f
                 g[i] = gi
+                var ai = ad[i] * decayA
+                if (ai < 1e-6f) ai = 0f
                 if (ref[i] > 0) {
                     ref[i] = (ref[i] - 1).toByte()
                 } else {
-                    var vi = v[i] + dtTau * (gi - (v[i] - v0))
-                    if (vi > vTh) { vi = vReset; ref[i] = refSteps.toByte(); spk[ns++] = i }
+                    var vi = v[i] + dtTau * (gi - (v[i] - v0) - ai)
+                    if (vi > vTh) { vi = vReset; ai += bAd; ref[i] = refSteps.toByte(); spk[ns++] = i }
                     v[i] = vi
                 }
+                ad[i] = ai
                 if (ref[i].toInt() == 0 && !canFire((v[i] - v0).toDouble(), gi.toDouble())) {
                     isActive[i] = false
                     tLast[i] = t

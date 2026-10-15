@@ -1,5 +1,6 @@
 // Leaky integrate-and-fire network over the connectome: a port of flysim/model.py
-// (Shiu et al. 2024 neuron model + short-term depression, "realistic" preset).
+// (Shiu et al. 2024 neuron model + short-term depression + spike-frequency
+// adaptation, "realistic" preset).
 //
 // Event-driven: a neuron is stepped only while it could reach threshold. When
 // the closed-form peak of v (given its current v and g and no further input)
@@ -60,6 +61,11 @@ export class Brain {
     this.dtTau = p.dt / p.tau_m;
     this.recKeep = 1 - p.dt / p.tau_rec; // per-step fraction of depression remaining
     this.kick = p.f_poi * p.w_syn;
+    // Adaptation: each spike adds `adapt` mV of hyperpolarizing drive a, decaying with tau_adapt.
+    this.bAd = p.adapt || 0;
+    this.tauA = p.tau_adapt || 200;
+    this.decayA = Math.exp(-p.dt / this.tauA);
+    this.cFac = this.tauA / (this.tauA - p.tau_m);
     // Closed-form solution for u = v - v0 without input: u(t) = A e^{-t/tm} + B e^{-t/ts},
     // B = g0 ts / (ts - tm). Dormant neurons must stay `margin` mV below threshold.
     this.bFac = p.tau_syn / (p.tau_syn - p.tau_m);
@@ -72,6 +78,7 @@ export class Brain {
     const K = Math.round(3000 / p.dt);
     this.expM = Float64Array.from({ length: K }, (_, k) => Math.exp((-k * p.dt) / p.tau_m));
     this.expS = Float64Array.from({ length: K }, (_, k) => Math.exp((-k * p.dt) / p.tau_syn));
+    this.expA = Float64Array.from({ length: K }, (_, k) => Math.exp((-k * p.dt) / this.tauA));
     this.rate = new Float64Array(this.n);
     this.seed = seed >>> 0 || 1;
     this.reset();
@@ -81,6 +88,7 @@ export class Brain {
     const n = this.n;
     this.v = new Float32Array(n).fill(this.p.v0);
     this.g = new Float32Array(n);
+    this.a = new Float32Array(n);
     this.ref = new Uint8Array(n);
     this.x = new Float32Array(n).fill(1);
     this.xStep = new Int32Array(n);
@@ -95,7 +103,9 @@ export class Brain {
     this.step = 0;
     this.rng = this.seed;
     this.driveIdx = new Int32Array(0);
-    this.driveP = new Float64Array(0);
+    this.driveCum = new Float64Array(0);
+    this.driveLambda = 0;
+    this.driveExpNeg = 1;
   }
 
   get timeMs() {
@@ -110,6 +120,18 @@ export class Brain {
     return this.rng / 4294967296;
   }
 
+  // Number of input spikes this step ~ Poisson(driveLambda).
+  _poisson() {
+    const lam = this.driveLambda;
+    if (lam < 30) {
+      let k = 0, prod = this.random();
+      while (prod > this.driveExpNeg) { k++; prod *= this.random(); }
+      return k;
+    }
+    const z = Math.sqrt(-2 * Math.log(1 - this.random())) * Math.cos(2 * Math.PI * this.random());
+    return Math.max(0, Math.round(lam + Math.sqrt(lam) * z));
+  }
+
   setRates(idx, hz) {
     for (const i of idx) this.rate[i] = hz;
     this._dirty = true;
@@ -120,20 +142,24 @@ export class Brain {
     this._dirty = true;
   }
 
-  // Advance dormant neuron i exactly to the end of step t-1.
+  // Advance dormant neuron i exactly to the end of step t-1. Without input,
+  // u = v - v0 follows u(t) = A e^{-t/tm} + B e^{-t/ts} + C e^{-t/ta}, with
+  // B = g0 ts/(ts - tm) and C = -a0 ta/(ta - tm).
   _catchUp(i, t) {
     const steps = t - 1 - this.tLast[i];
     if (steps <= 0) return;
-    const g0 = this.g[i], u0 = this.v[i] - this.p.v0;
-    if (g0 === 0 && u0 === 0) return;
+    const g0 = this.g[i], u0 = this.v[i] - this.p.v0, a0 = this.a[i];
+    if (g0 === 0 && u0 === 0 && a0 === 0) return;
     if (steps >= this.expM.length) {
       this.g[i] = 0;
+      this.a[i] = 0;
       this.v[i] = this.p.v0;
       return;
     }
-    const B = g0 * this.bFac, es = this.expS[steps];
+    const B = g0 * this.bFac, C = -a0 * this.cFac, es = this.expS[steps], ea = this.expA[steps];
     this.g[i] = g0 * es;
-    this.v[i] = this.p.v0 + (u0 - B) * this.expM[steps] + B * es;
+    this.a[i] = a0 * ea;
+    this.v[i] = this.p.v0 + (u0 - B - C) * this.expM[steps] + B * es + C * ea;
   }
 
   _activate(i, t) {
@@ -144,6 +170,7 @@ export class Brain {
   }
 
   // Can a neuron with these u = v - v0 and g ever reach threshold without more input?
+  // (Adaptation only pulls v down, so ignoring it keeps this an upper bound.)
   _canFire(u0, g0) {
     if (u0 >= this.uTh) return true;
     if (g0 <= 0) return false; // then u <= max(u0, 0)
@@ -160,13 +187,21 @@ export class Brain {
   // neuron indices to `events` (Int32Array) while there is room. Returns #events.
   run(ms, counts, events) {
     if (this._dirty) {
+      // Poisson input: each step draws how many input spikes arrive in total, then
+      // picks which neurons get them (cumulative-rate search). Same statistics as a
+      // per-neuron coin flip, but cheap with thousands of background-driven neurons.
       const idx = [];
       for (let i = 0; i < this.n; i++) if (this.rate[i] > 0) idx.push(i);
       this.driveIdx = Int32Array.from(idx);
-      this.driveP = Float64Array.from(idx, (i) => this.rate[i] * this.p.dt * 1e-3);
+      this.driveCum = new Float64Array(idx.length);
+      let acc = 0;
+      idx.forEach((i, k) => { acc += this.rate[i] * this.p.dt * 1e-3; this.driveCum[k] = acc; });
+      this.driveLambda = acc;
+      this.driveExpNeg = Math.exp(-acc);
       this._dirty = false;
     }
-    const { v, g, ref, x, xStep, isActive, active, indptr, post, w, D } = this;
+    const { v, g, a: ad, ref, x, xStep, isActive, active, indptr, post, w, D } = this;
+    const decayA = this.decayA, bAd = this.bAd;
     const { v0, v_reset, v_th, w_syn, stp_u } = this.p;
     const decay = this.decay, dtTau = this.dtTau, refSteps = this.refSteps, recKeep = this.recKeep;
     const kPeak = this.kPeak, uTh = this.uTh;
@@ -184,9 +219,11 @@ export class Brain {
         this._catchUp(i, t);
         if (ref[i] === 0) {
           const gn = g[i] * decay + row[i];
-          const un = v[i] - v0 + dtTau * (gn - (v[i] - v0));
+          const an = ad[i] * decayA;
+          const un = v[i] - v0 + dtTau * (gn - (v[i] - v0) - an);
           if ((un > 0 ? un : 0) + kPeak * (gn > 0 ? gn : 0) < uTh) {
             g[i] = gn;
+            ad[i] = an;
             v[i] = v0 + un;
             row[i] = 0;
             this.tLast[i] = t;
@@ -197,9 +234,12 @@ export class Brain {
         this._activate(i, t);
       }
       this.nTouched[slot] = 0;
-      for (let k = 0; k < this.driveIdx.length; k++) {
-        if (this.random() < this.driveP[k]) {
-          const i = this.driveIdx[k];
+      if (this.driveIdx.length) {
+        for (let m = this._poisson(); m > 0; m--) {
+          const u = this.random() * this.driveLambda;
+          let lo = 0, hi = this.driveCum.length - 1;
+          while (lo < hi) { const mid = (lo + hi) >> 1; if (this.driveCum[mid] < u) lo = mid + 1; else hi = mid; }
+          const i = this.driveIdx[lo];
           this._activate(i, t);
           g[i] += this.kick;
         }
@@ -212,17 +252,21 @@ export class Brain {
         row[i] = 0;
         if (gi < 1e-6 && gi > -1e-6) gi = 0;
         g[i] = gi;
+        let ai = ad[i] * decayA;
+        if (ai < 1e-6) ai = 0;
         if (ref[i] > 0) {
           ref[i]--;
         } else {
-          let vi = v[i] + dtTau * (gi - (v[i] - v0));
+          let vi = v[i] + dtTau * (gi - (v[i] - v0) - ai);
           if (vi > v_th) {
             vi = v_reset;
+            ai += bAd;
             ref[i] = refSteps;
             this.spk[ns++] = i;
           }
           v[i] = vi;
         }
+        ad[i] = ai;
         if (ref[i] === 0 && !this._canFire(v[i] - v0, gi)) {
           isActive[i] = 0;
           this.tLast[i] = t;

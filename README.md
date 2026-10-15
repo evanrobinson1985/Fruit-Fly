@@ -26,8 +26,16 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
 - **Brain:** a JavaScript port of the `realistic` preset (`web/src/brain-engine.js`) runs all
   165,122 neurons and 23.4M connections in a Web Worker. It updates a neuron only while it
   could reach threshold; quiet neurons are advanced in closed form when input arrives. It
-  matches the Python engine (`node web/tools/check_engine.mjs`) and runs at about real time
-  on a desktop CPU. The connectome is a one-time 46 MB download.
+  matches the Python engine (`node web/tools/check_engine.mjs`). The connectome is a
+  one-time 46 MB download, fetched one part at a time with automatic retries.
+- **Spontaneous activity:** with the switch on (default), about 11,800 sensory neurons fire
+  at low background rates, as real ones do (`flysim/interface.py: SPONTANEOUS_HZ`), so the
+  brain is active at rest and the fly walks, pauses, backs up and takes off on its own.
+  This roughly halves simulation speed; the panel shows the speed relative to real time.
+- **Behavior from motor neurons:** walking speed and turning come from the leg motor-neuron
+  pools of the ventral nerve cord (500 neurons, by side), voluntary flight from the indirect
+  flight-muscle motor neurons (DLMn, DVMn) and steering from the wing motor neurons. P9 and
+  MDN still add forward and backward walking, MN9 feeding, and the Giant Fiber escape.
 - **Body:** the [FlyBody](https://github.com/TuragaLab/flybody) model (Vaxenburg et al.
   2025, *Nature*; 272k triangles, 99 joints), rigged by
   [flygym](https://github.com/NeLy-EPFL/flygym). Legs replay single-step trajectories
@@ -38,9 +46,14 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   arena (filter paper, the default) or grass and small weeds (fine turf, clover, dandelion
   rosettes, seedlings) at true scale for a 2.5 mm fly. On grass the fly walks on top of
   leaves and the matted turf, tilted to the surface, and tastes food only when it is down
-  on the ground. Click to place food drops and odor sources (vinegar, CO₂, geosmin), and
-  launch looming threats. The panels show descending-neuron rates, sensory input, and a
-  dorsal map of the whole CNS that flashes on every spike.
+  on the ground.
+- **What you can do:** drop food, place odor sources (vinegar, CO₂, geosmin), launch
+  looming threats, **poke** a body part (head, back, legs or abdomen: that side's touch
+  neurons fire), **blow wind** from any direction (Johnston's-organ wind neurons, stronger
+  on the windward antenna), and use **optogenetics** to drive any of the 11,751 named cell
+  types (for example MDN to walk backward, DNp09 to run, DNp01 to escape). The panels show
+  motor and descending-neuron rates, sensory input, and a dorsal map of the whole CNS that
+  flashes on every spike.
 
 All assets are in the repository, so the site runs straight from a download or clone:
 `python -m http.server -d web 8000`, then open http://localhost:8000.
@@ -103,7 +116,7 @@ spike propagation step.
 **Presets.** Running the published model unchanged on the full male CNS
 (`--preset shiu2024`) fails: within ~300 ms of almost any olfactory or taste
 input, 10–20k neurons lock into self-sustaining activity that never stops (see
-`results/validation.md`). The default `realistic` preset adds four
+`results/validation.md`). The default `realistic` preset adds five
 biologically motivated changes:
 
 1. **Short-term synaptic depression** (U = 0.2, τ_rec = 500 ms). Fly synapses
@@ -114,6 +127,9 @@ biologically motivated changes:
 3. **No synapses onto sensory neurons.** These sit on axon terminals, and sensory
    spikes start in the periphery.
 4. **"Unclear" transmitter neurons get zero sign** instead of being assumed excitatory.
+5. **Spike-frequency adaptation** (1 mV per spike, τ = 200 ms). Without it the antennal
+   lobe's excitatory local neurons (lLN1_bc) lock into ~250 Hz self-sustained firing
+   whenever there is any smell input or background activity.
 
 **Senses and motors** (`flysim/interface.py`). These are hand-built links,
 each with a literature citation in the code:
@@ -166,6 +182,12 @@ Limits to keep in mind:
   histaminergic and graded, which a spiking model at rest cannot represent, so
   looming is injected at the visual projection neurons.
 - **Fast synapses only.** The model has no gap junctions, neuromodulation or plasticity.
+  One visible consequence: the Giant Fiber's synapse onto the jump motor neuron (TTMn) is
+  mostly electrical, so in the model TTMn barely responds (5–11 Hz) while the Giant Fiber
+  fires at 300+ Hz. Escape is therefore read from the Giant Fiber itself.
+- **Spontaneous rates are partly assumed.** Smell-receptor rates follow published ranges;
+  the others are low guesses, and the behavior thresholds were set from a minute of
+  simulated spontaneous activity (in `web/src/world.js`).
 
 To change any mapping, edit the tables in `flysim/interface.py`. To change the
 model, pass parameters to `make_brain`:

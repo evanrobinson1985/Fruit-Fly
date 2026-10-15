@@ -1,7 +1,7 @@
 // Loads the connectome and runs the spiking brain. Used inside a Web Worker
 // (brain-worker.js) or, if workers are unavailable, on the main thread.
 import { Brain, decodeConnectome } from "./brain-engine.js";
-import { streamPngInto } from "./pngdata.js";
+import { loadPng, streamPngInto } from "./pngdata.js";
 
 const MAX_EVENTS = 60000;
 
@@ -39,21 +39,43 @@ export function createBrainServer(post) {
     bytes = null;
     brain = new Brain(net, meta.params, (Math.random() * 2 ** 31) | 0);
     counts = new Uint16Array(meta.n);
-    post({ type: "ready", n: meta.n, edges: meta.edges, groups: meta.groups });
+    typeIds = new Uint16Array((await loadPng(base + "brain-type.png", meta.n * 2)).buffer);
+    post({ type: "ready", n: meta.n, edges: meta.edges });
   }
 
+  let typeIds = null;
+  const typeIdx = new Map();
+  function neuronsOfType(id) {
+    if (!typeIdx.has(id)) {
+      const idx = [];
+      for (let i = 0; i < typeIds.length; i++) if (typeIds[i] === id) idx.push(i);
+      typeIdx.set(id, idx);
+    }
+    return typeIdx.get(id);
+  }
+
+  // Firing rates = spontaneous background (if on) + every active stimulus.
   function setInputs(inp) {
     const key = JSON.stringify(inp);
     if (key === lastInputs) return;
     lastInputs = key;
-    const G = meta.groups;
-    brain.clearRates();
-    const set = (idx, hz) => hz > 0 && brain.setRates(idx, hz);
-    set(G.odor[inp.odor].L, inp.odorL);
-    set(G.odor[inp.odor].R, inp.odorR);
-    set(G.loom.L, inp.loomL);
-    set(G.loom.R, inp.loomR);
-    set(G.taste, inp.taste);
+    const G = meta.groups, r = brain.rate;
+    r.fill(0);
+    if (inp.spontaneous) {
+      const { idx, hz } = G.background;
+      for (let k = 0; k < idx.length; k++) r[idx[k]] = hz[k];
+    }
+    const add = (idx, hz) => { if (hz > 0) for (const i of idx) r[i] += hz; };
+    add(G.odor[inp.odor].L, inp.odorL);
+    add(G.odor[inp.odor].R, inp.odorR);
+    add(G.loom.L, inp.loomL);
+    add(G.loom.R, inp.loomR);
+    add(G.taste, inp.taste);
+    add(G.wind.L, inp.windL || 0);
+    add(G.wind.R, inp.windR || 0);
+    if (inp.touch) add(G.touch[inp.touch.zone][inp.touch.side], inp.touch.hz);
+    if (inp.opto && typeIds) add(neuronsOfType(inp.opto.type), inp.opto.hz);
+    brain._dirty = true;
   }
 
   function run({ ms, inputs }) {

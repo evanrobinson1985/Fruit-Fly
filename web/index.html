@@ -53,10 +53,29 @@
   .stats dt { color: var(--muted); }
   .stats dd { margin: 0; text-align: right; }
   .state { display: inline-block; padding: 2px 8px; border-radius: 99px; font: 500 11px var(--mono); background: rgba(255, 240, 220, 0.1); }
-  .state[data-s="takeoff"], .state[data-s="flying"] { background: rgba(229, 83, 61, 0.3); }
+  .state[data-s="takeoff"], .state[data-s="flying"], .state[data-s="escape"] { background: rgba(229, 83, 61, 0.3); }
   .state[data-s="feeding"] { background: rgba(143, 199, 122, 0.3); }
   .state[data-s="backing"] { background: rgba(160, 130, 220, 0.3); }
   .hint { font-size: 12px; color: var(--muted); min-height: 1.4em; }
+  .mono { font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+  .switch { display: flex; gap: 8px; align-items: baseline; font-size: 13px; cursor: pointer; }
+  .switch .sub { font-size: 11px; }
+  .switch input { accent-color: var(--cuticle); }
+  details.opto { border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
+  details.opto summary { cursor: pointer; font-size: 12.5px; font-weight: 500; }
+  .opto-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+  .opto-search { position: relative; }
+  .opto-search input { width: 100%; box-sizing: border-box; font: 12.5px var(--mono); color: var(--ink); background: rgba(255, 240, 220, 0.06); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
+  .opto-search input:focus-visible { outline: 2px solid var(--cuticle); outline-offset: 1px; }
+  #opto-list { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 4px; list-style: none; background: #1d1915; border: 1px solid var(--line); border-radius: 6px; max-height: 180px; overflow-y: auto; }
+  #opto-list li { font: 12px var(--mono); padding: 5px 7px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  #opto-list li[aria-selected="true"], #opto-list li:hover { background: rgba(224, 161, 96, 0.18); }
+  #opto-list li span { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chips button { font-size: 11px; padding: 4px 7px; border-radius: 99px; }
+  button.light[aria-pressed="true"] { background: rgba(229, 83, 61, 0.35); border-color: var(--eye); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .left { max-height: calc(100% - 32px); overflow-y: auto; }
   .right { width: 290px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-width: 0; }
   .right .panel { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
   .right .panel.credits { gap: 5px; }
@@ -102,10 +121,12 @@
       <h1>Connectome Fly</h1>
     </div>
     <p class="sub">Every move this fly makes comes from 165,122 spiking neurons wired exactly like a real male <i>Drosophila</i>'s nervous system, simulated live in your browser.</p>
-    <div class="label">Click the floor to place</div>
+    <div class="label">Click tool</div>
     <div class="tools">
       <button id="tool-food" aria-pressed="true">Food drop</button>
       <button id="tool-odor" aria-pressed="false">Odor source</button>
+      <button id="tool-poke" aria-pressed="false">Poke the fly</button>
+      <button id="tool-wind" aria-pressed="false">Blow wind</button>
     </div>
     <div class="row">
       <label class="label" for="odor-kind" style="flex:0 0 auto">Odor</label>
@@ -126,6 +147,24 @@
       <button id="clear">Clear arena</button>
       <button id="cam">Close-up</button>
     </div>
+    <label class="switch" for="spont"><input type="checkbox" id="spont" checked> Spontaneous activity <span class="sub">(sensory neurons fire at rest)</span></label>
+    <details class="opto" id="opto-box">
+      <summary>Optogenetics: activate any neurons</summary>
+      <div class="opto-body">
+        <div class="opto-search">
+          <input id="opto-type" type="text" placeholder="Cell type, e.g. MDN, DNp09, MN9" autocomplete="off" spellcheck="false" aria-label="Cell type to activate">
+          <ul id="opto-list" role="listbox" hidden></ul>
+        </div>
+        <div class="chips" id="opto-chips"></div>
+        <div class="row">
+          <label class="label" for="opto-hz" style="flex:0 0 auto">Rate</label>
+          <input id="opto-hz" type="range" min="10" max="200" step="10" value="100" aria-label="Stimulation rate">
+          <span id="opto-hz-val" class="mono" style="flex:0 0 auto">100 Hz</span>
+        </div>
+        <button id="opto-go" class="light" aria-pressed="false" disabled>Light on</button>
+        <div class="hint" id="opto-note">Pick a cell type. Light drives those neurons as if they carried a light-gated channel.</div>
+      </div>
+    </details>
     <div class="hint" id="hint">Drag to orbit. Scroll to zoom.</div>
     <p class="sub">Built on the MaleCNS connectome, the Shiu <i>et al.</i> neuron model, the FlyBody 3D fly and NeuroMechFly leg recordings. <button id="credits-open-2" class="linkish">Credits &amp; citations</button></p>
     <dl class="stats">
@@ -202,7 +241,9 @@
   Giant Fiber escape: von Reyn <i>et al.</i>, <i>Nat. Neurosci.</i> 2014; Card &amp; Dickinson, <i>Curr. Biol.</i> 2008.
   P9 forward walking: Bidaye <i>et al.</i>, <i>Neuron</i> 2020. Moonwalker backward walking: Bidaye <i>et al.</i>, <i>Science</i> 2014.
   DNa01/DNa02 steering: Rayshubskiy <i>et al.</i>, bioRxiv 2020; Yang <i>et al.</i>, <i>Cell</i> 2024.
-  MN9 proboscis extension: Gordon &amp; Scott, <i>Neuron</i> 2009. Synaptic depression: Kazama &amp; Wilson, <i>Neuron</i> 2008.</p>
+  MN9 proboscis extension: Gordon &amp; Scott, <i>Neuron</i> 2009. Synaptic depression: Kazama &amp; Wilson, <i>Neuron</i> 2008.
+  Spontaneous smell-receptor firing: de Bruyne, Foster &amp; Carlson, <i>Neuron</i> 2001.
+  Motor-neuron pools, touch and wind neurons are taken from the MaleCNS annotations.</p>
 
   <h3>Software and fonts</h3>
   <p><a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> (MIT, © three.js authors). Fonts from Google Fonts under the SIL Open Font License: Newsreader (Production Type), Hanken Grotesk (Hanken Design Co.), JetBrains Mono (JetBrains).

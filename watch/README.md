@@ -33,8 +33,11 @@ redrawing the screen with the app's own layout, colors and sprite frames
   MaleCNS v1.0 connectome: every neuron on a strong path of up to 4 synapses from the
   game's senses (taste, looming) to its behaviors (MN9, Giant Fiber, P9, MDN, DNa01/02),
   plus every connection among them. It uses the same neuron model as the website (Shiu et al.
-  2024 plus short-term depression). [VALIDATION.md](VALIDATION.md) compares it with the
-  full 165k-neuron brain: looming → Giant Fiber 285 vs 285 Hz, taste → MN9 20 vs 21 Hz.
+  2024 plus short-term depression and spike-frequency adaptation). [VALIDATION.md](VALIDATION.md)
+  compares it with the full 165k-neuron brain: looming → Giant Fiber 227 vs 227 Hz, taste →
+  MN9 14 vs 16 Hz. The website's spontaneous background activity and motor-neuron readout
+  are not in the watch game: this circuit holds only the neurons between the game's senses
+  and its behaviors, so there is no sensory background or leg/wing motor pool to drive.
   Odor responses differ, so the game has no odor lures.
 - **Hunger:** starvation makes sugar-sensing neurons more sensitive (Inagaki et al. 2012),
   so a hungry fly recruits more of them (up to 40 of 72) when it touches food. Whether

@@ -8,7 +8,7 @@ param t_ref 2.2
 param delay 1.8
 param w_syn 0.275
 param f_poi 250.0
-param adapt 0.0
+param adapt 1.0
 param tau_adapt 200.0
 param stp_u 0.2
 param tau_rec 500.0

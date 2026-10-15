@@ -143,6 +143,8 @@ let tPrev = 0, tCurr = 0;
 
 // ---------- HUD ----------
 const MOTOR = [
+  { key: "legs", label: "Leg MNs", color: "#f2d29b" },
+  { key: "flight", label: "Flight MNs", color: "#f28f6b" },
   { key: "forward", label: "P9 forward", color: "#e0a160" },
   { key: "backward", label: "MDN backward", color: "#b48ef0" },
   { key: "turnL", label: "DNa L", color: "#7fc4e8" },
@@ -155,6 +157,9 @@ const SENSE_SERIES = [
   { key: "odorR", label: "ORN R", color: "#b3862a" },
   { key: "loom", label: "LC4/LPLC2", color: "#e5533d" },
   { key: "taste", label: "Taste", color: "#8fc77a" },
+  { key: "touch", label: "Touch", color: "#c9a7e8" },
+  { key: "wind", label: "Wind", color: "#7fc4e8" },
+  { key: "opto", label: "Light", color: "#ff6f8f" },
 ];
 const motorChart = new Chart($("chart-motor"), MOTOR, { max: 60 });
 const senseChart = new Chart($("chart-sense"), SENSE_SERIES, { max: 80 });
@@ -165,7 +170,7 @@ let brainMap = null;
 
 // ---------- brain host ----------
 let send, brainReady = false, pending = false, paused = false;
-const smooth = { forward: { L: 0, R: 0 }, backward: { L: 0, R: 0 }, turn: { L: 0, R: 0 }, escape: { L: 0, R: 0 }, feed: { L: 0, R: 0 } };
+const smooth = {}; // motor group -> {L, R} rates, filled from the first brain result
 let lastSense = null, wallStart = 0, simAtStart = 0, spikesRate = 0, stepping = 0, brainWall = 0;
 
 function onBrain(msg) {
@@ -190,7 +195,10 @@ function onBrain(msg) {
     stepping = msg.stepping;
     if (brainMap) brainMap.spikes(msg.events);
     const a = Math.min(1, STEP_MS / SMOOTH_MS);
-    for (const g of Object.keys(smooth)) for (const s of ["L", "R"]) smooth[g][s] += a * (msg.motor[g][s] - smooth[g][s]);
+    for (const [g, v] of Object.entries(msg.motor)) {
+      smooth[g] ??= { L: 0, R: 0 };
+      for (const s of ["L", "R"]) smooth[g][s] += a * (v[s] - smooth[g][s]);
+    }
     advanceBody(msg.t / 1000);
   }
 }
@@ -210,9 +218,17 @@ async function startBrain() {
   send({ type: "init", base: ASSETS });
 }
 
+// Short-lived stimuli from the user: touch, wind, light.
+const stim = { touch: null, touchUntil: 0, windL: 0, windR: 0, windUntil: 0, opto: null };
+
 function sensoryInputs(t) {
   lastSense = body.sense(world, t, $("odor-kind").value);
-  return { odor: $("odor-kind").value, ...lastSense.rates };
+  const inputs = { odor: $("odor-kind").value, spontaneous: $("spont").checked, ...lastSense.rates };
+  if (t < stim.touchUntil) inputs.touch = stim.touch;
+  if (t < stim.windUntil) { inputs.windL = stim.windL; inputs.windR = stim.windR; }
+  if (stim.opto) inputs.opto = stim.opto;
+  lastSense.extra = { touch: inputs.touch?.hz || 0, wind: Math.max(inputs.windL || 0, inputs.windR || 0), opto: stim.opto?.hz || 0 };
+  return inputs;
 }
 
 function step() {
@@ -229,19 +245,20 @@ const rng = Math.random;
 function advanceBody(t) {
   const dt = STEP_MS / 1000;
   for (const lo of world.looms) if (lo.t0 <= t && body.threatDir === null) body.threatDir = lo.worldAz;
-  body.act(smooth, dt, world, rng);
+  body.act(smooth, dt, world, rng, $("spont").checked);
   Object.assign(prev, curr);
   Object.assign(curr, { x: body.x, y: body.y, z: body.z, heading: body.heading, phase: body.phase, t });
   tPrev = tCurr;
   tCurr = performance.now();
   const m = smooth;
   motorChart.push(t, {
+    legs: (m.legs.L + m.legs.R) / 2, flight: (m.flight.L + m.flight.R) / 2,
     forward: (m.forward.L + m.forward.R) / 2, backward: (m.backward.L + m.backward.R) / 2,
     turnL: m.turn.L, turnR: m.turn.R, escape: Math.max(m.escape.L, m.escape.R), feed: Math.max(m.feed.L, m.feed.R),
   });
   if (lastSense) {
     const r = lastSense.rates;
-    senseChart.push(t, { odorL: r.odorL, odorR: r.odorR, loom: Math.max(r.loomL, r.loomR), taste: r.taste });
+    senseChart.push(t, { odorL: r.odorL, odorR: r.odorR, loom: Math.max(r.loomL, r.loomR), taste: r.taste, ...lastSense.extra });
   }
   // Retire looms that have arrived.
   world.looms = world.looms.filter((lo) => world.loomState(lo, t) || t < lo.t0);
@@ -251,12 +268,69 @@ function advanceBody(t) {
 
 // ---------- interaction ----------
 let tool = "food";
-for (const k of ["food", "odor"]) {
+const TOOLS = ["food", "odor", "poke", "wind"];
+const TOOL_HINT = {
+  food: "Click the floor to drop sugar.",
+  odor: "Click the floor to place an odor source.",
+  poke: "Click part of the fly: its touch neurons there fire.",
+  wind: "Click the floor: a gust blows from there toward the fly.",
+};
+for (const k of TOOLS) {
   $(`tool-${k}`).onclick = () => {
     tool = k;
-    $("tool-food").setAttribute("aria-pressed", k === "food");
-    $("tool-odor").setAttribute("aria-pressed", k === "odor");
+    for (const t of TOOLS) $(`tool-${t}`).setAttribute("aria-pressed", t === k);
+    $("hint").textContent = TOOL_HINT[k];
   };
+}
+
+// Which mechanosensory group a poke on a FlyBody segment reaches.
+function touchZone(bodyName) {
+  if (/head|antenna|rostrum|haustellum|labrum|eye/.test(bodyName)) return "head";
+  if (/abdomen/.test(bodyName)) return "abdomen";
+  if (/^[lr][fmh]_/.test(bodyName)) return "legs";
+  return "thorax"; // thorax, wings, halteres
+}
+
+function poke(e) {
+  if (!fly) return false;
+  const hit = ray.intersectObject(fly.root, true)[0];
+  if (!hit) return false;
+  const k = fly.nodes.indexOf(hit.object.parent);
+  const name = k >= 0 ? fly.bodies[k].name : "c_thorax";
+  const zone = touchZone(name);
+  const local = fly.root.worldToLocal(hit.point.clone());
+  const side = /^[lr]/.test(name) && !name.startsWith("c_") ? name[0].toUpperCase() : local.y >= 0 ? "L" : "R";
+  stim.touch = { zone, side, hz: 120 };
+  stim.touchUntil = (curr.t || 0) + 0.3;
+  $("hint").textContent = `Touched the ${side === "L" ? "left" : "right"} ${zone}: ${zone} touch neurons fire for 0.3 s.`;
+  return true;
+}
+
+function blow(point) {
+  // A 2.5 s gust from `point` toward the fly. Johnston's organ on the windward side fires more.
+  const az = ((Math.atan2(point.y - body.y, point.x - body.x) * 180) / Math.PI - body.heading + 540) % 360 - 180;
+  const near = 60, far = 25, s = Math.sin((az * Math.PI) / 180);
+  stim.windL = far + (near - far) * Math.max(0, s) + (near - far) * 0.5 * (1 - Math.abs(s));
+  stim.windR = far + (near - far) * Math.max(0, -s) + (near - far) * 0.5 * (1 - Math.abs(s));
+  stim.windUntil = (curr.t || 0) + 2.5;
+  showGust(point);
+  $("hint").textContent = `Wind from the ${Math.abs(az) < 45 ? "front" : Math.abs(az) > 135 ? "back" : az > 0 ? "left" : "right"}: antennal wind neurons fire for 2.5 s.`;
+}
+
+const gustGroup = new THREE.Group();
+scene.add(gustGroup);
+function showGust(from) {
+  gustGroup.clear();
+  const to = new THREE.Vector3(body.x, body.y, 1.5), start = new THREE.Vector3(from.x, from.y, 1.5);
+  const dir = to.clone().sub(start);
+  const len = dir.length();
+  for (let i = 0; i < 7; i++) {
+    const off = new THREE.Vector3(-dir.y, dir.x, 0).normalize().multiplyScalar((i - 3) * 1.6);
+    const arrow = new THREE.ArrowHelper(dir.clone().normalize(), start.clone().add(off).setZ(1 + (i % 3)), len * 0.85, 0x9fd3ea, 2, 1);
+    arrow.line.material.transparent = arrow.cone.material.transparent = true;
+    gustGroup.add(arrow);
+  }
+  gustGroup.userData.until = performance.now() + 2500;
 }
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 let downAt = null;
@@ -266,8 +340,13 @@ canvas.addEventListener("pointerup", (e) => {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
+  if (tool === "poke") {
+    if (!poke(e)) $("hint").textContent = "Missed. Zoom in and click on the fly itself.";
+    return;
+  }
   const hit = ray.intersectObject(terrain.visible ? terrain.floor : floor)[0];
   if (!hit) return;
+  if (tool === "wind") return blow(hit.point);
   if (tool === "food") addFood(hit.point.x, hit.point.y);
   else addOdor(hit.point.x, hit.point.y, $("odor-kind").value);
   $("hint").textContent = tool === "food" ? "Food placed. The fly tastes it when it walks onto it." : "Odor placed. Its receptor neurons fire with concentration at each antenna.";
@@ -310,6 +389,69 @@ $("cam").onclick = () => {
 
 $("credits-open").onclick = $("credits-open-2").onclick = () => $("credits").showModal();
 $("credits-close").onclick = () => $("credits").close();
+
+// ---------- optogenetics ----------
+// Drive every neuron of a chosen cell type with Poisson input while the light is on,
+// as in experiments with light-gated channels (e.g. CsChrimson).
+const OPTO_PRESETS = [
+  ["Walk backward", "MDN"], ["Walk forward", "DNp09"], ["Escape", "DNp01"],
+  ["Proboscis", "MN9"], ["Steering", "DNa02"], ["Flight muscles", "DLMn c-f"], ["Looming detectors", "LC4"],
+];
+let optoTypes = null, optoChoice = null, optoSel = -1;
+fetch(ASSETS + "brain-types.json").then((r) => r.json()).then((t) => {
+  optoTypes = t;
+  $("opto-chips").innerHTML = OPTO_PRESETS.map(([label, ty]) => `<button data-type="${ty}" title="${ty}">${label}</button>`).join("");
+  for (const b of $("opto-chips").children) b.onclick = () => chooseOpto(b.dataset.type);
+});
+function chooseOpto(type) {
+  const k = optoTypes.types.indexOf(type);
+  if (k < 0) return;
+  optoChoice = { type: k + 1, name: type, n: optoTypes.counts[k] };
+  $("opto-type").value = type;
+  $("opto-list").hidden = true;
+  $("opto-go").disabled = false;
+  $("opto-note").textContent = `${type}: ${optoChoice.n} neuron${optoChoice.n === 1 ? "" : "s"}. Press Light on to activate them.`;
+  if (stim.opto) stim.opto = { type: optoChoice.type, hz: +$("opto-hz").value };
+}
+function renderOptoList() {
+  const q = $("opto-type").value.trim().toLowerCase();
+  const list = $("opto-list");
+  if (!optoTypes || !q) { list.hidden = true; return; }
+  const starts = [], has = [];
+  optoTypes.types.forEach((t, i) => {
+    const l = t.toLowerCase();
+    if (l.startsWith(q)) starts.push(i); else if (l.includes(q)) has.push(i);
+  });
+  const hits = starts.concat(has).slice(0, 12);
+  optoSel = hits.length ? 0 : -1;
+  list.innerHTML = hits.map((i, k) => `<li role="option" data-i="${i}" aria-selected="${k === 0}">${optoTypes.types[i]}<span>${optoTypes.counts[i]}</span></li>`).join("");
+  list.hidden = !hits.length;
+  for (const li of list.children) li.onpointerdown = (e) => { e.preventDefault(); chooseOpto(optoTypes.types[+li.dataset.i]); };
+}
+$("opto-type").addEventListener("input", renderOptoList);
+$("opto-type").addEventListener("keydown", (e) => {
+  const items = [...$("opto-list").children];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    optoSel = Math.max(0, Math.min(items.length - 1, optoSel + (e.key === "ArrowDown" ? 1 : -1)));
+    items.forEach((li, k) => li.setAttribute("aria-selected", k === optoSel));
+  } else if (e.key === "Enter" && items[optoSel]) {
+    chooseOpto(optoTypes.types[+items[optoSel].dataset.i]);
+  } else if (e.key === "Escape") $("opto-list").hidden = true;
+});
+$("opto-type").addEventListener("blur", () => setTimeout(() => ($("opto-list").hidden = true), 150));
+$("opto-hz").addEventListener("input", () => {
+  $("opto-hz-val").textContent = `${$("opto-hz").value} Hz`;
+  if (stim.opto) stim.opto.hz = +$("opto-hz").value;
+});
+$("opto-go").onclick = () => {
+  if (!optoChoice) return;
+  const on = !stim.opto;
+  stim.opto = on ? { type: optoChoice.type, hz: +$("opto-hz").value } : null;
+  $("opto-go").setAttribute("aria-pressed", on);
+  $("opto-go").textContent = on ? "Light off" : "Light on";
+  $("hint").textContent = on ? `Light on: ${optoChoice.n} ${optoChoice.name} neuron${optoChoice.n === 1 ? "" : "s"} driven at ${stim.opto.hz} Hz.` : "Light off.";
+};
 
 // ---------- render loop ----------
 function resize() {
@@ -370,6 +512,7 @@ function frame(now) {
     lo.mesh.visible = true;
   }
   for (const c of loomGroup.children.slice()) if (!world.looms.some((lo) => lo.mesh === c)) loomGroup.remove(c);
+  if (gustGroup.children.length && now > gustGroup.userData.until) gustGroup.clear();
   controls.update();
   renderer.render(scene, camera);
   if (now - lastStats > 100) {
@@ -416,4 +559,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, addFood, addOdor, terrain, perch }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, chooseOpto }; // for debugging from the console

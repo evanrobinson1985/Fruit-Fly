@@ -86,6 +86,10 @@ cited next to each entry in `flysim/interface.py`):
 - MN9 proboscis extension: Gordon, M. D. & Scott, K. *Neuron* 61, 373–384 (2009).
 - Hunger raises sugar-neuron sensitivity (Feed the Fly's hunger mechanic): Inagaki, H. K.
   *et al.* *Neuron* (2012).
+- Spontaneous smell-receptor firing rates: de Bruyne, M., Foster, K. & Carlson, J. R.
+  *Neuron* 30, 537–552 (2001).
+- Giant Fiber to jump motor neuron as a mainly electrical synapse: discussed in
+  von Reyn, C. R. *et al.* *Nature Neuroscience* 17 (2014) and earlier work.
 - Synaptic depression in the antennal lobe: Kazama, H. & Wilson, R. I. *Neuron* 58,
   401–413 (2008).
 

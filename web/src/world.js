@@ -8,13 +8,29 @@ export const SENSE = {
 };
 
 export const BODY = {
-  baseSpeed: 5, maxSpeed: 30,       // mm/s; base = exploratory walking without DN commands
-  fwdGain: 0.25, backGain: 0.3,     // mm/s per Hz (P9, MDN)
-  turnGain: 4,                      // deg/s per Hz of DNa01/02 left-right difference
-  exploreTurnSd: 120,               // deg/s random-walk turning
-  escapeHz: 50, feedHz: 20,         // Giant Fiber -> takeoff; MN9 -> proboscis extension
+  maxSpeed: 30,                     // mm/s
+  // Walking from the leg motor-neuron pools (ventral nerve cord), smoothed over 200 ms.
+  legRestHz: 1.5,                   // leg pool rate below which the fly stands still
+  legGain: 6,                       // mm/s per Hz of leg pool rate above rest
+  fwdGain: 0.25,                    // mm/s per Hz of P9 (DNp09)
+  backHz: 30, backGain: 0.4,        // MDN above 30 Hz walks the fly backward
+  turnGain: 25,                     // deg/s per Hz of DNa01/02 left-right difference
+  legTurnGain: 150,                 // deg/s per Hz of leg pool left-right difference
+  exploreTurnSd: 40,                // deg/s of unexplained turning noise
+  // Without spontaneous activity the brain is silent at rest, so a stand-in walk is used.
+  baseSpeed: 5, quietTurnSd: 120,
+  // Escape: the Giant Fiber. Its real synapse onto the jump motor neuron is electrical
+  // and absent from the connectome, so takeoff reads the Giant Fiber itself: above
+  // 250 Hz at once (looming drives it past 320 Hz), or above 80 Hz for 160 ms (as when
+  // it is driven by light). In a minute of spontaneous activity neither happened.
+  escapeHz: 250, escapeSustainHz: 80, escapeSustainS: 0.16,
+  // Voluntary flight: indirect flight-muscle motor neurons (DLMn, DVMn) above 15 Hz for
+  // 160 ms take off; below 6 Hz the fly lands. About 5 times a minute at rest in tests.
+  flightOnHz: 15, flightOnS: 0.16, flightOffHz: 6, flightMinS: 0.6, flightMaxS: 5,
+  wingSteerGain: 8,                 // deg/s per Hz of left-right wing motor-neuron difference
+  feedHz: 20,                       // MN9 -> proboscis extension
   feedBout: 1.0,                    // s of feeding started by one proboscis extension
-  flightTime: 0.45, flightSpeed: 120, // escape flight (s, mm/s)
+  escapeTime: 0.45, flightSpeed: 120, // escape flight (s, mm/s)
   stride: 1.6,                      // mm per step cycle at full amplitude
 };
 
@@ -97,31 +113,35 @@ export class Body {
     };
   }
 
-  // Advance dt seconds with smoothed motor-group rates m[group][side] (Hz).
-  act(m, dt, world, rng) {
+  // Advance dt seconds with motor-group rates m[group][side] (Hz, 60 ms smoothing).
+  // `spontaneous` says whether the brain has background activity to act on.
+  act(m, dt, world, rng, spontaneous = true) {
+    const mean = (g) => (m[g] ? (m[g].L + m[g].R) / 2 : 0);
+    const k200 = Math.min(1, dt / 0.2);
+    const sm = (this.slow ??= { legsL: 0, legsR: 0, flight: 0, wingL: 0, wingR: 0 });
+    sm.legsL += k200 * ((m.legs?.L || 0) - sm.legsL);
+    sm.legsR += k200 * ((m.legs?.R || 0) - sm.legsR);
+    sm.flight += k200 * (mean("flight") - sm.flight);
+    sm.wingL += k200 * ((m.wing?.L || 0) - sm.wingL);
+    sm.wingR += k200 * ((m.wing?.R || 0) - sm.wingR);
     const gf = Math.max(m.escape.L, m.escape.R);
-    if (this.airborne > 0) {
-      this.airborne -= dt;
-      const h = this.heading * Math.PI / 180;
-      this.x += Math.cos(h) * BODY.flightSpeed * dt;
-      this.y += Math.sin(h) * BODY.flightSpeed * dt;
-      const f = 1 - this.airborne / BODY.flightTime;
-      this.z = Math.max(0, 7 * Math.sin(Math.PI * Math.min(1, f)));
-      this.wingOpen = Math.min(1, this.wingOpen + dt * 20);
-      if (this.airborne <= 0) this.z = 0;
-      this._clip(world);
-      return (this.state = "flying");
-    }
+
+    if (this.airborne > 0) return this._fly(m, dt, world, sm);
     this.wingOpen = Math.max(0, this.wingOpen - dt * 6);
-    if (gf > BODY.escapeHz) {
-      // Takeoff directed away from the threat (Card & Dickinson 2008).
-      if (this.threatDir !== null) this.heading = this.threatDir + 180;
-      this.airborne = BODY.flightTime;
-      this.feeding = false;
-      this.boutLeft = 0;
-      return (this.state = "takeoff");
+    this.gfOn = gf > BODY.escapeSustainHz ? (this.gfOn || 0) + dt : 0;
+    if (gf > BODY.escapeHz || this.gfOn >= BODY.escapeSustainS) {
+      this.gfOn = 0;
+      // Escape takeoff directed away from the threat (Card & Dickinson 2008).
+      this.heading = this.threatDir !== null ? this.threatDir + 180 : this.heading + 180 * (rng() - 0.5);
+      return this._takeoff("escape", BODY.escapeTime);
     }
-    const onFood = world.onFood(this.x, this.y);
+    // Voluntary takeoff when the flight-muscle motor neurons stay active.
+    this.flightOn = sm.flight > BODY.flightOnHz ? (this.flightOn || 0) + dt : 0;
+    if (this.flightOn >= BODY.flightOnS) {
+      this.heading += 120 * (rng() - 0.5);
+      return this._takeoff("voluntary", BODY.flightMaxS);
+    }
+    const onFood = world.onFood(this.x, this.y) && (this.perch || 0) < 0.8;
     if (onFood && Math.max(m.feed.L, m.feed.R) > BODY.feedHz) this.boutLeft = BODY.feedBout;
     this.boutLeft = onFood ? Math.max(0, this.boutLeft - dt) : 0;
     this.feeding = this.boutLeft > 0;
@@ -133,18 +153,51 @@ export class Body {
       this._gait(dt, 0);
       return (this.state = "feeding");
     }
-    const fwd = (m.forward.L + m.forward.R) / 2, back = (m.backward.L + m.backward.R) / 2;
-    const target = Math.min(BODY.maxSpeed, Math.max(-10, BODY.baseSpeed + BODY.fwdGain * fwd - BODY.backGain * back));
+    // Walking: leg motor-neuron pools set vigor and turning; P9 adds, MDN reverses.
+    const legs = (sm.legsL + sm.legsR) / 2;
+    const back = Math.max(0, mean("backward") - BODY.backHz);
+    const walk = spontaneous ? BODY.legGain * Math.max(0, legs - BODY.legRestHz) : BODY.baseSpeed;
+    const target = Math.min(BODY.maxSpeed, Math.max(-10, walk + BODY.fwdGain * mean("forward") - BODY.backGain * back));
     this.speed += (target - this.speed) * Math.min(1, dt / 0.1);
-    const cmd = BODY.turnGain * (m.turn.L - m.turn.R);
-    this.turn = cmd + BODY.exploreTurnSd * gauss(rng);
+    const noise = spontaneous ? BODY.exploreTurnSd : BODY.quietTurnSd;
+    const cmd = BODY.turnGain * (m.turn.L - m.turn.R) + BODY.legTurnGain * (sm.legsL - sm.legsR);
+    this.turn = (Math.abs(this.speed) > 0.3 ? cmd : cmd * 0.3) + noise * gauss(rng);
     this.heading = (this.heading + this.turn * dt + 360) % 360;
     const h = this.heading * Math.PI / 180;
     this.x += this.speed * Math.cos(h) * dt;
     this.y += this.speed * Math.sin(h) * dt;
     this._clip(world);
     this._gait(dt, this.turn);
-    return (this.state = target >= 0 ? "walking" : "backing");
+    return (this.state = target < -0.3 ? "backing" : Math.abs(this.speed) > 0.3 ? "walking" : "standing");
+  }
+
+  _takeoff(kind, duration) {
+    this.flightKind = kind;
+    this.airborne = duration;
+    this.airTime = 0;
+    this.flightOn = 0;
+    this.feeding = false;
+    this.boutLeft = 0;
+    return (this.state = kind === "escape" ? "escape" : "takeoff");
+  }
+
+  _fly(m, dt, world, sm) {
+    this.airborne -= dt;
+    this.airTime += dt;
+    this.wingOpen = Math.min(1, this.wingOpen + dt * 20);
+    if (this.flightKind === "voluntary") {
+      // Stay up while the flight-muscle motor neurons keep firing; steer with the wing pools.
+      if (this.airTime > BODY.flightMinS && sm.flight < BODY.flightOffHz) this.airborne = Math.min(this.airborne, 0.35);
+      this.heading = (this.heading + BODY.wingSteerGain * (sm.wingL - sm.wingR) * dt + 360) % 360;
+    }
+    const h = this.heading * Math.PI / 180;
+    this.x += Math.cos(h) * BODY.flightSpeed * dt;
+    this.y += Math.sin(h) * BODY.flightSpeed * dt;
+    const up = Math.min(1, this.airTime / 0.25), down = Math.min(1, Math.max(0, this.airborne) / 0.3);
+    this.z = (this.flightKind === "escape" ? 7 : 12) * Math.min(up, down);
+    if (this.airborne <= 0) { this.z = 0; this.airborne = 0; }
+    this._clip(world);
+    return (this.state = "flying");
   }
 
   // Tripod gait: stepping frequency from speed, per-side stride from turning.

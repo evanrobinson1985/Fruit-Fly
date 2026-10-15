@@ -45,6 +45,54 @@ MOTOR = {
 }
 
 
+# Spontaneous firing of sensory neurons with no stimulus (Hz), by annotation class.
+# Real sensory neurons are never silent: ORNs fire spontaneously at ~1-20 Hz
+# depending on receptor type (de Bruyne et al. 2001, Neuron 30:537); proprioceptors
+# fire tonically with posture. The other values are low assumed rates. Photoreceptors
+# (graded, non-spiking) get none. This background keeps the brain active at rest, so
+# behavior can start on its own.
+SPONTANEOUS_HZ = {
+    "olfactory": 2.0,
+    "proprioceptive": 4.0,   # chordotonal organs, campaniform sensilla, hair plates
+    "mechanosensory": 3.0,   # Johnston's organ (wind, gravity, sound), grooming
+    "other": 1.0,            # tactile bristles, taste, hygro/thermo, unknown
+}
+
+
+def spontaneous_rates(neurons) -> np.ndarray:
+    """Background Poisson rate (Hz) for every neuron in `neurons`."""
+    sc = neurons["superclass"].fillna("")
+    cl = neurons["class"].fillna("")
+    sensory = (sc.str.contains("sensory") & ~sc.eq("ol_sensory")).to_numpy()
+    rate = np.zeros(len(neurons))
+    rate[sensory] = SPONTANEOUS_HZ["other"]
+    rate[sensory & cl.eq("olfactory").to_numpy()] = SPONTANEOUS_HZ["olfactory"]
+    rate[sensory & cl.str.contains("proprioceptive").to_numpy()] = SPONTANEOUS_HZ["proprioceptive"]
+    rate[sensory & cl.eq("mechanosensory").to_numpy()] = SPONTANEOUS_HZ["mechanosensory"]
+    return rate
+
+
+def motor_pools(neurons) -> dict:
+    """Motor-neuron pools in the ventral nerve cord, read directly as behavior.
+
+    legs: front/middle/hind leg motor neurons per side -> walking vigor and turning.
+    jump: tergotrochanteral motor neurons (TTMn), the jump muscle of escape takeoff.
+    flight: indirect flight-muscle motor neurons (DLMn, DVMn) -> wing power.
+    wing: all wing motor neurons per side -> steering in flight.
+    """
+    ty = neurons["type"].fillna("")
+    sub = neurons["subclass"].fillna("")
+    side = neurons["side"].to_numpy()
+    leg = sub.isin(["fl", "ml", "hl"]).to_numpy()
+    wing = sub.eq("wm").to_numpy()
+    return {
+        "legs": {s: np.flatnonzero(leg & (side == s)) for s in "LR"},
+        "jump": {s: np.flatnonzero(ty.eq("Tergotr. MN").to_numpy() & (side == s)) for s in "LR"},
+        "flight": {s: np.flatnonzero((ty.str.startswith("DLMn") | ty.str.startswith("DVMn")).to_numpy() & (side == s)) for s in "LR"},
+        "wing": {s: np.flatnonzero(wing & (side == s)) for s in "LR"},
+    }
+
+
 @dataclass
 class Interface:
     c: Connectome
