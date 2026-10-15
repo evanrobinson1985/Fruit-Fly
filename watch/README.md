@@ -7,15 +7,19 @@ wiring, whether to eat what you give it and whether to flee when you poke at it.
 
 ![Feed the Fly screens](previews/screens.png)
 
-![Feed the Fly animation](previews/feed-the-fly.gif)
+The fly lives in the same grass arena as the website: the GPU grass, clover, dandelions and
+seedlings with their detailed skins (web/src/terrain.js), rendered at the fly sprites' scale and
+viewing angle into three layers (`tools/scenery.html`): the plants just behind the fly's path,
+the grass in front of it (drawn over its feet), and a far view to the arena's edge that
+scrolls with parallax. The view follows the fly and rises when it flies.
 
-These previews are rendered on a computer from the game's real logic and connectome circuit,
-redrawing the screen with the app's own layout, colors and sprite frames
-(`brain/src/test/kotlin/fly/PreviewRender.kt`). They are not captures from a watch.
+These previews are composed on a computer from the game's own assets with the app's placement
+rules (`tools/compose_preview.py`). They are not captures from a watch.
 
 ## Playing
 
-- **Feed** (or tap the ground) drops sugar. The fly walks over, and when its feet touch
+- **Feed** drops sugar just ahead of the fly (tapping the ground drops it there; an arrow at
+  the edge points to sugar off screen). The fly walks over, and when its feet touch
   the drop its sugar-sensing taste neurons fire. If the proboscis motor neuron **MN9**
   responds, the proboscis comes out and the fly drinks. A full fly often doesn't respond:
   it says "Not hungry" and walks off.
