@@ -7,6 +7,7 @@ import { loadFly } from "./fly.js";
 import { World, Body } from "./world.js";
 import { BrainMap, Chart } from "./hud.js";
 import { loadPng } from "./pngdata.js";
+import { Terrain } from "./terrain.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 const STEP_MS = 20;         // brain/body exchange interval
@@ -66,11 +67,30 @@ const floor = new THREE.Mesh(new THREE.CircleGeometry(world.radius, 128),
   new THREE.MeshStandardMaterial({ map: paperTexture(), color: 0xb9b0a2, roughness: 0.95 }));
 floor.receiveShadow = true;
 scene.add(floor);
-const rim = new THREE.Mesh(new THREE.CylinderGeometry(world.radius + 1, world.radius + 1, 10, 128, 1, true),
-  new THREE.MeshPhysicalMaterial({ color: 0xffffff, transmission: 0.9, roughness: 0.05, thickness: 1, transparent: true, opacity: 0.25, side: THREE.DoubleSide }));
+const WALL = 50; // mm, height of the glass arena wall
+const rim = new THREE.Mesh(new THREE.CylinderGeometry(world.radius + 1, world.radius + 1, WALL, 128, 1, true),
+  // Plain transparent glass: a transmission material would render the whole scene twice.
+  new THREE.MeshStandardMaterial({ color: 0xdfe8ee, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
 rim.rotation.x = Math.PI / 2;
-rim.position.z = 5;
+rim.position.z = WALL / 2;
 scene.add(rim);
+
+// Optional outdoor floor: grass and small weeds (off by default; see the floor switch).
+const terrain = new Terrain(scene, world.radius);
+terrain.visible = false;
+function syncExclusions() {
+  terrain.setExclusions([
+    ...world.food.map((f) => ({ x: f.x, y: f.y, r: f.r + 0.5 })),
+    ...world.odors.map((o) => ({ x: o.x, y: o.y, r: 2 })),
+  ]);
+}
+function setFloor(grass) {
+  terrain.visible = grass;
+  floor.visible = !grass;
+  $("floor-grass").setAttribute("aria-pressed", grass);
+  $("floor-lab").setAttribute("aria-pressed", !grass);
+  try { localStorage.setItem("floor", grass ? "grass" : "lab"); } catch {}
+}
 
 // Odor clouds are drawn as glowing discs on the floor; food as glossy drops.
 const odorGroup = new THREE.Group(), foodGroup = new THREE.Group(), loomGroup = new THREE.Group();
@@ -96,6 +116,7 @@ function addOdor(x, y, kind) {
     new THREE.MeshBasicMaterial({ map: glow, color: ODOR_COLORS[kind], transparent: true, opacity: 0.5, depthWrite: false }));
   m.position.set(x, y, 0.02);
   odorGroup.add(m);
+  syncExclusions();
   const src = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.4, 1.5, 24), new THREE.MeshStandardMaterial({ color: 0x3a2c1c, roughness: 0.4 }));
   src.rotation.x = Math.PI / 2;
   src.position.set(x, y, 0.75);
@@ -111,6 +132,7 @@ function addFood(x, y, r = 4) {
   m.position.set(x, y, 0);
   m.receiveShadow = true;
   foodGroup.add(m);
+  syncExclusions();
 }
 
 // ---------- fly ----------
@@ -244,7 +266,7 @@ canvas.addEventListener("pointerup", (e) => {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  const hit = ray.intersectObject(floor)[0];
+  const hit = ray.intersectObject(terrain.visible ? terrain.floor : floor)[0];
   if (!hit) return;
   if (tool === "food") addFood(hit.point.x, hit.point.y);
   else addOdor(hit.point.x, hit.point.y, $("odor-kind").value);
@@ -273,7 +295,10 @@ $("pause").onclick = () => {
 $("clear").onclick = () => {
   world.odors = []; world.food = [];
   odorGroup.clear(); foodGroup.clear();
+  syncExclusions();
 };
+$("floor-lab").onclick = () => setFloor(false);
+$("floor-grass").onclick = () => setFloor(true);
 let closeUp = true;
 $("cam").onclick = () => {
   closeUp = !closeUp;
@@ -299,6 +324,8 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
+const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion();
+const perch = { z: 0, n: new THREE.Vector3(0, 0, 1) };
 const lerpAngle = (a, b, f) => a + ((((b - a) % 360) + 540) % 360 - 180) * f;
 let lastFrame = performance.now(), lastStats = 0;
 function frame(now) {
@@ -309,10 +336,18 @@ function frame(now) {
     const x = prev.x + (curr.x - prev.x) * f, y = prev.y + (curr.y - prev.y) * f, z = prev.z + (curr.z - prev.z) * f;
     const h = lerpAngle(prev.heading, curr.heading, f);
     const delta = new THREE.Vector3(x - flyRoot.position.x, y - flyRoot.position.y, 0);
-    flyRoot.position.set(x, y, z - fly.groundOffset);
-    flyRoot.rotation.z = (h * Math.PI) / 180;
+    // Stand on whatever is underneath (a leaf, the turf, the floor), tilted to its slope.
+    const surf = terrain.surfaceAt(x, y);
+    const k = Math.min(1, (now - lastFrame) / 80);
+    perch.z += (surf.z - perch.z) * k;
+    perch.n.lerp(surf.normal, k).normalize();
+    body.perch = perch.z;
+    flyRoot.position.set(x, y, perch.z + z - fly.groundOffset);
+    flyRoot.quaternion.setFromUnitVectors(UP, perch.n)
+      .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
     camera.position.add(delta);
-    controls.target.set(x, y, 0.8 + z);
+    controls.target.set(x, y, 0.8 + z + perch.z);
+    terrain.update(x, y, now / 1000, z);
     sun.position.set(x + 8, y - 6, 20);
     sun.target.position.set(x, y, 0);
     // Pose.
@@ -356,6 +391,9 @@ function frame(now) {
 
 // ---------- boot ----------
 async function boot() {
+  let saved = "lab";
+  try { saved = localStorage.getItem("floor") || "lab"; } catch {}
+  setFloor(saved === "grass");
   addOdor(35, 40, "vinegar");
   addFood(35, 40, 5);
   addFood(-25, 18, 4);
@@ -378,4 +416,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, addFood, addOdor }; // for debugging from the console
+window.flyApp = { world, body, smooth, addFood, addOdor, terrain, perch }; // for debugging from the console

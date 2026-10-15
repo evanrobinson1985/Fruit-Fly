@@ -34,7 +34,11 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   recorded from a real walking fly in a tripod gait. Stepping frequency follows walking
   speed, and stride length on each side follows turning. Wings, halteres, proboscis and
   antennae are posed from the same model and behavioral state.
-- **World:** click to place food drops and odor sources (vinegar, CO₂, geosmin), and
+- **World:** a 200 mm arena with a 50 mm glass wall. The floor switch picks the lab
+  arena (filter paper, the default) or grass and small weeds (fine turf, clover, dandelion
+  rosettes, seedlings) at true scale for a 2.5 mm fly. On grass the fly walks on top of
+  leaves and the matted turf, tilted to the surface, and tastes food only when it is down
+  on the ground. Click to place food drops and odor sources (vinegar, CO₂, geosmin), and
   launch looming threats. The panels show descending-neuron rates, sensory input, and a
   dorsal map of the whole CNS that flashes on every spike.
 

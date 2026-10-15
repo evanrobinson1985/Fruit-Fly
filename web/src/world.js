@@ -87,7 +87,8 @@ export class Body {
       if (az > -20) loom.L += st.dtheta; // each eye sees its side plus ~20 deg frontal overlap
       if (az < 20) loom.R += st.dtheta;
     }
-    const taste = this.z === 0 && world.onFood(this.x, this.y);
+    // Tarsi touch the food only when the fly is on the ground, not up on a leaf.
+    const taste = this.z === 0 && (this.perch || 0) < 0.8 && world.onFood(this.x, this.y);
     const orn = (c) => SENSE.ornMaxHz * c / (c + SENSE.ornHalf);
     const lc = (e) => SENSE.loomMaxHz * (1 - Math.exp(-e / SENSE.loomRef));
     return {
