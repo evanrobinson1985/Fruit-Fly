@@ -26,10 +26,10 @@ export async function loadFly(base) {
 // follows the viewer; a grainy, waxy cuticle; dark-brown bristles; clear iridescent wings.
 const SRGB = (hex) => new THREE.Color(hex).convertSRGBToLinear();
 const SKIN = {
-  thorax: SRGB(0x9e6d3c), thoraxDark: SRGB(0x6a4524), head: SRGB(0xa8703c), frons: SRGB(0xc4823e),
+  thorax: SRGB(0xb3834f), thoraxDark: SRGB(0x7a5230), head: SRGB(0xb27a44), frons: SRGB(0xc4823e),
   tergite: SRGB(0xc79a5a), band: SRGB(0x2b1a0e), sternite: SRGB(0xe0c69a), leg: SRGB(0xc99a5c),
   tarsus: SRGB(0x8a5e30), mouth: SRGB(0xd8b27a), antenna: SRGB(0xb5743a), haltere: SRGB(0xd9c39a),
-  eye: SRGB(0x9e1c12), bristle: SRGB(0x1c120b), vein: SRGB(0x5a3b22), ocelli: SRGB(0x3a1d10),
+  eye: SRGB(0xb8241a), bristle: SRGB(0x1c120b), vein: SRGB(0x5a3b22), ocelli: SRGB(0x3a1d10),
 };
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 function hash3(x, y, z) {
@@ -57,7 +57,7 @@ function paint(part, body, pts) {
   const seg = /c_abdomen(\d)/.exec(body)?.[1];
   for (let i = 0; i < n; i++) {
     const x = pts[3 * i], y = pts[3 * i + 1], z = pts[3 * i + 2];
-    const mott = vnoise(x * 18, y * 18, z * 18) - 0.5, grain = vnoise(x * 70, y * 70, z * 70) - 0.5;
+    const mott = vnoise(x * 12, y * 12, z * 12) - 0.5;
     if (body === "c_thorax") {
       // Scutum: faint darker stripes either side of the midline, darker pleura below.
       const up = smooth(z0, z1, z);
@@ -83,7 +83,7 @@ function paint(part, body, pts) {
     else if (/antenna/.test(body)) c.copy(SKIN.antenna);
     else if (/haltere/.test(body)) c.copy(SKIN.haltere);
     else c.copy(SKIN.leg);
-    const k = 1 + (seg ? 0.1 * mott : 0.2 * mott + 0.08 * grain); // coarse abdomen mesh: gentle only
+    const k = 1 + (seg ? 0.1 : 0.18) * mott; // fine grain comes from the shader
     col[3 * i] = c.r * k; col[3 * i + 1] = c.g * k; col[3 * i + 2] = c.b * k;
   }
   return col;
@@ -146,7 +146,7 @@ function eyeMaterial(axes) {
     vec3 e1 = normalize(normalMatrix * uE1[side]), e2 = normalize(normalMatrix * uE2[side]);
     float fade = 1.0 - smoothstep(0.25, 0.9, length(fwidth(p)));
     normal = normalize(normal + fade * 0.9 * (g.x * e1 + g.y * e2));
-    diffuseColor.rgb *= mix(1.0, 0.35, fade * smoothstep(0.82, 1.0, d));
+    diffuseColor.rgb *= mix(1.0, 0.55, fade * smoothstep(0.84, 1.0, d));
     // Pseudopupil: looking straight down the ommatidia, light is absorbed by the pigment.
     float look = dot(normalize(vNormal), normalize(vViewPosition));
     diffuseColor.rgb *= 1.0 - 0.8 * smoothstep(0.93, 0.995, abs(look));
@@ -426,7 +426,9 @@ const v3 = (a, i) => new THREE.Vector3(a[i], a[i + 1], a[i + 2]);
 
 // Wing joint angles (yaw, roll, pitch) in flygym's FlyBody rigging, found by
 // orienting the wing mesh: folded back over the abdomen, and spread sideways.
-const WING_FOLDED = { l: [-0.2, -0.3, -0.07], r: [-0.2, -0.3, -0.07] };
+// Folded: solved so each wing rests just on top of the abdomen (>= 15 um clear of it)
+// and the right wing lies over the left, as a fly crosses its wings at rest.
+const WING_FOLDED = { l: [-0.14, -0.42, -0.11], r: [-0.18, -0.42, -0.19] };
 const WING_SPREAD = [-1.5, -0.9, 2.32];
 
 // Retracted -> extended (rostrum, haustellum) pitch; found by posing the mesh.
