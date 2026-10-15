@@ -154,6 +154,23 @@ function eyeMaterial(axes) {
   return m;
 }
 
+// The original FlyBody colours (the "Plain" skin).
+function plainMaterial(part) {
+  const [r, g, b] = part.rgba;
+  const suffix = part.mesh.slice(part.mesh.lastIndexOf("_") + 1);
+  const color = new THREE.Color(r, g, b).convertSRGBToLinear();
+  if (suffix === "membrane") {
+    return new THREE.MeshPhysicalMaterial({
+      color, transparent: true, opacity: 0.28, roughness: 0.15, metalness: 0,
+      iridescence: 1, iridescenceIOR: 1.6, iridescenceThicknessRange: [250, 700],
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+  }
+  if (suffix === "red") return new THREE.MeshPhysicalMaterial({ color, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.2, sheen: 0.4, side: THREE.DoubleSide });
+  if (suffix === "black" || suffix === "bristle-brown") return new THREE.MeshStandardMaterial({ color: new THREE.Color(0.02, 0.015, 0.01), roughness: 0.6, side: THREE.DoubleSide });
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, side: THREE.DoubleSide });
+}
+
 function material(part, eyeAxes) {
   const [r, g, b] = part.rgba;
   const suffix = part.mesh.slice(part.mesh.lastIndexOf("_") + 1);
@@ -265,10 +282,19 @@ export class Fly {
     for (const { part, geo, root } of parts) {
       const suffix = part.mesh.slice(part.mesh.lastIndexOf("_") + 1);
       if (suffix === "body" || suffix === "lower") geo.setAttribute("color", new THREE.BufferAttribute(paint(part, this.bodies[part.body].name, root), 3));
-      const mesh = new THREE.Mesh(geo, material(part, eyeAxes));
+      const skins = { real: material(part, eyeAxes), plain: plainMaterial(part) };
+      const mesh = new THREE.Mesh(geo, skins.real);
+      mesh.userData.skins = skins;
       mesh.castShadow = !part.mesh.endsWith("membrane");
       this.nodes[part.body].add(mesh);
     }
+    this.skin = "real";
+  }
+
+  // "real" (anatomical skin) or "plain" (FlyBody's flat colours).
+  setSkin(name) {
+    this.skin = name;
+    for (const node of this.nodes) for (const m of node.children) if (m.userData.skins) m.material = m.userData.skins[name];
   }
 
   _prepSteps() {

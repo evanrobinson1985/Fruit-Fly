@@ -415,6 +415,18 @@ $("clear").onclick = () => {
   odorGroup.clear(); foodGroup.clear();
   syncExclusions();
 };
+// Fly skin: the anatomical one, or FlyBody's original flat colours.
+let skin = "real";
+try { skin = localStorage.getItem("skin") === "plain" ? "plain" : "real"; } catch {}
+function setSkin(name) {
+  skin = name;
+  fly?.setSkin(name);
+  $("skin-real").setAttribute("aria-pressed", name === "real");
+  $("skin-plain").setAttribute("aria-pressed", name === "plain");
+  try { localStorage.setItem("skin", name); } catch {}
+}
+$("skin-real").onclick = () => setSkin("real");
+$("skin-plain").onclick = () => setSkin("plain");
 $("floor-lab").onclick = () => setFloor(false);
 $("floor-grass").onclick = () => setFloor(true);
 let closeUp = true;
@@ -714,6 +726,7 @@ async function boot() {
   flyRoot.traverse((o) => { if (o.isMesh) o.castShadow = o.castShadow !== false; });
   scene.add(flyRoot);
   weather.attachFly(flyRoot);
+  setSkin(skin);
   $("load-stage").textContent = "Downloading connectome";
   startBrain();
   const meta = await fetch(ASSETS + "brain.json").then((r) => r.json());
