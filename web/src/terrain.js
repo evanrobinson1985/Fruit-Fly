@@ -61,10 +61,11 @@ function soilTexture(repeat) {
 function bladeGeometry() {
   const levels = [0, 0.3, 0.6, 0.85, 1];
   const widths = [1, 0.85, 0.6, 0.3, 0];
-  const pos = [], col = [], idx = [];
+  const pos = [], col = [], uvs = [], idx = [];
   levels.forEach((t, i) => {
     const w = widths[i] / 2, bend = 0.35 * t * t;
     pos.push(-w, bend, t, w, bend, t);
+    uvs.push(0, t, 1, t);
     const shade = 0.45 + 0.55 * t;
     col.push(shade, shade, shade, shade, shade, shade);
   });
@@ -75,6 +76,7 @@ function bladeGeometry() {
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute("aUV", new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   // One instance per cell offset of each ring: (dx, dy, level).
@@ -101,6 +103,36 @@ uniform vec2 uFlyDir;         // fly heading (cos, sin)
 uniform vec4 uImp[${MAX_IMPACTS}];  // raindrop impacts: x, y, sim time, drop diameter
 `;
 
+// Plant skins, drawn per pixel: vein lines, a cell network between them, and a bump
+// from both (veins raised underneath, sunken on top), faded out where finer than a pixel.
+const PLANT_GLSL = `
+float veinLine(float x, float w) { float f = abs(fract(x) - 0.5) * 2.0; return smoothstep(1.0 - w, 1.0, f); }
+float aaFade(float x) { return 1.0 - smoothstep(0.35, 0.9, fwidth(x)); }
+vec2 ph22(vec2 p) { p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3))); return fract(sin(p) * 43758.5453); }
+// Edges of a cell network (F2 - F1), 1 on an edge.
+float cellEdge(vec2 p) {
+  vec2 i = floor(p), f = fract(p); float d1 = 8.0, d2 = 8.0;
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec2 g = vec2(float(x), float(y)), o = ph22(i + g);
+    float d = length(g + o - f);
+    if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
+  }
+  return 1.0 - smoothstep(0.0, 0.08, d2 - d1);
+}
+float pnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(ph22(i).x, ph22(i + vec2(1, 0)).x, f.x), mix(ph22(i + vec2(0, 1)).x, ph22(i + vec2(1, 1)).x, f.x), f.y); }
+// Bump from a height field (Mikkelsen's screen-space method, as in three.js).
+vec3 bumpNormal(vec3 n, float h, float scale, vec3 p) { // p: view-space position
+  vec3 dpx = dFdx(p), dpy = dFdy(p);
+  float dhx = dFdx(h), dhy = dFdy(h);
+  vec3 r1 = cross(dpy, n), r2 = cross(n, dpx);
+  float det = dot(dpx, r1);
+  vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
+  vec3 b = abs(det) * n - scale * grad;
+  return dot(b, b) > 1e-30 ? normalize(b) : n;
+}
+`;
+
 // Grass blades: place each instance, then press, clamp under leaves, sway and splash.
 function grassMaterial(u) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.8 });
@@ -108,6 +140,10 @@ function grassMaterial(u) {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = GLSL_COMMON + `
 attribute vec3 aCell;
+attribute vec2 aUV;
+varying vec2 vBlade;
+varying vec3 vSide;
+varying float vTone;
 uniform vec2 uCenter;
 uniform float uArena;
 uniform vec3 uExcl[${MAX_EXCL}];
@@ -146,7 +182,10 @@ float leafTop(vec2 p) {
   mat3 bladeR = Rz * Rx;
   bool dry = h01(cell, L + 7u) < 0.06;
   vec3 bc = hsl2rgb(dry ? vec3(0.13, 0.35, 0.55) : vec3(0.24 + 0.08 * h01(cell, L + 8u), 0.55, 0.28 + 0.2 * h01(cell, L + 9u)));
-  vColor = color * pow(bc, vec3(2.2));`)
+  vColor = color * pow(bc, vec3(2.2));
+  vBlade = aUV;
+  vTone = h01(cell, L + 10u);
+  vSide = normalize((viewMatrix * vec4(bladeR * vec3(1.0, 0.0, 0.0), 0.0)).xyz);`)
       .replace("#include <beginnormal_vertex>", "vec3 objectNormal = bladeR * normal;")
       .replace("#include <begin_vertex>", `
   vec3 transformed = alive > 0.5 ? bladeR * (position * vec3(bw, bw, bh)) + vec3(bpos, 0.0) : vec3(0.0);`)
@@ -178,16 +217,80 @@ float leafTop(vec2 p) {
   }
   vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
   gl_Position = projectionMatrix * mvPosition;`);
+    shader.fragmentShader = "varying vec2 vBlade;\nvarying vec3 vSide;\nvarying float vTone;\n" + PLANT_GLSL + shader.fragmentShader
+      .replace("#include <color_fragment>", `#include <color_fragment>
+  {
+    // A grass blade: pale sheath at the base, green lamina, yellowing tip (dry and brown on
+    // some), fine parallel veins with a stronger midrib, and faint flecks.
+    float u = vBlade.x, v = vBlade.y;
+    float veins = veinLine(u * 9.0, 0.22) * aaFade(u * 9.0);
+    float rib = 1.0 - smoothstep(0.0, 0.09, abs(u - 0.5));
+    vec3 tint = vec3(1.0);
+    tint *= mix(vec3(1.0), vec3(1.25, 1.2, 0.85), (1.0 - smoothstep(0.0, 0.12, v)));   // sheath
+    tint *= mix(vec3(1.0), vec3(1.25, 1.12, 0.6), smoothstep(0.7, 1.0, v) * 0.6);       // tip
+    if (vTone < 0.12) tint = mix(tint, vec3(1.3, 0.95, 0.55), smoothstep(0.8, 0.98, v)); // dry tip
+    tint *= 1.0 + 0.12 * veins + 0.1 * rib;
+    tint *= 0.9 + 0.2 * pnoise(vec2(u * 6.0, v * 40.0 + vTone * 50.0));
+    diffuseColor.rgb *= tint;
+  }`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+  {
+    // Folded along the midrib (a shallow V), with the veins as ridges.
+    float u = vBlade.x;
+    normal = normalize(normal + faceDirection * vSide * (u - 0.5) * 0.9);
+    normal = bumpNormal(normal, veinLine(u * 9.0, 0.3) * aaFade(u * 9.0) * 0.5 + (1.0 - smoothstep(0.0, 0.1, abs(u - 0.5))), 0.0025, -vViewPosition);
+  }`);
   };
   return m;
 }
 
 // Weed leaves: a faint breeze, and a bob where a raindrop lands (the base stays put).
-function leafMaterial(color, u) {
-  const m = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 0.7 });
+function leafMaterial(color, u, opts = {}) {
+  const m = new THREE.MeshPhysicalMaterial({ color, side: THREE.DoubleSide, roughness: 0.55, specularIntensity: 0.45, sheen: 0.12, sheenRoughness: 0.7, sheenColor: new THREE.Color(0.35, 0.5, 0.3), ...opts });
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
-    shader.vertexShader = GLSL_COMMON + shader.vertexShader.replace("#include <project_vertex>", `
+    shader.fragmentShader = "varying vec3 vLeaf;\n" + PLANT_GLSL + shader.fragmentShader
+      .replace("#include <color_fragment>", `#include <color_fragment>
+  float leafH = 0.0;
+  {
+    float s = vLeaf.x, t = vLeaf.y, at = abs(t);
+    int kind = int(vLeaf.z + 0.5);
+    vec3 tint = vec3(1.0);
+    if (kind == 0) {
+      // Stem: fine lengthwise ridges, paler toward the base.
+      float r = veinLine(t * 6.0, 0.35) * aaFade(t * 6.0);
+      tint *= (1.0 + 0.15 * r) * mix(vec3(1.2, 1.15, 0.85), vec3(1.0), smoothstep(0.0, 0.4, s));
+      leafH = r;
+    } else {
+      // Midrib, side veins running out toward the margin, and the network between them.
+      float ribW = kind == 2 ? 0.11 : 0.05;
+      float rib = 1.0 - smoothstep(ribW * 0.4, ribW, at);
+      float n = kind == 1 ? 16.0 : kind == 2 ? 11.0 : 5.0, slope = kind == 1 ? 0.25 : 0.55;
+      float x = (s - at * slope) * n;
+      float side = veinLine(x, 0.16) * aaFade(x) * (1.0 - rib) * smoothstep(1.0, 0.75, at);
+      vec2 cp = vec2(s * n * 2.2, t * n * 0.9);
+      float net = cellEdge(cp) * aaFade(cp.x) * (1.0 - rib);
+      tint *= 0.85 * (1.0 + 0.45 * rib + 0.3 * side + 0.12 * net);
+      tint *= 0.92 + 0.16 * pnoise(vec2(s, t) * 9.0);
+      tint *= mix(vec3(1.0), vec3(1.15, 1.1, 0.75), smoothstep(0.85, 1.0, at) * 0.5); // paler, yellower margin
+      if (kind == 1) {
+        // White clover's pale chevron ("watermark") across each leaflet.
+        float chev = 1.0 - smoothstep(0.03, 0.09, abs(s - (0.42 + 0.3 * at)));
+        tint = mix(tint, vec3(1.7, 1.75, 1.45), chev * smoothstep(0.95, 0.6, at) * 0.55);
+      }
+      if (kind == 2) {
+        // Dandelion: broad pale midrib, flushed red-purple toward the base; matte blue-green.
+        tint = mix(tint, mix(vec3(1.5, 0.75, 0.9), vec3(1.55, 1.5, 1.2), smoothstep(0.0, 0.35, s)), rib * 0.85);
+        tint *= vec3(0.95, 1.0, 1.05);
+      }
+      if (!gl_FrontFacing) tint *= vec3(1.08, 1.1, 1.0); // undersides are paler
+      leafH = -(rib + 0.55 * side + 0.25 * net); // veins sunken into the upper surface
+    }
+    diffuseColor.rgb *= tint;
+  }`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+  normal = bumpNormal(normal, leafH, 0.004, -vViewPosition);`);
+    shader.vertexShader = "attribute vec3 aLeaf;\nvarying vec3 vLeaf;\n" + GLSL_COMMON + shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvLeaf = aLeaf;").replace("#include <project_vertex>", `
   vec4 mvPosition = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mvPosition = instanceMatrix * mvPosition;
@@ -243,13 +346,22 @@ function heartLeaflet(r) {
 }
 
 // Shape -> geometry tilted up by `lift` radians and rotated `yaw` about z, raised to height z.
-function placed(shape, { yaw = 0, lift = 0, z = 0, droop = 0 } = {}) {
-  const g = new THREE.ShapeGeometry(shape, 6);
+// Leaf coordinates for the skin shader: s from base (0) to tip (1), t across the blade
+// (-1..1, 0 on the midrib), and which kind of leaf it is.
+const KIND = { stem: 0, clover: 1, dandelion: 2, seedling: 3 };
+
+function placed(shape, { yaw = 0, lift = 0, z = 0, droop = 0, kind = KIND.seedling } = {}) {
+  const g = new THREE.ShapeGeometry(shape, 12);
   const p = g.attributes.position;
+  let len = 0, wid = 0;
+  for (let i = 0; i < p.count; i++) { len = Math.max(len, p.getX(i)); wid = Math.max(wid, Math.abs(p.getY(i))); }
+  const leaf = new Float32Array(p.count * 3);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i);
+    leaf.set([x / len, p.getY(i) / wid, kind], 3 * i);
     p.setZ(i, -droop * x * x); // leaf tips curve down
   }
+  g.setAttribute("aLeaf", new THREE.BufferAttribute(leaf, 3));
   g.rotateY(-lift);
   g.rotateZ(yaw);
   g.translate(0, 0, z);
@@ -258,7 +370,10 @@ function placed(shape, { yaw = 0, lift = 0, z = 0, droop = 0 } = {}) {
 }
 
 function stem(h, r = 0.12) {
-  const g = new THREE.CylinderGeometry(r * 0.7, r, h, 5);
+  const g = new THREE.CylinderGeometry(r * 0.7, r, h, 6);
+  const uv = g.attributes.uv, leaf = new Float32Array(uv.count * 3);
+  for (let i = 0; i < uv.count; i++) leaf.set([uv.getY(i), uv.getX(i) * 2 - 1, KIND.stem], 3 * i);
+  g.setAttribute("aLeaf", new THREE.BufferAttribute(leaf, 3));
   g.rotateX(Math.PI / 2);
   g.translate(0, 0, h / 2);
   return g;
@@ -267,7 +382,7 @@ function stem(h, r = 0.12) {
 function cloverGeometry() {
   const h = 3.5;
   const parts = [stem(h, 0.15)];
-  for (let k = 0; k < 3; k++) parts.push(placed(heartLeaflet(3.2), { yaw: (k * 2 * Math.PI) / 3, lift: 0.15, z: h, droop: 0.03 }));
+  for (let k = 0; k < 3; k++) parts.push(placed(heartLeaflet(3.2), { yaw: (k * 2 * Math.PI) / 3, lift: 0.15, z: h, droop: 0.03, kind: KIND.clover }));
   return mergeGeometries(parts.map((g) => g.toNonIndexed()));
 }
 
@@ -275,7 +390,7 @@ function dandelionGeometry() {
   const parts = [];
   for (let k = 0; k < 11; k++) {
     const len = 14 + (k % 4) * 3;
-    parts.push(placed(leafShape(len, 2.6, 1), { yaw: (k * 2 * Math.PI) / 11 + 0.2 * Math.sin(k * 3), lift: 0.06, z: 0.15, droop: 0.001 }));
+    parts.push(placed(leafShape(len, 2.6, 1), { yaw: (k * 2 * Math.PI) / 11 + 0.2 * Math.sin(k * 3), lift: 0.06, z: 0.15, droop: 0.001, kind: KIND.dandelion }));
   }
   return mergeGeometries(parts.map((g) => g.toNonIndexed()));
 }
@@ -349,7 +464,7 @@ export class Terrain {
         q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), r() * 2 * Math.PI);
         m.compose(new THREE.Vector3(x, y, 0), q, new THREE.Vector3(s, s, s));
         mesh.setMatrixAt(i, m);
-        mesh.setColorAt(i, c.setHSL(k.hue[0] + r() * (k.hue[1] - k.hue[0]), 0.45 + r() * 0.2, 0.75 + r() * 0.35));
+        mesh.setColorAt(i, c.setHSL(k.hue[0] + r() * (k.hue[1] - k.hue[0]), 0.3 + r() * 0.2, 0.6 + r() * 0.2));
         this.weeds.push({ x, y, r: 3 * s });
       }
       mesh.castShadow = true;

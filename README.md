@@ -58,6 +58,10 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   Grass covers the whole arena floor (blades are placed on the GPU in rings that coarsen
   with distance). Only blades under the fly's body and legs are pressed down,
   and leaves are solid: grass stays under a leaf lying on the turf.
+  Plants have detailed skins drawn per pixel: grass blades with parallel veins, a folded
+  midrib, pale sheaths and yellowing or dry tips; clover leaflets with fine side veins, a
+  vein network and white clover's pale chevron; dandelion leaves with a broad pale midrib
+  flushed red-purple at the base; paler undersides and raised or sunken veins on all.
 - **Weather:** rain or snow at five intensities each, with real fly-scale physics. Rain
   uses measured drop sizes (Marshall–Palmer) and terminal fall speeds (up to 9 m/s); a 2 mm
   drop weighs four times the fly. Drops land on leaves, turf, food or the fly, splash

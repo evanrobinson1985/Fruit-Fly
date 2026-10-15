@@ -733,4 +733,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, get fly() { return fly; } }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, get fly() { return fly; } }; // for debugging from the console
