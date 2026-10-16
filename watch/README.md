@@ -86,10 +86,16 @@ builds install over older ones and keep your pet. It is not suitable for Play St
 ## On your phone
 
 `phone/` is the same game for Android phones (Android 8 or newer, portrait; made for
-tall screens like the Galaxy S23 Ultra). It shares the watch's brain circuit, world, fly
-sprites, grass scenery and sounds (`common/`), with a bigger view of the arena, stat bars,
+tall screens like the Galaxy S23 Ultra), with a bigger view of the arena, stat bars,
 Feed / Tickle buttons, a how-to-play panel and a live readout of the neurons that drive
-the fly. The phone's fly is its own pet, separate from the watch's.
+the fly. It shares the world, fly sprites, grass scenery and sounds (`common/`), but runs
+the website's whole connectome: all 165,122 neurons, packed into the APK from
+`web/assets` (never downloaded; it loads in about half a second). Its sensory neurons fire
+at their background rates, so, as on the website, the leg motor neurons decide when it
+walks, pauses and turns, and it flies off and grooms on its own (`FlyWorld.smart`). In a
+40 s test at rest it walked 41% of the time, groomed 31%, flew 23% and stood 6%, at
+1.4× real time on a GitHub runner (`FullBrainTest`). The phone's fly is its own pet,
+separate from the watch's, which keeps the 16,540-neuron circuit.
 
 To install it, download the `feed-the-fly-phone-apk` artifact from the same Actions run,
 unzip it on the phone, and open `feed-the-fly-phone.apk`. Android asks once to allow
