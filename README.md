@@ -27,7 +27,9 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   165,122 neurons and 23.4M connections in a Web Worker. It updates a neuron only while it
   could reach threshold; quiet neurons are advanced in closed form when input arrives. It
   matches the Python engine (`node web/tools/check_engine.mjs`). The connectome is a
-  one-time 46 MB download, fetched one part at a time with automatic retries.
+  one-time 46 MB download, fetched one part at a time with automatic retries. The browser
+  keeps it (Cache Storage), so later visits load it from the device; a new export is
+  downloaded again and replaces the old copy.
 - **Neuron model switch (Simulation panel):** *Standard* is the model above. *Detailed*
   adds three things the standard model leaves out, using wiring it otherwise discards
   (a further 450 KB download): the 131 octopamine neurons act as a slow arousal signal on

@@ -1,32 +1,41 @@
 // Loads the connectome and runs the spiking brain. Used inside a Web Worker
 // (brain-worker.js) or, if workers are unavailable, on the main thread.
 import { Brain, decodeConnectome } from "./brain-engine.js";
-import { loadPng, streamPngInto } from "./pngdata.js";
+import { loadPng, openStore, pruneStore, storeKey, streamPngInto } from "./pngdata.js";
 
 const MAX_EVENTS = 60000;
 
 export function createBrainServer(post) {
-  let brain = null, meta = null, counts = null, lastInputs = "", base = "";
+  let brain = null, meta = null, counts = null, lastInputs = "", base = "", store = null;
 
   async function load(b) {
     base = b;
-    meta = await (await fetch(base + "brain.json")).json();
+    meta = await (await fetch(base + "brain.json", { cache: "no-cache" })).json();
     const total = meta.png_bytes;
     const size = meta.sections.reduce((a, b) => a + b, 0);
     let bytes = new Uint8Array(size);
+    // The browser keeps the parts after the first visit (pngdata.js: openStore). Each is
+    // versioned by its size, so a new export downloads again; older copies are removed.
+    store = await openStore();
+    const fp = meta.png_bytes; // fingerprint of this export, for the small files
+    const ver = (c) => `${c.png_bytes}-${c.bytes}`;
+    const small = ["brain-type.png", "brain-pos.png", "brain-class.png", meta.detailed?.file].filter(Boolean);
+    await pruneStore(store, [...meta.chunks.map((c) => storeKey(base + c.file, ver(c))), ...small.map((f) => storeKey(base + f, fp))]);
+    const stored = await Promise.all(meta.chunks.map((c) => store ? store.match(storeKey(base + c.file, ver(c))).then(Boolean, () => false) : false));
     // One part at a time (small local servers stall on parallel large files), each
     // streamed straight into place, retried if it stalls.
     let done = 0, offset = 0;
     for (const [k, c] of meta.chunks.entries()) {
       for (let attempt = 1; ; attempt++) {
         let got = 0;
-        const stage = `Downloading connectome (part ${k + 1} of ${meta.chunks.length}${attempt > 1 ? `, retry ${attempt - 1}` : ""})`;
-        post({ type: "progress", stage, loaded: done, total });
+        const verb = stored[k] && attempt === 1 ? "Loading connectome saved on this device" : "Downloading connectome";
+        const stage = `${verb} (part ${k + 1} of ${meta.chunks.length}${attempt > 1 ? `, retry ${attempt - 1}` : ""})`;
+        post({ type: "progress", stage, loaded: done, total, stored: stored.every(Boolean) });
         try {
           await streamPngInto(base + c.file, bytes, offset, c.bytes, (n) => {
             got += n;
-            post({ type: "progress", stage, loaded: done + got, total });
-          });
+            post({ type: "progress", stage, loaded: done + got, total, stored: stored.every(Boolean) });
+          }, 15000, { store, version: ver(c) });
           done += c.png_bytes;
           break;
         } catch (e) {
@@ -40,7 +49,7 @@ export function createBrainServer(post) {
     bytes = null;
     brain = new Brain(net, meta.params, (Math.random() * 2 ** 31) | 0);
     counts = new Uint16Array(meta.n);
-    typeIds = new Uint16Array((await loadPng(base + "brain-type.png", meta.n * 2)).buffer);
+    typeIds = new Uint16Array((await loadPng(base + "brain-type.png", meta.n * 2, undefined, { store, version: fp })).buffer);
     post({ type: "ready", n: meta.n, edges: meta.edges });
   }
 
@@ -110,7 +119,7 @@ export function createBrainServer(post) {
     if (on && !brain.det) {
       const D = meta.detailed;
       if (!D) throw new Error("brain.json has no detailed model (run web/tools/export_detailed.py)");
-      detailLoad ??= loadPng(base + D.file, D.ints * 4).then((bytes) => {
+      detailLoad ??= loadPng(base + D.file, D.ints * 4, undefined, { store, version: meta.png_bytes }).then((bytes) => {
         const all = new Int32Array(bytes.buffer, bytes.byteOffset, D.ints);
         const arrays = Object.fromEntries(Object.entries(D.layout).map(([k, [o, n]]) => [k, all.subarray(o, o + n)]));
         brain.setDetailed(true, arrays, D.params);

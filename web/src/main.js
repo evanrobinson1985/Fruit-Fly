@@ -6,7 +6,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { loadFly } from "./fly.js";
 import { World, Body } from "./world.js";
 import { BrainMap, Chart } from "./hud.js";
-import { loadPng } from "./pngdata.js";
+import { loadPng, openStore } from "./pngdata.js";
 import { Terrain, TURF_TOP } from "./terrain.js";
 import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
 import { SkyDome } from "./sky.js";
@@ -247,7 +247,9 @@ function onBrain(msg) {
   if (msg.type === "progress") {
     $("load-stage").textContent = msg.stage;
     $("load-bar").style.width = `${(100 * msg.loaded) / msg.total}%`;
-    $("load-note").textContent = `${(msg.loaded / 1e6).toFixed(1)} of ${(msg.total / 1e6).toFixed(1)} MB, downloaded once per visit`;
+    $("load-note").textContent = msg.stored
+      ? `${(msg.total / 1e6).toFixed(0)} MB, saved by your browser on your first visit`
+      : `${(msg.loaded / 1e6).toFixed(1)} of ${(msg.total / 1e6).toFixed(1)} MB, downloaded once; your browser keeps it for next time`;
   } else if (msg.type === "ready") {
     brainReady = true;
     $("loading").hidden = true;
@@ -877,10 +879,11 @@ async function boot() {
   scene.add(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
-  $("load-stage").textContent = "Downloading connectome";
+  $("load-stage").textContent = "Loading connectome";
   startBrain();
-  const meta = await fetch(ASSETS + "brain.json").then((r) => r.json());
-  const [pos, cls] = await Promise.all([loadPng(ASSETS + "brain-pos.png", meta.n * 6), loadPng(ASSETS + "brain-class.png", meta.n)]);
+  const meta = await fetch(ASSETS + "brain.json", { cache: "no-cache" }).then((r) => r.json());
+  const store = await openStore(), opts = { store, version: meta.png_bytes };
+  const [pos, cls] = await Promise.all([loadPng(ASSETS + "brain-pos.png", meta.n * 6, undefined, opts), loadPng(ASSETS + "brain-class.png", meta.n, undefined, opts)]);
   brainMap = new BrainMap($("brainmap"), new Uint16Array(pos.buffer), cls, meta.classes, meta.pos_range_um);
   brainMap.draw();
 }
