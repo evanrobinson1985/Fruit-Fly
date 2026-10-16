@@ -242,7 +242,9 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
 
         // Grooming: while DNg12 fires, stop and clean the head (sweeps alternating with leg rubs);
         // with the whole CNS, DNg11-type leg-rubbing DNs start it too.
-        val groomDrive = if (smart) max(motor["groom"]!!, slowMax("groomLegs")) else motor["groom"]!!
+        // (As on the website: both read over 200 ms, the head DNs by their stronger side, the
+        // leg-rubbing DNs averaged over both.)
+        val groomDrive = if (smart) max(slowMax("groom"), slowMean("groomLegs")) else motor["groom"]!!
         if (groomDrive > GROOM_HZ) groomLeft = max(groomLeft, GROOM_BOUT_S)
         if (groomLeft > 0) {
             groomLeft -= dt
