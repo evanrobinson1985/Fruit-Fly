@@ -337,6 +337,26 @@
   <div class="hint" id="load-note">The connectome is a one-time 46 MB download.</div>
 </div>
 
+<script>
+// If start-up fails (a script that doesn't load or run), say so in the loading panel rather
+// than sitting on "Loading fly".
+(() => {
+  const show = (msg) => {
+    const box = document.getElementById("loading"), note = document.getElementById("load-note");
+    if (!box || box.hidden || !note) return;
+    note.textContent = "Couldn't start: " + msg;
+    note.style.color = "#e8957a";
+  };
+  addEventListener("error", (e) => {
+    if (e instanceof ErrorEvent) show(e.message);
+    else if (e.target && e.target.tagName === "SCRIPT") show("couldn't load " + e.target.src);
+  }, true);
+  addEventListener("unhandledrejection", (e) => show(String((e.reason && e.reason.message) || e.reason)));
+  setTimeout(() => {
+    if (document.getElementById("load-stage").textContent === "Loading fly") show("the page's scripts haven't started after 20 s");
+  }, 20000);
+})();
+</script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",

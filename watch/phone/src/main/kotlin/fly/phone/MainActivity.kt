@@ -4,9 +4,12 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -24,6 +27,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val port = server.start()
+        WebView.setWebContentsDebuggingEnabled(true) // chrome://inspect from a computer, if it misbehaves
         web = WebView(this).apply {
             setBackgroundColor(Color.parseColor("#0d0c0a"))
             settings.javaScriptEnabled = true
@@ -31,6 +35,12 @@ class MainActivity : Activity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.setSupportZoom(false)
             overScrollMode = View.OVER_SCROLL_NEVER
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                    Log.i("FlyPage", "${m.messageLevel()} ${m.sourceId()}:${m.lineNumber()} ${m.message()}")
+                    return true
+                }
+            }
             webViewClient = object : WebViewClient() {
                 // Stay inside the game: links (credits, sources) open in the browser.
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {

@@ -13,8 +13,9 @@ import java.util.concurrent.Executors
  * A tiny web server for the bundled website (assets/web), on 127.0.0.1 only. A real HTTP
  * origin keeps everything the page needs working as on the web: its module scripts, the
  * brain's Web Worker and its fetches, localStorage for the pet, and Cache Storage. The page's
- * three.js import map and web fonts point online; index.html is rewritten to use the copies
- * in the APK (vendor/three) and the system fonts, so the game runs offline.
+ * three.js import map and web fonts point online; index.html is rewritten to use the system
+ * fonts, and the scripts' "three" imports are rewritten to the copy in the APK (vendor/three),
+ * so the game runs offline and does not depend on the WebView supporting import maps.
  */
 class LocalServer(private val assets: AssetManager) {
     private var socket: ServerSocket? = null
@@ -68,6 +69,12 @@ class LocalServer(private val assets: AssetManager) {
                     .replace(Regex("""<link rel="(preconnect|stylesheet)" href="https://fonts\.[^"]*"[^>]*>"""), "")
                 return respond(c.getOutputStream(), 200, type, html.toByteArray())
             }
+            if (path.endsWith(".js") && !path.endsWith("three.module.js")) {
+                val js = assets.open(name).use { it.readBytes().decodeToString() }
+                    .replace(THREE_ADDONS) { "${it.groupValues[1]}/vendor/three/examples/jsm/${it.groupValues[2]}${it.groupValues[1]}" }
+                    .replace(THREE_CORE) { "${it.groupValues[1]}${it.groupValues[2]}/vendor/three/build/three.module.js${it.groupValues[2]}" }
+                return respond(c.getOutputStream(), 200, type, js.toByteArray())
+            }
             val length = try { assets.openFd(name).use { it.length } } catch (e: Exception) { -1L } // stored (uncompressed) files
             val stream = try { assets.open(name) } catch (e: Exception) {
                 return respond(c.getOutputStream(), 404, "text/plain", "not found".toByteArray())
@@ -110,6 +117,8 @@ class LocalServer(private val assets: AssetManager) {
     }
 
     companion object {
+        private val THREE_ADDONS = Regex("""(["'])three/addons/([^"']*)\1""")
+        private val THREE_CORE = Regex("""(from\s*)(["'])three\2""")
         private val TYPES = mapOf(
             "html" to "text/html; charset=utf-8", "js" to "text/javascript; charset=utf-8", "mjs" to "text/javascript; charset=utf-8",
             "json" to "application/json", "png" to "image/png", "css" to "text/css", "txt" to "text/plain", "svg" to "image/svg+xml",
