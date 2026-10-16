@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly"
         minSdk = 30           // Wear OS 3+
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     // A fixed, public key for sideloading (watch/sideload.keystore), so new builds install
@@ -53,5 +53,6 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.wear.compose:compose-material:1.4.0")
     implementation("androidx.wear.compose:compose-foundation:1.4.0")
+    implementation("androidx.wear:wear-input:1.1.0")                 // keyboard / voice entry for the fly's name
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

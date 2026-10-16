@@ -1,6 +1,10 @@
 package fly.watch
 
+import android.app.RemoteInput
 import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.wear.input.RemoteInputIntentHelper
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -89,6 +93,7 @@ class MainActivity : ComponentActivity() {
 fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound) {
     val f by engine.frame.collectAsState()
     var info by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(f.anim) {
         if (f.anim == Anim.FLY || f.anim == Anim.FEED) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -149,7 +154,12 @@ fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound
                 .background(Color(0xCC6E4A22)).clickable { engine.clean() },
             contentAlignment = Alignment.Center,
         ) { Text("${f.droppings.size}", color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-        if (info) InfoPanel(f, soundOn, { soundOn = it; sound.enabled = it }) { info = false }
+        if (info) InfoPanel(f, soundOn, { soundOn = it; sound.enabled = it }, rename = { info = false; renaming = true }) { info = false }
+        // First thing on a new pet: name it.
+        if (!f.loading && (!f.named || renaming)) NameScreen(first = !f.named, current = f.name, close = { renaming = false }) {
+            engine.rename(it)
+            renaming = false
+        }
     }
 }
 
@@ -166,15 +176,15 @@ private fun DrawScope.drawStats(f: Frame) {
 }
 
 @Composable
-private fun InfoPanel(f: Frame, soundOn: Boolean, setSound: (Boolean) -> Unit, close: () -> Unit) {
+private fun InfoPanel(f: Frame, soundOn: Boolean, setSound: (Boolean) -> Unit, rename: () -> Unit, close: () -> Unit) {
     Column(
         Modifier.fillMaxSize().background(Color(0xF0141210)).clickable { close() }
             .verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 30.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Feed the Fly", color = Amber, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        Text("Day ${f.ageDays}", color = Ink, fontSize = 13.sp)
+        Text(f.name, color = Amber, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.clickable { rename() })
+        Text("Day ${f.ageDays} · tap the name to rename", color = Ink, fontSize = 11.sp)
         Stat("Food", f.satiety, Amber)
         Stat("Energy", f.energy, EnergyBlue)
         Stat("Mood", f.mood, MoodPink)
@@ -205,6 +215,49 @@ private fun InfoPanel(f: Frame, soundOn: Boolean, setSound: (Boolean) -> Unit, c
         )
         Text("Tap to close", color = Amber, fontSize = 11.sp)
     }
+}
+
+/** Name the fly: type or say a name, or pick one. */
+@Composable
+private fun NameScreen(first: Boolean, current: String, close: () -> Unit, done: (String) -> Unit) {
+    val keyboard = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val typed = r.data?.let { RemoteInput.getResultsFromIntent(it) }?.getCharSequence("name")?.toString()?.trim()
+        if (!typed.isNullOrEmpty()) done(typed)
+    }
+    Column(
+        Modifier.fillMaxSize().background(Color(0xF7141210))
+            .pointerInput(Unit) { detectTapGestures { } } // taps stay here, not on the stage
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 26.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(if (first) "Meet your fly" else "Rename your fly", color = Amber, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        if (first) Text(
+            "A fruit fly has just hatched, with a brain wired like a real one. What will you call it?",
+            color = Ink, fontSize = 11.sp, textAlign = TextAlign.Center,
+        )
+        NameChip("Type a name", Amber, Color(0xFF2A1C0A)) {
+            val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
+            RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(RemoteInput.Builder("name").setLabel("Your fly's name").build()))
+            keyboard.launch(intent)
+        }
+        Text("or pick one", color = Color(0xFFBDB2A2), fontSize = 10.sp)
+        GameEngine.NAMES.chunked(2).forEach { pair ->
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                pair.forEach { n -> NameChip(n, Color(0x99302822), Ink, Modifier.weight(1f)) { done(n) } }
+            }
+        }
+        if (!first) NameChip("Keep $current", Color(0x99302822), Ink) { close() }
+    }
+}
+
+@Composable
+private fun NameChip(text: String, bg: Color, fg: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.clip(RoundedCornerShape(16.dp)).background(bg).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
 }
 
 @Composable

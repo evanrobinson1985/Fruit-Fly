@@ -14,7 +14,7 @@ export class Pet {
   constructor(o = {}) {
     const now = Date.now();
     Object.assign(this, {
-      name: "Dot", satiety: 70, energy: 80, mood: 60, bornAt: now, updatedAt: now,
+      name: "Dot", named: false, satiety: 70, energy: 80, mood: 60, bornAt: now, updatedAt: now,
       feedings: 0, escapes: 0, cleans: 0,
       gut: 0,          // food still in the gut, in seconds of drinking (world.js BODY.depositUnit per droplet)
       droppings: [],   // [x, y, z] left in the arena
@@ -59,6 +59,84 @@ export class Pet {
     } catch {}
     return new Pet();
   }
+}
+
+// ---------- naming ----------
+const SUGGESTIONS = ["Dot", "Buzz", "Pip", "Zippy", "Fig", "Mango", "Pepper", "Bean", "Nibs", "Skeeter",
+  "Kiwi", "Plum", "Sprout", "Speck", "Banana", "Juniper", "Hopper", "Pickle", "Comet", "Maple"];
+export const suggestName = (not) => {
+  const pool = SUGGESTIONS.filter((n) => n !== not);
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+export const MAX_NAME = 16;
+
+const NAME_CSS = `
+  #name-card { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px;
+    background: rgba(8, 7, 6, 0.8); font-family: var(--body); }
+  #name-card form { width: min(380px, 100%); background: #1b1713; border: 1px solid var(--line); border-radius: 18px;
+    padding: 24px 20px 20px; display: flex; flex-direction: column; gap: 14px; color: var(--ink); }
+  #name-card h2 { margin: 0; font: italic 500 30px var(--display); }
+  #name-card p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
+  #name-card .row { display: flex; gap: 8px; }
+  #name-card input { flex: 1; min-width: 0; font: 600 20px var(--body); color: var(--ink); background: rgba(255, 240, 220, 0.06);
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  #name-card input:focus { outline: 2px solid var(--cuticle); outline-offset: 1px; }
+  #name-card button { font: 600 16px var(--body); border-radius: 12px; padding: 0 14px; height: 50px; color: var(--ink);
+    background: rgba(255, 240, 220, 0.06); border: 1px solid var(--line); cursor: pointer; text-align: center; }
+  #name-card button[type=submit] { background: var(--cuticle); color: #2a1c0a; border: 0; }
+`;
+
+/**
+ * Ask for the fly's name (first start, or renaming). Resolves with the name, saves it with
+ * the pet and announces it as a "fly-named" event for the running game.
+ */
+export function askName({ current = "", first = true } = {}) {
+  return new Promise((resolve) => {
+    if (!document.getElementById("name-css")) {
+      const style = document.createElement("style");
+      style.id = "name-css";
+      style.textContent = NAME_CSS;
+      document.head.append(style);
+    }
+    const card = document.createElement("div");
+    card.id = "name-card";
+    card.innerHTML = `
+      <form autocomplete="off">
+        <h2></h2>
+        <p></p>
+        <div class="row"><input id="name-input" maxlength="${MAX_NAME}" enterkeyhint="done" aria-label="Your fly's name">
+          <button type="button" id="name-dice" aria-label="Suggest a name">🎲</button></div>
+        <button type="submit"></button>
+      </form>`;
+    const $ = (sel) => card.querySelector(sel);
+    $("h2").textContent = first ? "Meet your fly" : "Rename your fly";
+    $("p").textContent = first
+      ? "A fruit fly has just hatched, with a brain wired like a real one. It's yours to look after: what will you call it?"
+      : "A new name for your fly:";
+    $("button[type=submit]").textContent = first ? "Hello, fly!" : "Save";
+    const input = $("input");
+    input.value = current;
+    input.placeholder = suggestName();
+    $("#name-dice").onclick = () => { input.value = suggestName(input.value); input.focus(); };
+    card.querySelector("form").onsubmit = (e) => {
+      e.preventDefault();
+      const name = (input.value.trim() || input.placeholder).slice(0, MAX_NAME);
+      const pet = Pet.load();
+      Object.assign(pet, { name, named: true });
+      pet.save();
+      card.remove();
+      dispatchEvent(new CustomEvent("fly-named", { detail: name }));
+      resolve(name);
+    };
+    document.body.append(card);
+    setTimeout(() => input.focus(), 50);
+  });
+}
+
+/** On a pet's first start, ask for its name (right away, while the fly and brain load). */
+export function nameOnFirstStart() {
+  const pet = Pet.load();
+  if (!pet.named) { pet.save(); askName(); } // save fixes its birth time now
 }
 
 /** Flies sleep mostly at night: 22:00 to 07:00 local time. */

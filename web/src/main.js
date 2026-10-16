@@ -15,6 +15,11 @@ import { FlyAudio } from "./audio.js";
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
 const GAME = new URLSearchParams(location.search).has("game");
+// The game starts with the pet: hide the lab panels and, the first time, name the fly.
+if (GAME) {
+  document.body.classList.add("game-lab-hidden");
+  import("./pet.js").then((m) => m.nameOnFirstStart());
+}
 let game = null;
 const STEP_MS = 20;         // brain/body exchange interval
 const SMOOTH_MS = 60;       // motor rate smoothing

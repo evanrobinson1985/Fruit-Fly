@@ -122,7 +122,8 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   motor and descending-neuron rates, sensory input, and a dorsal map of the whole CNS that
   flashes on every spike.
 
-**Game mode** (`index.html?game`): the same 3D fly, grass arena and brain, kept as a pet. Its
+**Game mode** (`index.html?game`): the same 3D fly, grass arena and brain, kept as a pet. You
+name it first (tap the name later to rename it). Its
 food, energy and mood change over hours (also while the page is closed, saved in the
 browser), it sleeps from 22:00 to 07:00, walks to the sugar you drop and drinks if its
 taste neurons drive MN9 (they respond more the hungrier it is), and leaves droppings that

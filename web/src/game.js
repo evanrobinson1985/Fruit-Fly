@@ -3,7 +3,7 @@
 // hungry and tired over hours (pet.js, also while the app is closed), sleeps at night, eats
 // the sugar you give it when its taste neurons drive MN9, flees and grooms on its own, and
 // leaves droppings that you clean up. Science panels stay one tap away ("Lab").
-import { Pet, isNight, nightFraction } from "./pet.js";
+import { Pet, isNight, nightFraction, askName } from "./pet.js";
 
 const BITE_PER_S = 6;        // satiety points per second of drinking (as in the watch game)
 const DROP_AMOUNT = 30;      // satiety points in one sugar drop
@@ -32,7 +32,7 @@ const CSS = `
   #game .g-toast { position: absolute; left: 50%; top: 120px; transform: translateX(-50%); padding: 6px 14px; border-radius: 14px;
     background: rgba(32, 26, 20, 0.85); font-size: 15px; transition: opacity 0.3s; pointer-events: none; }
   #game .g-sleep { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); color: var(--muted); font-size: 14px; pointer-events: none; }
-  body.game-lab-hidden .ui { display: none; }
+  #game .g-title b { cursor: pointer; }
 `;
 
 export function startGame(api) {
@@ -44,7 +44,7 @@ export function startGame(api) {
   root.id = "game";
   root.innerHTML = `
     <div class="g-top">
-      <div class="g-title"><b id="g-name">Dot</b><span id="g-info"></span></div>
+      <div class="g-title"><b id="g-name" role="button" title="Rename"></b><span id="g-info"></span></div>
       <div class="g-bars">
         <div class="g-bar" style="--c:var(--cuticle)">Food <span id="g-food"></span><i id="g-food-bar"></i></div>
         <div class="g-bar" style="--c:#7fb6e8">Energy <span id="g-energy"></span><i id="g-energy-bar"></i></div>
@@ -52,7 +52,7 @@ export function startGame(api) {
       </div>
     </div>
     <div class="g-toast" id="g-toast" style="opacity:0"></div>
-    <div class="g-sleep" id="g-sleep" hidden>Night: Dot is asleep until 7:00</div>
+    <div class="g-sleep" id="g-sleep" hidden></div>
     <div class="g-bottom">
       <button class="feed" id="g-feed">Feed</button>
       <button id="g-tickle">Tickle</button>
@@ -62,6 +62,10 @@ export function startGame(api) {
   document.body.append(root);
   document.body.classList.add("game-lab-hidden");
   const $ = (id) => document.getElementById(id);
+  const showName = () => {
+    $("g-name").textContent = pet.name;
+    $("g-sleep").textContent = `Night: ${pet.name} is asleep until 7:00`;
+  };
 
   let toastTimer = 0;
   const toast = (text, s = 2) => {
@@ -88,7 +92,16 @@ export function startGame(api) {
     }
   }
   body.gut = pet.gut;
-  if (away > 3_600_000) toast(pet.satiety < 30 ? "Dot is hungry!" : "Welcome back", 3);
+  showName();
+  // Named on the welcome card (pet.js), maybe while this was loading, or renamed later.
+  addEventListener("fly-named", (e) => {
+    Object.assign(pet, { name: e.detail, named: true });
+    showName();
+    save();
+    toast(`Hello, ${pet.name}!`, 2.5);
+  });
+  $("g-name").onclick = () => askName({ current: pet.name, first: false });
+  if (away > 3_600_000 && pet.named) toast(pet.satiety < 30 ? `${pet.name} is hungry!` : "Welcome back", 3);
 
   const save = () => {
     pet.gut = (body.gut || 0) + (body.rectum || 0);
@@ -133,7 +146,7 @@ export function startGame(api) {
   // At night it sleeps; feeding, tickling or cleaning wakes it for a couple of minutes.
   let wokeUntil = 0;
   function wake() {
-    if (isNight() && Date.now() > wokeUntil) toast("Dot wakes up");
+    if (isNight() && Date.now() > wokeUntil) toast(`${pet.name} wakes up`);
     wokeUntil = Date.now() + 120_000;
   }
   const asleep = () => isNight() && !pet.weak && Date.now() > wokeUntil;

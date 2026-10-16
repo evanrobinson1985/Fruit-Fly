@@ -27,6 +27,7 @@ data class Frame(
     val mn9: Double = 0.0, val gf: Double = 0.0, val p9: Double = 0.0, val mdn: Double = 0.0,
     val stepping: Int = 0, val realtime: Double = 1.0, val night: Boolean = false, val loading: Boolean = true,
     val neurons: Int = 0, val droppings: List<Double> = emptyList(),
+    val name: String = "", val named: Boolean = true,
 )
 
 /**
@@ -50,6 +51,9 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
 
     /** Long-press on the fly: tickle its head. */
     fun tickle() = commands.add { it.tickle() }
+
+    /** Name (or rename) the fly. */
+    fun rename(name: String) = commands.add { it.name(name.trim().take(MAX_NAME).ifEmpty { "Dot" }); store.save(it.pet) }
 
     /** Clean up the droppings. */
     fun clean() = commands.add { it.clean() }
@@ -106,11 +110,14 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
             ageDays = p.ageDays(System.currentTimeMillis()), feedings = p.feedings, escapes = p.escapes,
             mn9 = w.motor["feed"]!!, gf = w.motor["escape"]!!, p9 = w.motor["forward"]!!, mdn = w.motor["backward"]!!,
             stepping = w.brain.stepping, realtime = realtime.coerceAtMost(1.0), night = isNight(), loading = false,
-            neurons = w.brain.n, droppings = w.pet.droppings.toList(),
+            neurons = w.brain.n, droppings = w.pet.droppings.toList(), name = p.name, named = p.named,
         )
     }
 
     companion object {
+        const val MAX_NAME = 16
+        val NAMES = listOf("Dot", "Buzz", "Pip", "Zippy", "Fig", "Mango", "Pepper", "Bean", "Nibs", "Kiwi", "Plum", "Banana")
+
         /** Flies sleep mostly at night: 22:00 to 07:00 local time. */
         fun isNight(cal: Calendar = Calendar.getInstance()): Boolean {
             val h = cal.get(Calendar.HOUR_OF_DAY)
@@ -147,6 +154,7 @@ class PetStore(context: Context) {
             updatedAtMs = prefs.getLong("updatedAt", 0L), feedings = prefs.getInt("feedings", 0),
             escapes = prefs.getInt("escapes", 0), cleans = prefs.getInt("cleans", 0),
             gut = prefs.getFloat("gut", 0f).toDouble(),
+            name = prefs.getString("name", "Dot")!!, named = prefs.getBoolean("named", false),
             droppings = prefs.getString("droppings", "")!!.split(",").mapNotNull { it.toDoubleOrNull() }.toMutableList(),
         )
     }
@@ -156,6 +164,7 @@ class PetStore(context: Context) {
             .putFloat("satiety", p.satiety.toFloat()).putFloat("energy", p.energy.toFloat()).putFloat("mood", p.mood.toFloat())
             .putLong("bornAt", p.bornAtMs).putLong("updatedAt", p.updatedAtMs)
             .putInt("feedings", p.feedings).putInt("escapes", p.escapes).putInt("cleans", p.cleans)
+            .putString("name", p.name).putBoolean("named", p.named)
             .putFloat("gut", p.gut.toFloat()).putString("droppings", p.droppings.joinToString(",") { "%.2f".format(java.util.Locale.ROOT, it) })
             .apply()
     }

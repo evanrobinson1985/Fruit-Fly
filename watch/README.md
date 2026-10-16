@@ -20,6 +20,8 @@ rules (`tools/compose_preview.py`). They are not captures from a watch.
 
 ## Playing
 
+- **Name your fly** first: the first time you open the game it asks for a name (type or say
+  one, or pick a suggestion). Tap the name in the **i** panel to rename it.
 - **Feed** drops sugar just ahead of the fly (tapping the ground drops it there; an arrow at
   the edge points to sugar off screen). The fly walks over, and when its feet touch
   the drop its sugar-sensing taste neurons fire. If the proboscis motor neuron **MN9**
@@ -95,7 +97,8 @@ full screen: the same 3D fly, grass arena, sky, sounds and whole 165,122-neuron 
 the website, not the watch's 2D sprites. The site, connectome and three.js are packed into
 the APK and served to the app's WebView by a small web server on 127.0.0.1, so it works
 offline and never downloads the connectome (the APK is about 52 MB). The pet (food, energy,
-mood, droppings) is saved by the page and keeps living while the app is closed; the
+mood, droppings, and the name you give it when you first open the app) is saved by the page
+and keeps living while the app is closed; the
 phone's fly is its own pet, separate from the watch's. Feed, Tickle, Clean and Lab (the
 website's science panels) are along the bottom.
 

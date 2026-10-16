@@ -19,6 +19,7 @@ data class Pet(
     var gut: Double = 0.0,        // food still in the gut, seconds of drinking (FlyWorld.DEPOSIT_UNIT per droplet)
     val droppings: MutableList<Double> = mutableListOf(), // stage x (mm) of droppings not yet cleaned
     var name: String = "Dot",
+    var named: Boolean = false,   // the player has chosen its name (asked on first start)
 ) {
     /** 0 (full) .. 1 (starving). */
     val hunger get() = 1.0 - satiety / 100.0

@@ -128,6 +128,13 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         touchUntil = max(touchUntil, timeS + seconds)
     }
 
+    /** The player names (or renames) the fly. */
+    fun name(name: String) {
+        pet.name = name
+        pet.named = true
+        say("Hello, $name!", 2.5)
+    }
+
     fun setAsleep(value: Boolean) {
         if (value == asleep) return
         asleep = value
