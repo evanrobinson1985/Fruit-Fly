@@ -42,10 +42,19 @@ android {
     androidResources { noCompress += "bin" }
     sourceSets.getByName("main") {
         java.srcDir("../common/kotlin")
-        assets.srcDir("../app/src/main/assets")   // brain, sprites, scenery
+        assets.srcDir("../app/src/main/assets")   // sprites, scenery (and the watch circuit)
+        assets.srcDir(layout.buildDirectory.dir("fullbrain")) // the whole-CNS connectome, as full/
         res.srcDir("../app/src/main/res")         // name and icon
     }
 }
+
+// The phone runs the website's whole connectome (165,122 neurons), packed into the APK so the
+// game never downloads it: brain.json and its PNG parts, copied from web/assets.
+val copyFullBrain by tasks.registering(Copy::class) {
+    from("../../web/assets") { include("brain.json", "brain-0*.png") }
+    into(layout.buildDirectory.dir("fullbrain/full"))
+}
+tasks.named("preBuild") { dependsOn(copyFullBrain) }
 
 dependencies {
     implementation(project(":brain"))

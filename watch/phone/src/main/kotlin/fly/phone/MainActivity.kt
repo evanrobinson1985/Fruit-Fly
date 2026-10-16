@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        engine = GameEngine(applicationContext)
+        engine = GameEngine(applicationContext, fullBrain = true) // the website's whole CNS
         sound = FlySound(applicationContext)
         val sprites = Sprites.load(this)
         val scenery = Scenery.load(this)
@@ -221,7 +221,7 @@ private fun Neurons(f: Frame) {
         Rate("P9 · walk forward", f.p9, 60.0)
         Rate("MDN · walk backward", f.mdn, 60.0)
         Text(
-            "${f.stepping} of 16,540 neurons active · ${"%.2f".format(f.realtime)}× real time",
+            "${f.stepping} of ${"%,d".format(f.neurons)} neurons active · ${"%.2f".format(f.realtime)}× real time",
             color = Dim, fontSize = 12.sp,
         )
     }
@@ -246,8 +246,9 @@ private fun Help() {
     ) {
         Text("How to play", color = Amber, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         Text(
-            "Dot is a fruit fly whose choices come from a 16,540-neuron circuit of a real fly's mapped " +
-                "nervous system. Keep it fed, rested and happy.\n\n" +
+            "Dot is a fruit fly whose choices come from all 165,122 neurons of a real male fly's mapped " +
+                "nervous system, the same simulation as the website. Its sensory neurons fire at rest, so " +
+                "it walks, pauses, turns, flies off and grooms on its own. Keep it fed, rested and happy.\n\n" +
                 "• Tap the grass or press Feed to drop sugar. A hungry fly's taste neurons drive MN9 and it " +
                 "drinks; a full one refuses.\n" +
                 "• Tap the fly and a hand looms in: its Giant Fiber decides whether to flee. Now and then is " +

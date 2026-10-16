@@ -35,8 +35,15 @@ private data class Loom(val fromLeft: Boolean, val t0: Double) {
  *  - P9 / MDN / DNa -> walking speed, backing up, turning around
  *  - head bristles (a tickle, sugar on the face, dust) -> DNg12 -> grooming
  *
- * Walking toward food and wandering are body-level behaviors (the circuit has no
- * validated odor-steering), as in the browser version.
+ * Walking toward food is a body-level behavior (the circuit has no validated odor
+ * steering), as in the browser version.
+ *
+ * With the whole-CNS connectome (the phone app; [smart]), the sensory neurons also fire at
+ * their spontaneous background rates and the body follows the website's mapping
+ * (web/src/world.js): walking speed, pauses and turns from the leg motor-neuron pools, backing
+ * from MDN, voluntary flights from the flight motor neurons, long-mode escapes from the
+ * looming DNs, and grooming from the head and leg grooming DNs. The watch circuit has no
+ * background, so there the fly wanders on a body-level random walk between your inputs.
  */
 class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     val brain = Brain(c, seed)
@@ -75,6 +82,18 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     private var touchHz = 0.0              // head bristle stimulation
     private var touchUntil = 0.0
     private var groomLeft = 0.0
+
+    /** Whole-CNS mode: spontaneous background and brain-driven walking (see the class comment). */
+    val smart = c.groups.keys.any { it.startsWith("bg.") }
+    private val background = c.groups.filterKeys { it.startsWith("bg.") }.map { (k, v) -> k.removePrefix("bg.").toDouble() to v }
+    private val pools = c.groups.keys.filter { it.startsWith("motor.") && it.endsWith(".L") }.map { it.removePrefix("motor.").removeSuffix(".L") }
+    /** Every motor pool by side (Hz): smoothed over 60 ms (fast) and 200 ms (slow). */
+    val fast = HashMap<String, DoubleArray>()
+    private val slow = HashMap<String, DoubleArray>()
+    private var heading = 0.0              // smart mode: walking direction, deg (0 = right, 180 = left)
+    private var gfOn = 0.0
+    private var longOn = 0.0
+    private var flightOn = 0.0
 
     fun dropFood(atX: Double = (rng.nextDouble() - 0.5) * 2 * (HALF_WIDTH - 6)) {
         food.removeAll { it.amount <= 0 }
@@ -148,6 +167,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         if (key != lastInputs) {
             lastInputs = key
             brain.clearRates()
+            for ((hz, idx) in background) brain.setRates(idx, hz) // stimuli below override these
             if (tasteHz > 0) brain.setRates(tasteIdx, tasteHz)
             if (loomL > 0) brain.setRates(c.group("loom.L"), loomL)
             if (loomR > 0) brain.setRates(c.group("loom.R"), loomR)
@@ -158,16 +178,28 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         counts.fill(0)
         brain.run(STEP_MS.toDouble(), counts)
         val a = min(1.0, STEP_MS / SMOOTH_MS)
-        for (g in motor.keys.toList()) {
+        val a200 = min(1.0, STEP_MS / 200.0)
+        for (g in pools) {
             val r = listOf("L", "R").map { s -> c.group("motor.$g.$s").let { idx -> if (idx.isEmpty()) 0.0 else idx.sumOf { counts[it] } / idx.size.toDouble() / dt } }
-            if (g == "turn") { turnLR[0] += a * (r[0] - turnLR[0]); turnLR[1] += a * (r[1] - turnLR[1]) }
-            motor[g] = motor[g]!! + a * (max(r[0], r[1]) - motor[g]!!)
+            val f = fast.getOrPut(g) { DoubleArray(2) }
+            val sl = slow.getOrPut(g) { DoubleArray(2) }
+            for (k in 0..1) { f[k] += a * (r[k] - f[k]); sl[k] += a200 * (r[k] - sl[k]) }
+            if (g == "turn") { turnLR[0] = f[0]; turnLR[1] = f[1] }
+            if (g in motor) motor[g] = max(f[0], f[1])
         }
 
         // ---------- body ----------
         animTime += dt
         if (anim == Anim.FLY) return fly(dt)
-        if (motor["escape"]!! > ESCAPE_HZ) return takeoff()
+        if (smart) {
+            // Website thresholds (web/src/world.js BODY): the Giant Fiber above 250 Hz, or above
+            // 80 Hz for 160 ms; the parallel looming DNs above 40 Hz for 80 ms.
+            val gf = motor["escape"]!!
+            gfOn = if (gf > 80) gfOn + dt else 0.0
+            val jump = mean("takeoffFwd") + mean("takeoffBack")
+            longOn = if (jump > 40) longOn + dt else 0.0
+            if (gf > 250 || gfOn >= 0.16 || longOn >= 0.08) { gfOn = 0.0; longOn = 0.0; return takeoff() }
+        } else if (motor["escape"]!! > ESCAPE_HZ) return takeoff()
         // A starving fly lies still until food appears, then crawls to it.
         val anyFood = food.any { it.amount > 0 }
         if (pet.weak && !anyFood) return setAnim(Anim.SLEEP).also { if (rng.nextDouble() < 0.002) say("So hungry…") }
@@ -202,8 +234,16 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         }
         if (asleep && !pet.weak) { speed = 0.0; return setAnim(Anim.SLEEP) }
 
-        // Grooming: while DNg12 fires, stop and clean the head (sweeps alternating with leg rubs).
-        if (motor["groom"]!! > GROOM_HZ) groomLeft = max(groomLeft, GROOM_BOUT_S)
+        // Voluntary flight: the indirect flight-muscle motor neurons above 15 Hz for 160 ms.
+        if (smart) {
+            flightOn = if (slowMean("flight") > 15) flightOn + dt else 0.0
+            if (flightOn >= 0.16 && !pet.weak) { flightOn = 0.0; return takeoffVoluntary() }
+        }
+
+        // Grooming: while DNg12 fires, stop and clean the head (sweeps alternating with leg rubs);
+        // with the whole CNS, DNg11-type leg-rubbing DNs start it too.
+        val groomDrive = if (smart) max(motor["groom"]!!, slowMax("groomLegs")) else motor["groom"]!!
+        if (groomDrive > GROOM_HZ) groomLeft = max(groomLeft, GROOM_BOUT_S)
         if (groomLeft > 0) {
             groomLeft -= dt
             speed = 0.0
@@ -214,6 +254,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         // Wander or approach food (body-level), modulated by P9 (forward) and MDN (backward).
         // Only a completely full fly ignores food; otherwise the circuit decides at the drop.
         val target = food.filter { it.amount > 0 && timeS >= it.ignoredUntil && pet.satiety < 99 }.minByOrNull { abs(it.x - x) }
+        if (smart) return walkSmart(dt, target)
         val goal = target?.x ?: wanderTarget
         if (target == null && (abs(goal - x) < 1 || pauseLeft > 0)) {
             if (pauseLeft <= 0) pauseLeft = 1.0 + rng.nextDouble() * 4
@@ -235,6 +276,59 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         setAnim(if (abs(speed) > 0.3) Anim.WALK else Anim.IDLE)
     }
 
+    private fun mean(g: String) = fast[g]?.let { (it[0] + it[1]) / 2 } ?: 0.0
+    private fun slowMean(g: String) = slow[g]?.let { (it[0] + it[1]) / 2 } ?: 0.0
+    private fun slowMax(g: String) = slow[g]?.let { max(it[0], it[1]) } ?: 0.0
+
+    /**
+     * Whole-CNS walking (web/src/world.js): speed from the leg motor-neuron pools, plus P9,
+     * minus MDN above 30 Hz; turning from DNa01/02 and the left-right leg difference. The fly
+     * walks in 2D: the stage shows its motion along x, so turning toward or away from you
+     * slows it on screen and turning past side-on flips it.
+     */
+    private fun walkSmart(dt: Double, target: Food?) {
+        val legsL = slow["legs"]?.get(0) ?: 0.0
+        val legsR = slow["legs"]?.get(1) ?: 0.0
+        val back = max(0.0, mean("backward") - 30.0)
+        var cmd = 6.0 * max(0.0, (legsL + legsR) / 2 - 1.5) + FWD_GAIN * mean("forward") - 0.4 * back
+        var turn = 25.0 * (turnLR[0] - turnLR[1]) + 150.0 * (legsL - legsR) + 40.0 * gauss()
+        if (target != null) {
+            // Food in reach: it heads for it (smell and sight, body-level) at least at a slow walk.
+            val want = if (target.x > x) 0.0 else 180.0
+            val err = ((want - heading + 540) % 360) - 180
+            turn = err * 4
+            if (abs(target.x - x) > 0.4) cmd = max(cmd, BASE_SPEED * (if (pet.weak) 0.3 else 0.5 + pet.energy / 200)) else cmd = 0.0
+        }
+        cmd = cmd.coerceIn(-10.0, MAX_SPEED)
+        speed += (cmd - speed) * min(1.0, dt / 0.1)
+        heading = (heading + (if (abs(speed) > 0.3) turn else turn * 0.3) * dt + 360) % 360
+        var vx = speed * kotlin.math.cos(Math.toRadians(heading))
+        val nx = x + vx * dt
+        if (abs(nx) > HALF_WIDTH - 2) { heading = (540 - heading) % 360; vx = -vx } // turn back at the edge
+        x = (x + vx * dt).coerceIn(-HALF_WIDTH + 2, HALF_WIDTH - 2)
+        val c = kotlin.math.cos(Math.toRadians(heading))
+        if (abs(c) > 0.1) facing = if (c > 0) 1 else -1 // the head's side; backing moves the other way
+        walkPhase += abs(speed) * dt / STRIDE_MM
+        setAnim(if (abs(speed) > 0.3) Anim.WALK else Anim.IDLE)
+    }
+
+    private fun gauss(): Double {
+        val u = 1 - rng.nextDouble()
+        return kotlin.math.sqrt(-2 * kotlin.math.ln(u)) * kotlin.math.cos(2 * Math.PI * rng.nextDouble())
+    }
+
+    /** A flight the fly chose (flight motor neurons): no stress, a longer trip across the stage. */
+    private fun takeoffVoluntary() {
+        boutLeft = 0.0
+        tasteSince = -1.0
+        flightLeft = 1.2 + rng.nextDouble() * 1.5
+        flightTarget = (rng.nextDouble() - 0.5) * 2 * (HALF_WIDTH - 6)
+        facing = if (flightTarget > x) 1 else -1
+        heading = if (facing > 0) 0.0 else 180.0
+        say("Off for a flight", 1.5)
+        setAnim(Anim.FLY)
+    }
+
     private fun takeoff() {
         loom = null
         escapeTimes.addLast(timeS)
@@ -246,6 +340,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         flightLeft = 0.8 + rng.nextDouble() * 0.6
         flightTarget = (rng.nextDouble() - 0.5) * 2 * (HALF_WIDTH - 6)
         facing = if (flightTarget > x) 1 else -1
+        heading = if (facing > 0) 0.0 else 180.0
         say(if (escapeTimes.size > 2) "Leave me alone!" else "Whoosh!", 1.5)
         setAnim(Anim.FLY)
     }
@@ -283,6 +378,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         const val BITE_PER_S = 6.0        // satiety points per second of drinking
         const val REFUSE_AFTER_S = 2.0
         const val BASE_SPEED = 6.0        // mm/s
+        const val MAX_SPEED = 20.0        // mm/s, whole-CNS walking (the stage is 60 mm wide)
         const val FWD_GAIN = 0.25
         const val BACK_GAIN = 0.3
         const val TURN_HZ = 25.0

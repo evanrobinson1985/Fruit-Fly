@@ -2,6 +2,7 @@ package fly.watch
 
 import android.content.Context
 import fly.brain.Connectome
+import fly.brain.WebConnectome
 import fly.game.Anim
 import fly.game.FlyWorld
 import fly.game.Pet
@@ -25,10 +26,15 @@ data class Frame(
     val ageDays: Int = 1, val feedings: Int = 0, val escapes: Int = 0,
     val mn9: Double = 0.0, val gf: Double = 0.0, val p9: Double = 0.0, val mdn: Double = 0.0,
     val stepping: Int = 0, val realtime: Double = 1.0, val night: Boolean = false, val loading: Boolean = true,
+    val neurons: Int = 0,
 )
 
-/** Owns the connectome circuit, the world and the pet; runs the brain on a background thread. */
-class GameEngine(private val context: Context) {
+/**
+ * Owns the connectome circuit, the world and the pet; runs the brain on a background thread.
+ * [fullBrain]: load the website's whole-CNS connectome from assets/full (the phone app)
+ * instead of the watch circuit.
+ */
+class GameEngine(private val context: Context, private val fullBrain: Boolean = false) {
     private val store = PetStore(context)
     private var world: FlyWorld? = null
     private var job: Job? = null
@@ -78,7 +84,8 @@ class GameEngine(private val context: Context) {
     }
 
     private fun load(): FlyWorld {
-        val c = context.assets.open("brain.bin").use { bin -> context.assets.open("brain.txt").use { txt -> Connectome.read(bin, txt) } }
+        val c = if (fullBrain) WebConnectome.read { name -> context.assets.open("full/$name") }
+        else context.assets.open("brain.bin").use { bin -> context.assets.open("brain.txt").use { txt -> Connectome.read(bin, txt) } }
         return FlyWorld(c, store.load(), seed = (System.currentTimeMillis() % 100000).toInt())
     }
 
@@ -91,6 +98,7 @@ class GameEngine(private val context: Context) {
             ageDays = p.ageDays(System.currentTimeMillis()), feedings = p.feedings, escapes = p.escapes,
             mn9 = w.motor["feed"]!!, gf = w.motor["escape"]!!, p9 = w.motor["forward"]!!, mdn = w.motor["backward"]!!,
             stepping = w.brain.stepping, realtime = realtime.coerceAtMost(1.0), night = isNight(), loading = false,
+            neurons = w.brain.n,
         )
     }
 
