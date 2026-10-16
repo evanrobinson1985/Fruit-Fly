@@ -46,6 +46,15 @@ export const BODY = {
   saccadeHz: 25, saccadeDeg: 70, saccadeGapS: 0.3, // DNb01 one-sided burst -> a flight saccade
   songHz: 15, songS: 0.6,           // pIP10/pMP2 -> one wing out and vibrating (courtship song)
   feedBout: 1.0,                    // s of feeding started by one proboscis extension
+  // Defecation (body-level physiology, not read from neurons): what the fly drinks fills its
+  // gut and, after passing through it, leaves as small round droplets ("fecal spots").
+  // Between droplets the fly pauses, bends the tip of its abdomen down and deposits one.
+  // Times are compressed for the website (a real fly's gut takes on the order of an hour).
+  gutTransitS: 60,                  // s for a meal to reach the rectum (compressed)
+  depositUnit: 1.5,                 // s of feeding per droplet
+  depositGapS: 12,                  // s at least between droplets
+  depositS: 1.1,                    // s of the pause and abdomen dip; the droplet leaves at 65%
+  basalDepositS: 240,               // an empty gut still passes a droplet about this often
   escapeTime: 0.45, flightSpeed: 120, // escape flight (s, mm/s)
   stride: 1.6,                      // mm per step cycle at full amplitude
 };
@@ -148,6 +157,12 @@ export class Body {
     const gf = Math.max(m.escape.L, m.escape.R);
 
     this.songBlend = Math.max(0, (this.songBlend || 0) - dt * 4);
+    // Gut: food moves from the crop/midgut toward the rectum, ready to leave as droplets.
+    const move = Math.min(this.gut || 0, (this.gut || 0) * dt / BODY.gutTransitS);
+    this.gut = (this.gut || 0) - move;
+    this.rectum = (this.rectum || 0) + move + BODY.depositUnit * dt / BODY.basalDepositS;
+    this.sinceDeposit = (this.sinceDeposit || 0) + dt;
+    this.poopBlend = Math.max(0, (this.poopBlend || 0) - dt * 4);
     if (this.airborne > 0) { this.groomLeft = 0; this.groomBlend = 0; return this._fly(m, dt, world, sm); }
     this.landingLegs = Math.max(0, (this.landingLegs || 0) - dt * 3);
     // Long-mode takeoff in progress: wings raised, then the jump.
@@ -198,9 +213,26 @@ export class Body {
     if (this.feeding) {
       this.speed = 0;
       this.foodEaten += dt;
+      this.gut = (this.gut || 0) + dt;
       this._gait(dt, 0);
       this.groomBlend = Math.max(0, (this.groomBlend || 0) - dt * 5);
       return (this.state = "feeding");
+    }
+    // Defecation: when a droplet is ready, stop, bend the abdomen tip down and leave it.
+    if (this.poopLeft > 0 || (this.rectum >= BODY.depositUnit && this.sinceDeposit >= BODY.depositGapS && (this.groomLeft || 0) <= 0)) {
+      if (!(this.poopLeft > 0)) { this.poopLeft = BODY.depositS; this.poopDone = false; }
+      this.poopLeft -= dt;
+      const f = 1 - this.poopLeft / BODY.depositS;
+      this.poopBlend = Math.min(1, Math.sin(Math.PI * Math.min(1, f)) * 1.6);
+      if (!this.poopDone && f >= 0.65) {
+        this.poopDone = true;
+        this.rectum = Math.max(0, this.rectum - BODY.depositUnit);
+        this.sinceDeposit = 0;
+        this.deposits = (this.deposits || 0) + 1; // main.js draws the droplet
+      }
+      this.speed += (0 - this.speed) * Math.min(1, dt / 0.08);
+      this._gait(dt, 0);
+      return (this.state = "defecating");
     }
     // Courtship song: pIP10/pMP2 extend one wing and vibrate it (the side driven harder).
     const song = Math.max(sm.songL, sm.songR);
@@ -244,11 +276,20 @@ export class Body {
     const legs = (sm.legsL + sm.legsR) / 2;
     const back = Math.max(0, mean("backward") - BODY.backHz);
     const walk = spontaneous ? BODY.legGain * Math.max(0, legs - BODY.legRestHz) : BODY.baseSpeed;
-    const target = Math.min(BODY.maxSpeed, Math.max(-10, walk + BODY.fwdGain * mean("forward") - BODY.backGain * back));
+    let target = Math.min(BODY.maxSpeed, Math.max(-10, walk + BODY.fwdGain * mean("forward") - BODY.backGain * back));
+    // Game mode: a hungry pet heads for its sugar at a walk at least (body-level, like the
+    // watch game; the model has no validated odor steering). this.lure = { x, y, speed }.
+    // On the sugar it stops while its taste neurons decide (leg taste stops walking; Thoma
+    // et al. 2016): lure.hold.
+    if (this.lure) target = this.lure.hold ? Math.min(target, 0) : Math.max(target, this.lure.speed);
     this.speed += (target - this.speed) * Math.min(1, dt / 0.1);
     const noise = spontaneous ? BODY.exploreTurnSd : BODY.quietTurnSd;
     const cmd = BODY.turnGain * (m.turn.L - m.turn.R) + BODY.legTurnGain * (sm.legsL - sm.legsR);
     this.turn = (Math.abs(this.speed) > 0.3 ? cmd : cmd * 0.3) + noise * gauss(rng);
+    if (this.lure && !this.lure.hold) {
+      const want = (Math.atan2(this.lure.y - this.y, this.lure.x - this.x) * 180) / Math.PI;
+      this.turn = 4 * ((((want - this.heading) % 360) + 540) % 360 - 180);
+    }
     this.heading = (this.heading + this.turn * dt + 360) % 360;
     const h = this.heading * Math.PI / 180;
     this.x += this.speed * Math.cos(h) * dt;
@@ -261,6 +302,7 @@ export class Body {
   _takeoff(kind, duration) {
     this.flightKind = kind;
     this.airborne = duration;
+    this.poopLeft = 0;
     this.airTime = 0;
     this.flightOn = 0;
     this.feeding = false;

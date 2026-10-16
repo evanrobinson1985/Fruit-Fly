@@ -385,6 +385,14 @@ export class Fly {
     this.set("c_thorax-c_head-pitch", blend * (mode === "sweep" ? 0.18 : 0.08)); // head tips down to meet the legs
   }
 
+  // Defecation (blend 0..1): the abdomen tilts down from the thorax and its last segments
+  // curl further, bringing the tip to the ground to leave a droplet.
+  setDefecate(blend) {
+    const bend = (j, a) => { const i = this.jointIdx[j]; if (i !== undefined) this.q[i] = this.neutral[i] + a * Math.max(0, blend); };
+    bend("c_thorax-c_abdomen1-pitch", DEFECATE.base);
+    for (const k of [4, 5, 6]) bend(`c_abdomen${k}-c_abdomen${k + 1}-pitch`, DEFECATE.tip);
+  }
+
   // Courtship song (blend 0..1): one wing swung out to the side and vibrated (phase in
   // radians; shown far slower than the real ~200 Hz). Call after setWings.
   setSong(blend, side = "l", phase = 0) {
@@ -464,6 +472,9 @@ const v3 = (a, i) => new THREE.Vector3(a[i], a[i + 1], a[i + 2]);
 // and the right wing lies over the left, as a fly crosses its wings at rest.
 const WING_FOLDED = { l: [-0.14, -0.42, -0.11], r: [-0.18, -0.42, -0.19] };
 const WING_SPREAD = [-1.5, -0.9, 2.32];
+
+// Abdomen bend for defecation, rad per joint (sign: tip toward the ground).
+const DEFECATE = { base: -0.25, tip: -0.3 };
 
 // Front-leg grooming poses: joint angles solved by forward kinematics so the fourth tarsal
 // segment touches the front of the eye (sweepHigh) and the underside of the head (sweepLow)

@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "watch/**"
+      - "web/**"            # the phone app packs the website
       - ".github/workflows/watch-apk.yml"
   workflow_dispatch:
 

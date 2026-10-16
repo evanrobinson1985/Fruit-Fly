@@ -1,9 +1,9 @@
-// Feed the Fly for Android phones: the watch game's brain, world, sprites and scenery
-// (shared from ../app and ../common) with a phone-sized portrait layout.
+// Feed the Fly for Android phones: the website's 3D game mode (web/index.html?game) in a
+// WebView, served from the APK by a small local web server, so it is the same fly, grass
+// arena, sky and 165,122-neuron brain as the website, and works offline.
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.2.0"
+        versionCode = 2
+        versionName = "0.3.0"
     }
 
     // Same public sideload key as the watch app (see ../app/build.gradle.kts).
@@ -38,32 +38,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
-    androidResources { noCompress += "bin" }
     sourceSets.getByName("main") {
-        java.srcDir("../common/kotlin")
-        assets.srcDir("../app/src/main/assets")   // sprites, scenery (and the watch circuit)
-        assets.srcDir(layout.buildDirectory.dir("fullbrain")) // the whole-CNS connectome, as full/
-        res.srcDir("../app/src/main/res")         // name and icon
+        assets.srcDir(layout.buildDirectory.dir("site"))    // the website, as web/
+        res.srcDir("../app/src/main/res")                  // name and icon
     }
 }
 
-// The phone runs the website's whole connectome (165,122 neurons), packed into the APK so the
-// game never downloads it: brain.json and its PNG parts, copied from web/assets.
-val copyFullBrain by tasks.registering(Copy::class) {
-    from("../../web/assets") { include("brain.json", "brain-0*.png") }
-    into(layout.buildDirectory.dir("fullbrain/full"))
+// The website (page, scripts, connectome, fly model) and three.js, copied into the APK.
+val copySite by tasks.registering(Copy::class) {
+    into(layout.buildDirectory.dir("site/web"))
+    from("../../web") {
+        include("index.html", "src/**", "assets/**")
+        exclude("assets/NOTICE.md")
+    }
+    from("vendor") { into("vendor") }
 }
-tasks.named("preBuild") { dependsOn(copyFullBrain) }
+tasks.named("preBuild") { dependsOn(copySite) }
 
 dependencies {
-    implementation(project(":brain"))
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.material3:material3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

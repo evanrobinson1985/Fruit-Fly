@@ -13,6 +13,9 @@ import { SkyDome } from "./sky.js";
 import { FlyAudio } from "./audio.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
+// Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
+const GAME = new URLSearchParams(location.search).has("game");
+let game = null;
 const STEP_MS = 20;         // brain/body exchange interval
 const SMOOTH_MS = 60;       // motor rate smoothing
 const $ = (id) => document.getElementById(id);
@@ -158,8 +161,8 @@ const weather = new Weather(scene, {
 });
 
 // Odor clouds are drawn as glowing discs on the floor; food as glossy drops.
-const odorGroup = new THREE.Group(), foodGroup = new THREE.Group(), loomGroup = new THREE.Group();
-scene.add(odorGroup, foodGroup, loomGroup);
+const odorGroup = new THREE.Group(), foodGroup = new THREE.Group(), loomGroup = new THREE.Group(), poopGroup = new THREE.Group();
+scene.add(odorGroup, foodGroup, loomGroup, poopGroup);
 const ODOR_COLORS = { vinegar: 0xe9b949, co2: 0x7fb6e8, geosmin: 0x9bc48a };
 function glowTexture() {
   const c = document.createElement("canvas");
@@ -189,7 +192,8 @@ function addOdor(x, y, kind) {
   odorGroup.add(src);
 }
 function addFood(x, y, r = 4) {
-  world.food.push({ x, y, r });
+  const entry = { x, y, r };
+  world.food.push(entry);
   const m = new THREE.Mesh(new THREE.SphereGeometry(r, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2),
     new THREE.MeshPhysicalMaterial({ color: 0xd9c27a, roughness: 0.15, transmission: 0.35, thickness: 2, clearcoat: 1 }));
   m.rotation.x = Math.PI / 2;
@@ -197,7 +201,45 @@ function addFood(x, y, r = 4) {
   m.position.set(x, y, 0);
   m.receiveShadow = true;
   foodGroup.add(m);
+  entry.mesh = m;
   syncExclusions();
+  return entry;
+}
+function removeFood(entry) {
+  foodGroup.remove(entry.mesh);
+  world.food = world.food.filter((f) => f !== entry);
+  syncExclusions();
+}
+
+// Droplets the fly leaves (world.js: defecation): small round spots, about 0.15-0.2 mm
+// across, glossy amber-brown. Kept on the ground or leaf where they fell.
+const POOP_GEO = new THREE.SphereGeometry(0.09, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+const POOP_MAT = new THREE.MeshPhysicalMaterial({ color: 0x8a6230, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05 });
+const MAX_POOP = 60;
+world.deposits = [];
+let depositsSeen = 0;
+function addDeposit(x, y, z, fromFly = false) {
+  const m = new THREE.Mesh(POOP_GEO, POOP_MAT);
+  m.rotation.x = Math.PI / 2;
+  const r = 0.8 + 0.4 * Math.random();
+  m.scale.set(r, 0.45 * r, r);
+  m.position.set(x, y, z + 0.002);
+  m.receiveShadow = true;
+  poopGroup.add(m);
+  world.deposits.push({ x, y, z, mesh: m });
+  while (world.deposits.length > MAX_POOP) poopGroup.remove(world.deposits.shift().mesh);
+  if (fromFly) game?.onDeposit();
+}
+function clearDeposits() {
+  poopGroup.clear();
+  world.deposits = [];
+}
+// The droplet leaves the tip of the abdomen and drops to whatever is below it.
+const tipPos = new THREE.Vector3();
+function depositFromFly() {
+  const tip = fly.poses[fly.byName["c_abdomen7"].id].p;
+  tipPos.copy(tip).applyMatrix4(flyRoot.matrixWorld);
+  addDeposit(tipPos.x, tipPos.y, groundZ(tipPos.x, tipPos.y), true);
 }
 
 // ---------- fly ----------
@@ -310,6 +352,7 @@ function sensoryInputs(t) {
   lastSense = body.sense(world, t, $("odor-kind").value);
   const inputs = { odor: $("odor-kind").value, spontaneous: $("spont").checked, ...lastSense.rates };
   if (t < stim.touchUntil) inputs.touch = stim.touch;
+  if (game) inputs.taste *= game.tasteGain(); // hungrier flies' sugar neurons respond more
   if (t < stim.windUntil) { inputs.windL = stim.windL; inputs.windR = stim.windR; }
   if (stim.opto) inputs.opto = stim.opto;
   // Weather on the antennae: moist-air cells (HRN_VP5) in rain, cold cells (TRN_VP3) in snow.
@@ -335,7 +378,15 @@ function advanceBody(t) {
   for (const lo of world.looms) if (lo.t0 <= t && body.threatDir === null) body.threatDir = lo.worldAz;
   // A touch on the head or light on the neurons is a cue to groom now (see BODY.groomRestS).
   body.groomCue = (t < stim.touchUntil + 1 && stim.touch?.zone === "head") || !!stim.opto; // DNs lag the touch
-  body.act(smooth, dt, world, rng, $("spont").checked);
+  if (game?.asleep()) {
+    // Asleep (game mode, at night): it stays where it is, legs still.
+    body.state = "sleeping";
+    body.speed = 0;
+    body.ampL *= 0.9; body.ampR *= 0.9;
+  } else {
+    body.act(smooth, dt, world, rng, $("spont").checked);
+  }
+  game?.step(dt);
   Object.assign(prev, curr);
   Object.assign(curr, { x: body.x, y: body.y, z: body.z, heading: body.heading, phase: body.phase, t });
   tPrev = tCurr;
@@ -437,6 +488,13 @@ canvas.addEventListener("pointerup", (e) => {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
+  if (game && document.body.classList.contains("game-lab-hidden")) {
+    // Game mode: tap the fly to touch it there, tap the grass to drop sugar.
+    if (poke(e)) return;
+    const g = ray.intersectObject(terrain.visible ? terrain.floor : floor)[0];
+    if (g) game.dropAt(g.point.x, g.point.y);
+    return;
+  }
   if (tool === "poke") {
     if (!poke(e)) $("hint").textContent = "Missed. Zoom in and click on the fly itself.";
     return;
@@ -473,6 +531,7 @@ $("clear").onclick = () => {
   weather.clearSettled();
   world.odors = []; world.food = [];
   odorGroup.clear(); foodGroup.clear();
+  clearDeposits();
   syncExclusions();
 };
 // Fly skin: the anatomical one, or FlyBody's original flat colours.
@@ -816,6 +875,7 @@ function frame(now) {
     fly.setFlightLegs(wings * (1 - (body.landingLegs || 0))); // landing DNs extend the legs
     fly.setGroom(body.groomBlend || 0, body.groomMode, body.groomPhase || 0, body.groomSide);
     fly.setSong(body.songBlend || 0, body.songSide, body.songPhase || 0);
+    fly.setDefecate(body.poopBlend || 0);
     audio.update({
       wing: body.airborne > 0 ? body.wingOpen : hopWing * 0.6, power: smooth.wingPower ? Math.max(smooth.wingPower.L, smooth.wingPower.R) : 0,
       song: body.songBlend || 0, groom: body.groomBlend || 0, groomPhase: body.groomPhase || 0,
@@ -827,6 +887,11 @@ function frame(now) {
     const sniff = lastSense ? Math.min(0.4, (lastSense.odor.L + lastSense.odor.R) * 2) : 0;
     for (const s of ["l", "r"]) fly.set(`c_head-${s}_antenna-pitch`, sniff * Math.sin(now / 90 + (s === "l" ? 0 : 1.3)) * 0.5);
     fly.update();
+    if ((body.deposits || 0) > depositsSeen) {
+      depositsSeen = body.deposits;
+      flyRoot.updateMatrixWorld(true);
+      depositFromFly();
+    }
   }
   // Looming discs fly in along their bearing.
   for (const lo of world.looms) {
@@ -863,11 +928,13 @@ function frame(now) {
 async function boot() {
   let saved = "lab";
   try { saved = localStorage.getItem("floor") || "lab"; } catch {}
-  setFloor(saved === "grass");
+  setFloor(GAME || saved === "grass");
   syncWeatherUi();
-  addOdor(35, 40, "vinegar");
-  addFood(35, 40, 5);
-  addFood(-25, 18, 4);
+  if (!GAME) {
+    addOdor(35, 40, "vinegar");
+    addFood(35, 40, 5);
+    addFood(-25, 18, 4);
+  }
   body.reset(0, 0, 60);
   Object.assign(curr, { x: 0, y: 0, z: 0, heading: 60, phase: 0, t: 0 });
   Object.assign(prev, curr);
@@ -881,6 +948,16 @@ async function boot() {
   scene.add(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
+  if (GAME) {
+    const { startGame } = await import("./game.js");
+    game = startGame({
+      body, world, canvas, addFood, removeFood, addDeposit, clearDeposits, groundZ,
+      touchHead: () => {
+        stim.touch = { zone: "head", side: Math.random() < 0.5 ? "L" : "R", hz: 120 };
+        stim.touchUntil = (curr.t || 0) + 0.6;
+      },
+    });
+  }
   $("load-stage").textContent = "Loading connectome";
   startBrain();
   const meta = await fetch(ASSETS + "brain.json", { cache: "no-cache" }).then((r) => r.json());
@@ -890,4 +967,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, get fly() { return fly; } }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; } }; // for debugging from the console
