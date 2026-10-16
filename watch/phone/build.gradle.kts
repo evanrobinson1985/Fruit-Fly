@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.1"
+        versionCode = 4
+        versionName = "0.3.2"
     }
 
     // Same public sideload key as the watch app (see ../app/build.gradle.kts).
@@ -52,6 +52,9 @@ val copySite by tasks.registering(Copy::class) {
         exclude("assets/NOTICE.md")
     }
     from("vendor") { into("vendor") }
+    doLast { // the page can't start without three.js
+        check(file("vendor/three/build/three.module.js").exists()) { "phone/vendor/three/build/three.module.js is missing" }
+    }
 }
 tasks.named("preBuild") { dependsOn(copySite) }
 
