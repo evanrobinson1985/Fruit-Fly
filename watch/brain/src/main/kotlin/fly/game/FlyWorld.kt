@@ -82,6 +82,8 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     private var touchHz = 0.0              // head bristle stimulation
     private var touchUntil = 0.0
     private var groomLeft = 0.0
+    private var groomT = 0.0               // seconds into the current bout
+    private var groomRest = 1e9            // seconds since the last bout ended
 
     /** Whole-CNS mode: spontaneous background and brain-driven walking (see the class comment). */
     val smart = c.groups.keys.any { it.startsWith("bg.") }
@@ -245,7 +247,14 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         // (As on the website: both read over 200 ms, the head DNs by their stronger side, the
         // leg-rubbing DNs averaged over both.)
         val groomDrive = if (smart) max(slowMax("groom"), slowMean("groomLegs")) else motor["groom"]!!
-        if (groomDrive > GROOM_HZ) groomLeft = max(groomLeft, GROOM_BOUT_S)
+        if (groomDrive > GROOM_HZ) {
+            // With the whole CNS, DNg12 also bursts at rest (as high as a tickle drives it):
+            // without a cue on the head, bouts are capped and spaced (web/src/world.js BODY).
+            val cued = !smart || timeS < touchUntil + 1.0 // the DNs lag the touch
+            val ok = if (groomLeft > 0) cued || groomT < GROOM_SPONT_S else cued || groomRest >= GROOM_REST_S
+            if (ok) groomLeft = max(groomLeft, GROOM_BOUT_S)
+        }
+        if (groomLeft > 0) { groomT += dt; groomRest = 0.0 } else { groomT = 0.0; groomRest += dt }
         if (groomLeft > 0) {
             groomLeft -= dt
             speed = 0.0
@@ -368,6 +377,8 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         const val DUST_EVERY_S = 75.0     // mean interval between dust specks
         const val GROOM_HZ = 3.0          // DNg12 (smoothed) above this -> grooming
         const val GROOM_BOUT_S = 1.5
+        const val GROOM_SPONT_S = 3.0     // longest uncued bout (whole CNS)
+        const val GROOM_REST_S = 8.0      // and the least time between them
         const val SMOOTH_MS = 60.0
         const val HALF_WIDTH = 30.0       // mm of ground visible either side of center
         const val FOOD_RADIUS = 2.0

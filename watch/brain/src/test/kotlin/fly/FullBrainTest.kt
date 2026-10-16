@@ -64,6 +64,8 @@ class FullBrainTest {
             "$flights flights, legs ${w.fast["legs"]?.toList()}, ${"%.2f".format(seconds / wall)}x real time on this machine")
         assertTrue(travelled > 5.0, "the fly should walk on its own")
         assertTrue((time[Anim.FLY] ?: 0) < time.values.sum() / 2, "it should not spend most of its time flying")
+        assertTrue((time[Anim.GROOM] ?: 0) < time.values.sum() / 2, "it should not spend most of its time grooming")
+        assertTrue((time[Anim.WALK] ?: 0) > time.values.sum() / 5, "it should spend a good share of its time walking")
     }
 
     @Test

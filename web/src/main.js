@@ -333,6 +333,8 @@ const rng = Math.random;
 function advanceBody(t) {
   const dt = STEP_MS / 1000;
   for (const lo of world.looms) if (lo.t0 <= t && body.threatDir === null) body.threatDir = lo.worldAz;
+  // A touch on the head or light on the neurons is a cue to groom now (see BODY.groomRestS).
+  body.groomCue = (t < stim.touchUntil + 1 && stim.touch?.zone === "head") || !!stim.opto; // DNs lag the touch
   body.act(smooth, dt, world, rng, $("spont").checked);
   Object.assign(prev, curr);
   Object.assign(curr, { x: body.x, y: body.y, z: body.z, heading: body.heading, phase: body.phase, t });

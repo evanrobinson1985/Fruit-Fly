@@ -33,6 +33,10 @@ export const BODY = {
   // rubbing, DNg11 leg rubbing alone (Guo et al. 2022). Touching the head bristles drives
   // DNg12 to ~10 Hz in this connectome; at rest it stays near 0.
   groomOnHz: 3, groomBout: 1.5, sweepHz: 3, rubHz: 5, groomSwitchS: 1.1,
+  // At rest DNg12 also fires in spontaneous bursts (up to ~19 Hz, as high as a tickle drives
+  // it), so without a cue on the head a bout lasts at most groomSpontS and needs groomRestS
+  // since the last one. A touch on the head, or light on the neurons, grooms at once.
+  groomSpontS: 3, groomRestS: 8,
   // Long-mode escape: the non-Giant-Fiber looming DNs (DNp02, DNp04, DNp11; looming drives
   // them to 40-230 Hz here) raise the wings first, then jump; DNp11 biases the jump forward,
   // DNp02/DNp04 backward (Peek 2018). The Giant Fiber alone gives the short mode.
@@ -212,8 +216,16 @@ export class Body {
     }
     // Grooming: stop and clean the head while the grooming command neurons are active.
     const head = Math.max(sm.groomL, sm.groomR);
-    if (Math.max(head, sm.rub) > BODY.groomOnHz) this.groomLeft = Math.max(this.groomLeft || 0, BODY.groomBout);
+    if (Math.max(head, sm.rub) > BODY.groomOnHz) {
+      const cued = !!this.groomCue;
+      const ongoing = (this.groomLeft || 0) > 0;
+      if (ongoing ? cued || (this.groomT || 0) < BODY.groomSpontS : cued || (this.groomRest ?? Infinity) >= BODY.groomRestS) {
+        this.groomLeft = Math.max(this.groomLeft || 0, BODY.groomBout);
+      }
+    }
     this.groomLeft = Math.max(0, (this.groomLeft || 0) - dt);
+    if (this.groomLeft > 0) this.groomRest = 0;
+    else this.groomRest = (this.groomRest ?? Infinity) + dt;
     if (this.groomLeft > 0) {
       this.groomT = (this.groomT || 0) + dt;
       this.groomSide = sm.groomL >= sm.groomR ? "l" : "r";
