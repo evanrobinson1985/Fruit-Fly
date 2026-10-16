@@ -94,7 +94,7 @@ screens like the Galaxy S23 Ultra). It is the website's game mode (`web/index.ht
 full screen: the same 3D fly, grass arena, sky, sounds and whole 165,122-neuron brain as on
 the website, not the watch's 2D sprites. The site, connectome and three.js are packed into
 the APK and served to the app's WebView by a small web server on 127.0.0.1, so it works
-offline and never downloads the connectome (the APK is about 60 MB). The pet (food, energy,
+offline and never downloads the connectome (the APK is about 52 MB). The pet (food, energy,
 mood, droppings) is saved by the page and keeps living while the app is closed; the
 phone's fly is its own pet, separate from the watch's. Feed, Tickle, Clean and Lab (the
 website's science panels) are along the bottom.
