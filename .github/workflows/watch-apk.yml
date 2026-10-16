@@ -1,4 +1,4 @@
-name: Feed the Fly (Wear OS APK)
+name: Feed the Fly (Wear OS and phone APKs)
 
 on:
   push:
@@ -20,11 +20,21 @@ jobs:
       - name: Test brain and game logic
         working-directory: watch
         run: ./gradlew :brain:test --console=plain
-      - name: Build APK
+      - name: Build APKs
         working-directory: watch
-        run: ./gradlew :app:assembleRelease --console=plain
+        run: ./gradlew :app:assembleRelease :phone:assembleRelease --console=plain
+      - name: Name the APKs
+        run: |
+          mkdir -p out
+          cp watch/app/build/outputs/apk/release/app-release.apk out/feed-the-fly-watch.apk
+          cp watch/phone/build/outputs/apk/release/phone-release.apk out/feed-the-fly-phone.apk
       - uses: actions/upload-artifact@v4
         with:
           name: feed-the-fly-apk
-          path: watch/app/build/outputs/apk/release/app-release.apk
+          path: out/feed-the-fly-watch.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feed-the-fly-phone-apk
+          path: out/feed-the-fly-phone.apk
           if-no-files-found: error

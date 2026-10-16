@@ -63,9 +63,9 @@ rules (`tools/compose_preview.py`). They are not captures from a watch.
 ## Installing on your watch
 
 Every push that changes `watch/` builds the app on GitHub Actions
-(`.github/workflows/watch-apk.yml`). Open the latest run of **Feed the Fly (Wear OS APK)**
-in the repository's **Actions** tab and download the `feed-the-fly-apk` artifact (a zip
-with `app-release.apk`).
+(`.github/workflows/watch-apk.yml`). Open the latest run of **Feed the Fly (Wear OS and
+phone APKs)** in the repository's **Actions** tab and download the `feed-the-fly-apk`
+artifact (a zip with `feed-the-fly-watch.apk`).
 
 Wear OS apps that aren't on the Play Store are installed with `adb`
 ([Android platform tools](https://developer.android.com/tools/releases/platform-tools)):
@@ -77,18 +77,31 @@ Wear OS apps that aren't on the Play Store are installed with `adb`
 3. In Wireless debugging, tap **Pair new device** and run, with the shown address and code:
    `adb pair <ip>:<pair-port>` then `adb connect <ip>:<port>` (the port on the main
    Wireless debugging screen).
-4. `adb install -r app-release.apk`, then open **Feed the Fly** from the app list.
+4. `adb install -r feed-the-fly-watch.apk`, then open **Feed the Fly** from the app list.
 
 Phone apps that wrap `adb` (for example Bugjaeger on Android) can do the same without a
 computer. The APK is signed with a public sideload key (`sideload.keystore`), so newer
 builds install over older ones and keep your pet. It is not suitable for Play Store release.
+
+## On your phone
+
+`phone/` is the same game for Android phones (Android 8 or newer, portrait; made for
+tall screens like the Galaxy S23 Ultra). It shares the watch's brain circuit, world, fly
+sprites, grass scenery and sounds (`common/`), with a bigger view of the arena, stat bars,
+Feed / Tickle buttons, a how-to-play panel and a live readout of the neurons that drive
+the fly. The phone's fly is its own pet, separate from the watch's.
+
+To install it, download the `feed-the-fly-phone-apk` artifact from the same Actions run,
+unzip it on the phone, and open `feed-the-fly-phone.apk`. Android asks once to allow
+installs from that app (Files or your browser): allow it, then tap **Install**.
 
 ## Building and rebuilding assets
 
 ```bash
 cd watch
 ./gradlew :brain:test                       # brain + game logic tests (no Android SDK needed)
-./gradlew :app:assembleRelease              # APK (needs the Android SDK)
+./gradlew :app:assembleRelease              # watch APK (needs the Android SDK)
+./gradlew :phone:assembleRelease            # phone APK
 # Rebuild the circuit and validation report (from the repo root):
 PYTHONPATH=. python watch/tools/export_brain.py
 # Re-render the fly frames:
@@ -96,7 +109,8 @@ cd watch/tools && npm install three@0.169.0 playwright && node render_sprites.mj
 ```
 
 `:brain` is plain Kotlin (engine in `brain/src/main/kotlin/fly/brain`, game in
-`fly/game`), tested on the JVM. `:app` is the Wear OS Compose UI.
+`fly/game`), tested on the JVM. `:app` is the Wear OS Compose UI and `:phone` the phone UI;
+`common/` holds what both use (engine thread, sound, scene drawing).
 
 ## Credits
 

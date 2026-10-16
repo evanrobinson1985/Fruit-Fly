@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly"
         minSdk = 30           // Wear OS 3+
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     // A fixed, public key for sideloading (watch/sideload.keystore), so new builds install
@@ -39,6 +39,8 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
     androidResources { noCompress += "bin" }
+    // Engine, sound and scene drawing are shared with the phone app (../phone).
+    sourceSets.getByName("main").java.srcDir("../common/kotlin")
 }
 
 dependencies {
