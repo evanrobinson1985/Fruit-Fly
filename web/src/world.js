@@ -188,7 +188,8 @@ export class Body {
     if (onFood && Math.max(m.feed.L, m.feed.R) > BODY.feedHz) this.boutLeft = BODY.feedBout;
     this.boutLeft = onFood ? Math.max(0, this.boutLeft - dt) : 0;
     this.feeding = this.boutLeft > 0;
-    const pTarget = this.feeding ? 1 : Math.min(1, Math.max(m.feed.L, m.feed.R) / BODY.feedHz);
+    // The proboscis follows MN9, but stays folded while the legs groom the head in front of it.
+    const pTarget = this.feeding ? 1 : (this.groomLeft || 0) > 0 ? 0 : Math.min(1, Math.max(m.feed.L, m.feed.R) / BODY.feedHz);
     this.proboscis += (pTarget - this.proboscis) * Math.min(1, dt / 0.08);
     if (this.feeding) {
       this.speed = 0;
