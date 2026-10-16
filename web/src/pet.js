@@ -71,13 +71,15 @@ export const suggestName = (not) => {
 export const MAX_NAME = 16;
 
 const NAME_CSS = `
-  #name-card { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px;
+  #name-card, #name-card * { box-sizing: border-box; }
+  #name-card { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px;
     background: rgba(8, 7, 6, 0.8); font-family: var(--body); }
-  #name-card form { width: min(380px, 100%); background: #1b1713; border: 1px solid var(--line); border-radius: 18px;
+  #name-card form { width: 100%; max-width: 380px; background: #1b1713; border: 1px solid var(--line); border-radius: 18px;
     padding: 24px 20px 20px; display: flex; flex-direction: column; gap: 14px; color: var(--ink); }
   #name-card h2 { margin: 0; font: italic 500 30px var(--display); }
   #name-card p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
   #name-card .row { display: flex; gap: 8px; }
+  #name-card #name-dice { flex: none; width: 54px; padding: 0; font-size: 22px; }
   #name-card input { flex: 1; min-width: 0; font: 600 20px var(--body); color: var(--ink); background: rgba(255, 240, 220, 0.06);
     border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
   #name-card input:focus { outline: 2px solid var(--cuticle); outline-offset: 1px; }
