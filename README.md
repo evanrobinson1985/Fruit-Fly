@@ -28,6 +28,14 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   could reach threshold; quiet neurons are advanced in closed form when input arrives. It
   matches the Python engine (`node web/tools/check_engine.mjs`). The connectome is a
   one-time 46 MB download, fetched one part at a time with automatic retries.
+- **Neuron model switch (Simulation panel):** *Standard* is the model above. *Detailed*
+  adds three things the standard model leaves out, using wiring it otherwise discards
+  (a further 450 KB download): the 131 octopamine neurons act as a slow arousal signal on
+  their 200,000 targets; dopamine teaches the mushroom body (a Kenyon cell's synapses onto
+  an output neuron weaken when it fires while that compartment's dopamine neurons are
+  active, and recover over minutes); and the Giant Fiber's electrical synapses drive the
+  jump and flight motor path (TTMn, PSI) at the measured latency. The Status panel counts
+  the weakened synapses. It runs about 30–40% slower. See "Detailed model" below.
 - **Spontaneous activity:** with the switch on (default), about 11,800 sensory neurons fire
   at low background rates, as real ones do (`flysim/interface.py: SPONTANEOUS_HZ`), so the
   brain is active at rest and the fly walks, pauses, backs up and takes off on its own.
@@ -114,6 +122,7 @@ To rebuild the assets:
 
 ```bash
 PYTHONPATH=. python web/tools/export_brain.py          # connectome -> web/assets/brain*.png
+PYTHONPATH=. python web/tools/export_detailed.py       # detailed model wiring -> web/assets/brain-detail.png
 pip install flygym                                     # only for re-exporting the body
 python web/tools/export_body.py --flybody-repo ../flybody  # -> web/assets/fly.{json,png}
 python -m http.server -d web 8000                      # open http://localhost:8000
@@ -232,13 +241,46 @@ Limits to keep in mind:
 - **No vision below LC4/LPLC2.** The photoreceptor-to-lamina path is
   histaminergic and graded, which a spiking model at rest cannot represent, so
   looming is injected at the visual projection neurons.
-- **Fast synapses only.** The model has no gap junctions, neuromodulation or plasticity.
-  One visible consequence: the Giant Fiber's synapse onto the jump motor neuron (TTMn) is
-  mostly electrical, so in the model TTMn barely responds (5–11 Hz) while the Giant Fiber
-  fires at 300+ Hz. Escape is therefore read from the Giant Fiber itself.
+- **Fast synapses only (standard model).** The standard model has no gap junctions,
+  neuromodulation or plasticity. One visible consequence: the Giant Fiber's synapse onto the
+  jump motor neuron (TTMn) is mostly electrical, so TTMn barely responds (5–11 Hz) while the
+  Giant Fiber fires at 300+ Hz. Escape is therefore read from the Giant Fiber itself. The
+  detailed model (below) adds the Giant Fiber's gap junctions, octopamine and dopamine.
+- **Point neurons with predicted signs.** Each neuron is a single compartment, and whether a
+  synapse excites or inhibits comes from its transmitter, predicted from electron-microscope
+  images. Serotonin, and dopamine outside the mushroom body, act through receptors that can
+  excite or inhibit depending on the target, which the connectome does not record, so even the
+  detailed model leaves them out.
 - **Spontaneous rates are partly assumed.** Smell-receptor rates follow published ranges;
   the others are low guesses, and the behavior thresholds were set from a minute of
   simulated spontaneous activity (in `web/src/world.js`).
+
+### Detailed model
+
+`model.make_detailed(c)` (the website's *Detailed* switch) is the `realistic` preset plus:
+
+- **Octopamine** (131 neurons, 202k connections that the standard model drops, since
+  monoamines have no fast effect): each spike adds a slow depolarizing drive to every
+  target (0.02 mV per synapse, decaying over 1 s), capped at 1 mV because the receptors
+  saturate. Octopamine raises excitability and arousal and readies flight (Roeder 2005;
+  Suver et al. 2012). Without the cap the octopamine neurons excite their own inputs and the
+  whole brain runs away (mean rate 0.4 → 21 Hz); with it, resting activity rises from
+  0.374 to 0.412 Hz.
+- **Dopamine-gated plasticity in the mushroom body.** A Kenyon cell's synapse onto an output
+  neuron (MBON) weakens when the KC fires while the dopamine neurons of that MBON's compartment
+  are active (Hige et al. 2015; Cohn et al. 2015), and recovers with a 5-minute time
+  constant. A compartment's dopamine is that of the DANs synapsing onto the MBON. Pairing
+  200 KCs with PPL101 (the γ1pedc punishment DANs) for 10 s cut MBON11 (MBON-γ1pedc>α/β, the
+  pairing measured by Hige et al.) from 13 to 2 Hz for those KCs. All MBONs together went
+  175 → 104 Hz for the paired set and 139 → 135 Hz for an unpaired set. Real odors only
+  activate 5–11 of the 4,064 KCs in this model (about 5% in a real fly), so learning from
+  odors in the browser is real but small.
+- **Giant Fiber gap junctions** onto TTMn and PSI (shakB; Allen et al. 2006): each GF spike
+  arrives as a 10 mV step 0.8 ms later, the measured GF → TTM latency (Tanouye & Wyman 1980).
+  With the GF firing at 85 Hz, TTMn goes from 0 Hz (chemical synapses only) to 67 Hz.
+
+Validation: `tests/test_model.py` (tiny networks), `results/validation.md`, and
+`node web/tools/check_engine.mjs` for the browser engine.
 
 To change any mapping, edit the tables in `flysim/interface.py`. To change the
 model, pass parameters to `make_brain`:

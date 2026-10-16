@@ -185,3 +185,40 @@ def functional(c: Connectome, drop_kc_kc: bool = True, drop_sensory_inputs: bool
     w = c.w.copy()
     w[cut] = 0
     return Connectome(nn, c.indptr, c.post, w)
+
+
+# Monoamine transmitters act through slow metabotropic receptors, so build() gives
+# them no fast synapses. The "detailed" model uses their wiring separately.
+MONOAMINES = ("dopamine", "serotonin", "octopamine")
+
+
+@dataclass
+class Modulatory:
+    """Outputs of the monoamine neurons: for presynaptic index j, targets
+    post[indptr[j]:indptr[j+1]] with synapse counts count[...] (all >0)."""
+
+    indptr: np.ndarray
+    post: np.ndarray
+    count: np.ndarray
+
+
+def modulatory(c: Connectome, data_dir: Path = DEFAULT_DATA_DIR) -> Modulatory:
+    """Synapses made by dopamine, serotonin and octopamine neurons (cached)."""
+    data_dir = Path(data_dir)
+    cache = data_dir / "modulatory.npz"
+    if cache.exists():
+        z = np.load(cache)
+        return Modulatory(z["indptr"], z["post"], z["count"])
+    mono = c.neurons.bodyId[c.neurons.nt.isin(MONOAMINES)]
+    w = pd.read_feather(data_dir / WEIGHTS, columns=["body_pre", "body_post", "weight"])
+    w = w[w.body_pre.isin(set(mono)) & w.body_post.isin(set(c.neurons.bodyId))]
+    idx = pd.Series(np.arange(c.n), index=c.neurons.bodyId.values)
+    pre = idx.loc[w.body_pre.values].to_numpy()
+    post = idx.loc[w.body_post.values].to_numpy().astype(np.int32)
+    count = w.weight.to_numpy(np.int32)
+    order = np.lexsort((post, pre))
+    pre, post, count = pre[order], post[order], count[order]
+    indptr = np.zeros(c.n + 1, np.int64)
+    np.cumsum(np.bincount(pre, minlength=c.n), out=indptr[1:])
+    np.savez(cache, indptr=indptr, post=post, count=count)
+    return Modulatory(indptr, post, count)

@@ -1,7 +1,7 @@
 <meta charset="utf-8">
 <title>Connectome Fly</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="A FlyBody fruit fly driven by a 165,122-neuron spiking simulation of the MaleCNS connectome, running in your browser.">
+<meta name="description" content="A FlyBody fruit fly whose decisions come from a 165,122-neuron spiking simulation of a real male fly's mapped nervous system (the MaleCNS connectome), running in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@1,6..72,500&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -136,7 +136,7 @@
       <button id="left-toggle" class="fold" aria-expanded="true" aria-controls="left-body" title="Hide the controls">Hide</button>
     </div>
     <div id="left-body" class="body">
-      <p class="sub">Every move this fly makes comes from 165,122 spiking neurons wired exactly like a real male <i>Drosophila</i>'s nervous system, simulated live in your browser.</p>
+      <p class="sub">This fly's decisions come from 165,122 spiking neurons wired from a real male <i>Drosophila</i>'s mapped nervous system, simulated live in your browser.</p>
       <details class="sec" id="sec-tools" open>
         <summary>Click tools</summary>
         <div class="sec-body">
@@ -198,6 +198,12 @@
             <button id="cam">Close-up</button>
           </div>
           <label class="switch" for="spont"><input type="checkbox" id="spont" checked> Spontaneous activity <span class="sub">(sensory neurons fire at rest)</span></label>
+          <div class="row" role="group" aria-label="Neuron model">
+            <span class="label" style="flex:0 0 auto">Model</span>
+            <button id="model-std" aria-pressed="true">Standard</button>
+            <button id="model-det" aria-pressed="false">Detailed</button>
+          </div>
+          <div class="hint" id="model-note">Standard: spiking neurons with synaptic depression and adaptation. Detailed adds what the standard model leaves out: octopamine neurons as slow arousal signals, dopamine that teaches the mushroom body (odor paired with a dopamine signal weakens that odor's output synapses: try PPL101 in Optogenetics while an odor plays), and the Giant Fiber's fast electrical synapses.</div>
         </div>
       </details>
       <details class="sec opto" id="opto-box">
@@ -226,6 +232,7 @@
           <dt>Speed vs real</dt><dd id="st-speed">–</dd>
           <dt>Spikes / s</dt><dd id="st-spikes">–</dd>
           <dt>Neurons stepping</dt><dd id="st-stepping">–</dd>
+          <dt>Mushroom body memory</dt><dd id="st-memory" title="Kenyon cell to output neuron synapses weakened by more than 10% by dopamine-paired odors (detailed model); they recover over minutes">–</dd>
           <dt>Walking speed</dt><dd id="st-walk">–</dd>
           <dt>Time feeding</dt><dd id="st-fed">0.0 s</dd>
         </dl>

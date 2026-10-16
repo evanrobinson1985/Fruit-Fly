@@ -37,6 +37,21 @@ The leaky integrate-and-fire model and its parameters come from:
 The short-term synaptic depression, the connectome edits in the `realistic` preset, and the
 event-driven browser engine were added in this repository. Any errors in them are ours.
 
+### Detailed model
+
+- Octopamine as an arousal and flight-readiness signal: Roeder, T. Tyramine and octopamine:
+  ruling behavior and metabolism. *Annu. Rev. Entomol.* 50, 447–477 (2005); Suver, M. P.,
+  Mamiya, A. & Dickinson, M. H. Octopamine neurons mediate flight-induced modulation of visual
+  processing. *Neuron* 75, 1013–1023 (2012).
+- Dopamine-gated depression of KC → MBON synapses: Hige, T., Aso, Y., Modi, M. N., Rubin, G. M. &
+  Turner, G. C. Heterosynaptic plasticity underlies aversive olfactory learning in *Drosophila*.
+  *Neuron* 88, 985–998 (2015); Cohn, R., Morantte, I. & Ruta, V. Coordinated and compartmentalized
+  neuromodulation shapes sensory processing in *Drosophila*. *Cell* 163, 1742–1755 (2015).
+- Giant Fiber electrical synapses: Allen, M. J., Godenschwege, T. A., Tanouye, M. A. & Phelan, P.
+  Making an escape: development and function of the *Drosophila* giant fibre system.
+  *Semin. Cell Dev. Biol.* 17, 31–41 (2006); latency from Tanouye, M. A. & Wyman, R. J. Motor
+  outputs of giant nerve fiber in *Drosophila*. *J. Neurophysiol.* 44, 405–421 (1980).
+
 ## 3D fly body: FlyBody
 
 The 3D fly on the website (meshes, skeleton and materials) is **FlyBody**:

@@ -38,3 +38,57 @@ function probe(name, idx, hz = 100, ms = 500) {
 probe("LC4+LPLC2", both(G.loom));
 probe("vinegar", both(G.odor.vinegar));
 probe("taste", G.taste);
+
+// Detailed model (flysim.model.make_detailed; compare with results/validation.md).
+const D = meta.detailed;
+const all = new Int32Array((await decodePng(new Uint8Array(readFileSync(new URL(D.file, dir))), D.ints * 4)).buffer);
+const arrays = Object.fromEntries(Object.entries(D.layout).map(([k, [o, n]]) => [k, all.subarray(o, o + n)]));
+const types = JSON.parse(readFileSync(new URL("brain-types.json", dir))).types;
+const tid = new Uint16Array((await decodePng(new Uint8Array(readFileSync(new URL("brain-type.png", dir))), meta.n * 2)).buffer);
+const ofType = (...names) => { const ids = names.map((t) => types.indexOf(t) + 1); const out = []; tid.forEach((t, i) => ids.includes(t) && out.push(i)); return out; };
+brain.setDetailed(true, arrays, D.params);
+const hz = (counts, idx, ms) => idx.reduce((s, i) => s + counts[i], 0) / idx.length / (ms / 1000);
+
+// Giant Fiber -> TTMn: electrical synapses make TTMn follow the GF.
+for (const on of [false, true]) {
+  brain.setDetailed(on);
+  brain.reset(); brain.clearRates();
+  brain.setRates(ofType("DNp01"), 120);
+  const counts = new Uint16Array(meta.n);
+  brain.run(300, counts);
+  console.log(`${on ? "detailed" : "standard"} GF drive: GF ${hz(counts, ofType("DNp01"), 300).toFixed(0)} Hz, TTMn ${hz(counts, ofType("TTMn"), 300).toFixed(0)} Hz, PSI ${hz(counts, ofType("PSI"), 300).toFixed(0)} Hz`);
+}
+
+// Background activity, standard vs detailed (octopamine must not run away).
+for (const on of [false, true]) {
+  brain.setDetailed(on);
+  brain.reset(); brain.clearRates();
+  brain.setRates(G.background.idx, 0); G.background.idx.forEach((i, k) => (brain.rate[i] = G.background.hz[k])); brain._dirty = true;
+  brain.run(500);
+  const counts = new Uint16Array(meta.n);
+  const t = Date.now();
+  brain.run(2000, counts);
+  const oa = ofType(...types.filter((t) => t.startsWith("OA-")));
+  console.log(`${on ? "detailed" : "standard"} background: mean ${(counts.reduce((a, c) => a + c, 0) / meta.n / 2).toFixed(3)} Hz, OA ${hz(counts, oa, 2000).toFixed(1)} Hz (${((Date.now() - t) / 2000).toFixed(2)}x real time)`);
+}
+
+// Mushroom body learning: 200 KCs ("odor A") paired with PPL101, vs 200 others ("odor B").
+brain.setDetailed(true);
+brain.reset(); brain.clearRates();
+let seed = 1; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+const kcs = [...arrays.kc].sort(() => rnd() - 0.5), A = kcs.slice(0, 200), B = kcs.slice(200, 400);
+const mbon11 = ofType("MBON11"), mbons = [...arrays.mbon];
+const test = (odor) => {
+  let m11 = 0, all = 0;
+  for (let r = 0; r < 3; r++) {
+    brain.run(500); brain.setRates(odor, 20);
+    const c = new Uint16Array(meta.n); brain.run(1000, c); brain.setRates(odor, 0);
+    m11 += hz(c, mbon11, 1000) / 3; all += hz(c, mbons, 1000) * mbons.length / 3;
+  }
+  return [m11, all];
+};
+const [a0, A0] = test(A), [b0, B0] = test(B);
+brain.setRates(ofType("PPL101"), 30); brain.setRates(A, 20); brain.run(10000); brain.setRates(ofType("PPL101"), 0); brain.setRates(A, 0);
+const mem = brain.memory();
+const [a1, A1] = test(A), [b1, B1] = test(B);
+console.log(`learning: ${mem.weak} of ${mem.of} KC->MBON synapses weakened; MBON11 to A ${a0.toFixed(1)} -> ${a1.toFixed(1)} Hz, to B ${b0.toFixed(1)} -> ${b1.toFixed(1)} Hz; all MBONs A ${A0.toFixed(0)} -> ${A1.toFixed(0)}, B ${B0.toFixed(0)} -> ${B1.toFixed(0)}`);

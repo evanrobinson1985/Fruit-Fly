@@ -241,7 +241,7 @@ let brainMap = null;
 // ---------- brain host ----------
 let send, brainReady = false, pending = false, paused = false;
 const smooth = {}; // motor group -> {L, R} rates, filled from the first brain result
-let lastSense = null, wallStart = 0, simAtStart = 0, spikesRate = 0, stepping = 0, brainWall = 0;
+let lastSense = null, wallStart = 0, simAtStart = 0, spikesRate = 0, stepping = 0, brainWall = 0, memory = null;
 
 function onBrain(msg) {
   if (msg.type === "progress") {
@@ -254,7 +254,19 @@ function onBrain(msg) {
     $("st-state").textContent = "walking";
     wallStart = performance.now();
     simAtStart = 0;
+    if (detailed) send({ type: "detailed", on: true });
     step();
+  } else if (msg.type === "model") {
+    $("model-std").disabled = $("model-det").disabled = false;
+    $("model-det").textContent = "Detailed";
+  } else if (msg.type === "error" && brainReady) {
+    // The detailed model's wiring failed to load: stay on the standard model.
+    $("model-std").disabled = $("model-det").disabled = false;
+    $("model-det").textContent = "Detailed";
+    $("model-note").textContent = `Could not load the detailed model: ${msg.message}`;
+    detailed = false;
+    $("model-std").setAttribute("aria-pressed", true);
+    $("model-det").setAttribute("aria-pressed", false);
   } else if (msg.type === "error") {
     $("load-stage").textContent = "Could not load the connectome";
     $("load-note").textContent = msg.message;
@@ -263,6 +275,7 @@ function onBrain(msg) {
     brainWall = brainWall * 0.9 + msg.wallMs * 0.1;
     spikesRate = msg.spikes / (STEP_MS / 1000);
     stepping = msg.stepping;
+    memory = msg.memory;
     if (brainMap) brainMap.spikes(msg.events);
     const a = Math.min(1, STEP_MS / SMOOTH_MS);
     for (const [g, v] of Object.entries(msg.motor)) {
@@ -468,6 +481,23 @@ function setSkin(name) {
   $("skin-plain").setAttribute("aria-pressed", name === "plain");
   try { localStorage.setItem("skin", name); } catch {}
 }
+// Neuron model: standard, or detailed (neuromodulation, mushroom-body learning, gap junctions).
+let detailed = false;
+try { detailed = localStorage.getItem("model") === "detailed"; } catch {}
+function setModel(on) {
+  detailed = on;
+  $("model-std").setAttribute("aria-pressed", !on);
+  $("model-det").setAttribute("aria-pressed", on);
+  try { localStorage.setItem("model", on ? "detailed" : "standard"); } catch {}
+  if (brainReady) {
+    $("model-std").disabled = $("model-det").disabled = true; // until the brain confirms
+    if (on) $("model-det").textContent = "Loading…";
+    send({ type: "detailed", on });
+  }
+}
+$("model-std").onclick = () => detailed && setModel(false);
+$("model-det").onclick = () => !detailed && setModel(true);
+setModel(detailed);
 $("skin-real").onclick = () => setSkin("real");
 $("skin-plain").onclick = () => setSkin("plain");
 $("floor-lab").onclick = () => setFloor(false);
@@ -818,6 +848,7 @@ function frame(now) {
     $("st-speed").textContent = brainReady ? `${Math.min(1, STEP_MS / Math.max(1, brainWall)).toFixed(2)}×` : "–";
     $("st-spikes").textContent = brainReady ? Math.round(spikesRate).toLocaleString() : "–";
     $("st-stepping").textContent = brainReady ? stepping.toLocaleString() : "–";
+    $("st-memory").textContent = memory == null ? "– (detailed model)" : `${memory.weak.toLocaleString()} of ${memory.of.toLocaleString()} synapses weakened`;
     $("st-walk").textContent = `${Math.abs(body.speed).toFixed(1)} mm/s`;
     $("st-fed").textContent = `${body.foodEaten.toFixed(1)} s`;
   }

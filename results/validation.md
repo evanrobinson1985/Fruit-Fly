@@ -137,3 +137,22 @@ Each input type is driven at 100 Hz Poisson for 500 ms from rest. Rates are mean
 | WG4 | 96 | 4 | 318 | 270 | 86 | 12142 | 7725 |
 | claw_tpGRN | 50 | 0 | 308 | 326 | 82 | 10023 | 6697 |
 | dorsal_tpGRN | 10 | 0 | 294 | 324 | 80 | 9717 | 7249 |
+
+## Detailed model (`model.make_detailed`)
+
+Python engine, seeds 1–3; browser engine from `node web/tools/check_engine.mjs` (seed 7).
+
+| check | standard | detailed (Python) | detailed (browser) |
+|---|---|---|---|
+| mean rate with spontaneous background | 0.374 Hz (browser 0.384) | 0.412 Hz | 0.415 Hz |
+| octopamine neurons at rest | 7.6 Hz (browser 8.9) | 8.6 Hz | 9.3 Hz |
+| same, octopamine drive uncapped (0.02 mV/synapse) | | 20.8 Hz mean, OA 223 Hz (runaway) | |
+| GF driven: TTMn | 0–1 spikes in 300 ms | ~1 per GF spike, 0.7–0.8 ms after it | 67 Hz with GF at 85 Hz |
+| 200 KCs paired with PPL101 for 10 s: MBON11 to those KCs | | 13.0 → 2.0 Hz | 12.7 → 0.0 Hz |
+| same, MBON11 to 200 unpaired KCs | | 6.3 → 3.0 Hz | 5.3 → 2.0 Hz |
+| same, all MBONs, paired / unpaired KCs | | 175 → 104 / 139 → 135 Hz | 118 → 15 / 39 → 17 Hz |
+
+The Python learning run keeps the spontaneous background on; the browser check runs without it,
+which makes the MBONs' remaining drive smaller and the drop larger. Some KCs outside the paired
+set fire during training, so part of the depression generalizes. Natural odors activate only
+5 (vinegar) to 11 (geosmin) KCs here.

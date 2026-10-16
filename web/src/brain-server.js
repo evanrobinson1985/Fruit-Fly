@@ -6,9 +6,10 @@ import { loadPng, streamPngInto } from "./pngdata.js";
 const MAX_EVENTS = 60000;
 
 export function createBrainServer(post) {
-  let brain = null, meta = null, counts = null, lastInputs = "";
+  let brain = null, meta = null, counts = null, lastInputs = "", base = "";
 
-  async function load(base) {
+  async function load(b) {
+    base = b;
     meta = await (await fetch(base + "brain.json")).json();
     const total = meta.png_bytes;
     const size = meta.sections.reduce((a, b) => a + b, 0);
@@ -99,12 +100,31 @@ export function createBrainServer(post) {
     let spikes = 0;
     for (let i = 0; i < counts.length; i++) spikes += counts[i];
     const ev = events.slice(0, nEv);
-    post({ type: "result", t: brain.timeMs, motor, events: ev, spikes, wallMs, stepping: brain.nActive }, [ev.buffer]);
+    const memory = brain.detOn ? brain.memory() : null;
+    post({ type: "result", t: brain.timeMs, motor, events: ev, spikes, wallMs, stepping: brain.nActive, memory }, [ev.buffer]);
+  }
+
+  // Detailed model: load its wiring the first time, then switch.
+  let detailLoad = null;
+  async function setDetailed(on) {
+    if (on && !brain.det) {
+      const D = meta.detailed;
+      if (!D) throw new Error("brain.json has no detailed model (run web/tools/export_detailed.py)");
+      detailLoad ??= loadPng(base + D.file, D.ints * 4).then((bytes) => {
+        const all = new Int32Array(bytes.buffer, bytes.byteOffset, D.ints);
+        const arrays = Object.fromEntries(Object.entries(D.layout).map(([k, [o, n]]) => [k, all.subarray(o, o + n)]));
+        brain.setDetailed(true, arrays, D.params);
+      });
+      await detailLoad;
+    }
+    brain.setDetailed(on);
+    post({ type: "model", detailed: brain.detOn });
   }
 
   return (msg) => {
     if (msg.type === "init") load(msg.base).catch((e) => post({ type: "error", message: String(e) }));
     else if (msg.type === "run") run(msg);
     else if (msg.type === "reset") { brain.reset(); lastInputs = ""; }
+    else if (msg.type === "detailed") setDetailed(msg.on).catch((e) => post({ type: "error", message: String(e) }));
   };
 }

@@ -75,3 +75,57 @@ def test_functional_edits():
     assert w[(2, 3)] == 0      # onto a sensory neuron
     assert w[(3, 0)] == 0      # from an "unclear" transmitter neuron
     assert c.w.min() == 5      # original untouched
+
+
+def _detailed(c, mod_edges=(), **kw):
+    """Detailed-model wiring for a tiny net; mod_edges are (pre, post, count) from monoamine neurons."""
+    from flysim.data import Modulatory
+    from flysim.model import Detailed, DetailedParams
+    n = c.n
+    mod_edges = sorted(mod_edges)
+    pre = np.array([e[0] for e in mod_edges], int)
+    indptr = np.zeros(n + 1, np.int64)
+    np.cumsum(np.bincount(pre, minlength=n), out=indptr[1:])
+    m = Modulatory(indptr, np.array([e[1] for e in mod_edges], np.int32), np.array([e[2] for e in mod_edges], np.int32))
+    return Detailed(c, m, DetailedParams(**kw))
+
+
+def test_giant_fiber_gap_junction_drives_ttmn():
+    # A weak chemical synapse alone cannot fire TTMn; the electrical one does, ~0.8 ms after each GF spike.
+    c = net([(0, 1, 1)], 2, types=["DNp01", "TTMn"])
+    std = Brain(c, monitor=[0, 1])
+    std.set_rates([0], 100.0)
+    assert std.run(500)[1] == 0
+    det = Brain(c, monitor=[0, 1], detailed=_detailed(c))
+    det.set_rates([0], 100.0)
+    counts = det.run(500)
+    assert counts[1] >= 0.8 * counts[0] > 0
+    t, i = det.spike_events()
+    first_gf = t[i == 0][0]
+    assert 0.7 <= t[(i == 1) & (t > first_gf)][0] - first_gf <= 1.0
+
+
+def test_dopamine_depresses_kc_to_mbon_only_when_paired():
+    types = ["KC", "MBON01", "PAM01"]
+    c = net([(0, 1, 40)], 3, types=types, nt=["acetylcholine", "acetylcholine", "dopamine"])
+    d = _detailed(c, [(2, 1, 10)])
+    # KC alone: no dopamine, no change.
+    b = Brain(c, detailed=d)
+    b.set_rates([0], 20.0)
+    b.run(3000)
+    assert b.f_kc.min() > 0.999
+    # KC with its compartment's dopamine neuron: the synapse weakens.
+    b = Brain(c, detailed=d)
+    b.set_rates([0], 20.0)
+    b.set_rates([2], 30.0)
+    b.run(3000)
+    assert b.f_kc[0] < 0.5
+
+
+def test_octopamine_raises_excitability_with_a_cap():
+    # 0 (octopamine) onto 1 with 100 synapses: the slow drive builds up to the cap.
+    c = net([], 2, types=["OA-VUMa1", "t1"], nt=["octopamine", "acetylcholine"])
+    b = Brain(c, detailed=_detailed(c, [(0, 1, 100)]))
+    b.set_rates([0], 50.0)
+    b.run(2000)
+    assert 0.95 < b.mod[1] <= 1.0 + 1e-6  # saturates at mod_max (decaying a little between spikes)
