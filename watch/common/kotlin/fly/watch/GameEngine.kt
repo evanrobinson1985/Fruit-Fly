@@ -26,7 +26,7 @@ data class Frame(
     val ageDays: Int = 1, val feedings: Int = 0, val escapes: Int = 0,
     val mn9: Double = 0.0, val gf: Double = 0.0, val p9: Double = 0.0, val mdn: Double = 0.0,
     val stepping: Int = 0, val realtime: Double = 1.0, val night: Boolean = false, val loading: Boolean = true,
-    val neurons: Int = 0,
+    val neurons: Int = 0, val droppings: List<Double> = emptyList(),
 )
 
 /**
@@ -51,12 +51,20 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
     /** Long-press on the fly: tickle its head. */
     fun tickle() = commands.add { it.tickle() }
 
+    /** Clean up the droppings. */
+    fun clean() = commands.add { it.clean() }
+
     fun start(scope: CoroutineScope) {
         if (job != null) return
         job = scope.launch(Dispatchers.Default) {
             val w = world ?: load().also { world = it }
             val now = System.currentTimeMillis()
+            val away = now - w.pet.updatedAtMs
             w.pet.advance(now, asleepFraction = nightFraction(w.pet.updatedAtMs, now))
+            // Food eaten before the app closed has since passed through: droppings wait on the stage.
+            if (away > 120_000) repeat(w.pet.digestAway()) {
+                if (w.pet.droppings.size < FlyWorld.MAX_DROPPINGS) w.pet.droppings += (Math.random() - 0.5) * 2 * (FlyWorld.HALF_WIDTH - 3)
+            }
             var lastSave = now
             var wallPerStep = FlyWorld.STEP_MS.toDouble()
             while (isActive) {
@@ -98,7 +106,7 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
             ageDays = p.ageDays(System.currentTimeMillis()), feedings = p.feedings, escapes = p.escapes,
             mn9 = w.motor["feed"]!!, gf = w.motor["escape"]!!, p9 = w.motor["forward"]!!, mdn = w.motor["backward"]!!,
             stepping = w.brain.stepping, realtime = realtime.coerceAtMost(1.0), night = isNight(), loading = false,
-            neurons = w.brain.n,
+            neurons = w.brain.n, droppings = w.pet.droppings.toList(),
         )
     }
 
@@ -137,7 +145,9 @@ class PetStore(context: Context) {
             satiety = prefs.getFloat("satiety", 70f).toDouble(), energy = prefs.getFloat("energy", 80f).toDouble(),
             mood = prefs.getFloat("mood", 60f).toDouble(), bornAtMs = prefs.getLong("bornAt", 0L),
             updatedAtMs = prefs.getLong("updatedAt", 0L), feedings = prefs.getInt("feedings", 0),
-            escapes = prefs.getInt("escapes", 0),
+            escapes = prefs.getInt("escapes", 0), cleans = prefs.getInt("cleans", 0),
+            gut = prefs.getFloat("gut", 0f).toDouble(),
+            droppings = prefs.getString("droppings", "")!!.split(",").mapNotNull { it.toDoubleOrNull() }.toMutableList(),
         )
     }
 
@@ -145,7 +155,8 @@ class PetStore(context: Context) {
         prefs.edit()
             .putFloat("satiety", p.satiety.toFloat()).putFloat("energy", p.energy.toFloat()).putFloat("mood", p.mood.toFloat())
             .putLong("bornAt", p.bornAtMs).putLong("updatedAt", p.updatedAtMs)
-            .putInt("feedings", p.feedings).putInt("escapes", p.escapes)
+            .putInt("feedings", p.feedings).putInt("escapes", p.escapes).putInt("cleans", p.cleans)
+            .putFloat("gut", p.gut.toFloat()).putString("droppings", p.droppings.joinToString(",") { "%.2f".format(java.util.Locale.ROOT, it) })
             .apply()
     }
 }

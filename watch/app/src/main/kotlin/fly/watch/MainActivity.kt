@@ -143,6 +143,12 @@ fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound
                 .background(Color(0x99302822)).clickable { info = true },
             contentAlignment = Alignment.Center,
         ) { Text("i", color = Ink, fontWeight = FontWeight.Bold) }
+        // Droppings to clean: a chip on the other side of Feed.
+        if (f.droppings.isNotEmpty()) Box(
+            Modifier.align(Alignment.BottomCenter).offset(x = (-52).dp).padding(bottom = 30.dp).size(30.dp).clip(CircleShape)
+                .background(Color(0xCC6E4A22)).clickable { engine.clean() },
+            contentAlignment = Alignment.Center,
+        ) { Text("${f.droppings.size}", color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
         if (info) InfoPanel(f, soundOn, { soundOn = it; sound.enabled = it }) { info = false }
     }
 }
@@ -187,7 +193,8 @@ private fun InfoPanel(f: Frame, soundOn: Boolean, setSound: (Boolean) -> Unit, c
         Text(
             "Tap the ground or Feed to drop sugar. A hungry fly's taste neurons drive MN9 and it drinks; a full one refuses. " +
                 "Tap the fly and a hand looms in: its Giant Fiber decides whether to flee. " +
-                "Long-press it to tickle its head: its head bristles drive the DNg12 grooming neurons, and if they fire it cleans itself.",
+                "Long-press it to tickle its head: its head bristles drive the DNg12 grooming neurons, and if they fire it cleans itself. " +
+                "What it drinks passes through its gut and comes out as tiny droplets; tap the brown chip to clean them up, or its mood sours.",
             color = Color(0xFFBDB2A2), fontSize = 10.sp, textAlign = TextAlign.Center,
         )
         Text(

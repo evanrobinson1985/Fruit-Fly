@@ -79,6 +79,11 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   fly stops and cleans its head: front-leg sweeps over the eyes alternating with leg rubbing
   (Guo et al. 2022). The leg poses were solved by forward kinematics so the tarsi reach the
   eye, the underside of the head and each other.
+- **Defecation:** what the fly drinks fills its gut and, after passing through (compressed to
+  about a minute; in a real fly it takes on the order of an hour), leaves as small round
+  droplets: the fly stops, curls the tip of its abdomen down and leaves a glossy drop on the
+  ground (Cognigni et al. 2011; Wayland et al. 2014). An empty gut still passes one now and
+  then. This is body-level physiology, not driven by the connectome.
 - **More command neurons:** the body also reads out the non-Giant-Fiber escape neurons
   (DNp02/DNp04/DNp11: long-mode takeoffs with the wings raised first, forward or backward),
   the landing neurons DNp07/DNp10 (legs extend, the fly comes down), DNg02 (wing power in
@@ -117,6 +122,12 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   motor and descending-neuron rates, sensory input, and a dorsal map of the whole CNS that
   flashes on every spike.
 
+**Game mode** (`index.html?game`): the same 3D fly, grass arena and brain, kept as a pet. Its
+food, energy and mood change over hours (also while the page is closed, saved in the
+browser), it sleeps from 22:00 to 07:00, walks to the sugar you drop and drinks if its
+taste neurons drive MN9 (they respond more the hungrier it is), and leaves droppings that
+sour its mood until you clean them up. **Lab** brings back the science panels.
+
 All assets are in the repository, so the site runs straight from a download or clone:
 `python -m http.server -d web 8000`, then open http://localhost:8000.
 
@@ -138,7 +149,8 @@ so the bytes are exact.
 
 [`watch/`](watch) is a Tamagotchi-style Wear OS game (built for the Galaxy Watch Ultra)
 where a 15k-neuron subcircuit of the same connectome decides whether your fly eats and
-when it flees. See [watch/README.md](watch/README.md) to install it.
+when it flees. There is also a phone version, which is the website's game mode with the full
+3D fly and whole brain, offline. See [watch/README.md](watch/README.md) to install them.
 
 ## Quick start
 

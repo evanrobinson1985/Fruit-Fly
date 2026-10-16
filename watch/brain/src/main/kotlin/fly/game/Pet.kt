@@ -15,6 +15,9 @@ data class Pet(
     var updatedAtMs: Long = 0L,
     var feedings: Int = 0,
     var escapes: Int = 0,
+    var cleans: Int = 0,
+    var gut: Double = 0.0,        // food still in the gut, seconds of drinking (FlyWorld.DEPOSIT_UNIT per droplet)
+    val droppings: MutableList<Double> = mutableListOf(), // stage x (mm) of droppings not yet cleaned
     var name: String = "Dot",
 ) {
     /** 0 (full) .. 1 (starving). */
@@ -42,6 +45,13 @@ data class Pet(
         val target = 60.0 - (if (satiety < 25) 30.0 else 0.0) - (if (energy < 20) 15.0 else 0.0)
         mood += (target - mood) * min(1.0, h / 6.0)
         mood = clamp(mood)
+    }
+
+    /** Food eaten before the app closed has since passed through: up to [max] droppings to place. */
+    fun digestAway(max: Int = 6): Int {
+        val n = min(max, (gut / 1.5).toInt())
+        gut -= n * 1.5
+        return n
     }
 
     fun ate(amount: Double) {

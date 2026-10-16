@@ -10,7 +10,7 @@ import kotlin.math.min
 import kotlin.math.sign
 import kotlin.random.Random
 
-enum class Anim { IDLE, WALK, FEED, FLY, SLEEP, GROOM }
+enum class Anim { IDLE, WALK, FEED, FLY, SLEEP, GROOM, POOP }
 
 /** A sugar drop on the ground. Units: mm along the stage. */
 data class Food(val x: Double, var amount: Double = 30.0, var ignoredUntil: Double = 0.0)
@@ -34,6 +34,9 @@ private data class Loom(val fromLeft: Boolean, val t0: Double) {
  *  - looming on one eye -> LC4/LPLC2 -> Giant Fiber -> takeoff
  *  - P9 / MDN / DNa -> walking speed, backing up, turning around
  *  - head bristles (a tickle, sugar on the face, dust) -> DNg12 -> grooming
+ *
+ * What it drinks passes through its gut and leaves as small droplets: the fly pauses, dips
+ * the tip of its abdomen and deposits one (body-level, as on the website: web/src/world.js).
  *
  * Walking toward food is a body-level behavior (the circuit has no validated odor
  * steering), as in the browser version.
@@ -84,6 +87,10 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     private var groomLeft = 0.0
     private var groomT = 0.0               // seconds into the current bout
     private var groomRest = 1e9            // seconds since the last bout ended
+    var rectum = 0.0; private set          // seconds of drinking ready to leave as droplets
+    private var sinceDeposit = 0.0
+    private var poopLeft = 0.0
+    private var poopDone = false
 
     /** Whole-CNS mode: spontaneous background and brain-driven walking (see the class comment). */
     val smart = c.groups.keys.any { it.startsWith("bg.") }
@@ -192,6 +199,13 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
 
         // ---------- body ----------
         animTime += dt
+        // Gut: food moves toward the rectum; an empty gut still passes a droplet now and then.
+        val move = min(pet.gut, pet.gut * dt / GUT_TRANSIT_S)
+        pet.gut -= move
+        rectum += move + DEPOSIT_UNIT * dt / BASAL_DEPOSIT_S
+        sinceDeposit += dt
+        // Droppings left lying around sour its mood.
+        pet.mood = max(0.0, pet.mood - 0.0005 * pet.droppings.size * dt)
         if (anim == Anim.FLY) return fly(dt)
         if (smart) {
             // Website thresholds (web/src/world.js BODY): the Giant Fiber above 250 Hz, or above
@@ -218,6 +232,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
             val bite = min(onFood.amount, BITE_PER_S * dt)
             onFood.amount -= bite
             pet.ate(bite)
+            pet.gut += dt
             if (boutLeft <= 0 || onFood.amount <= 0) {
                 tasteSince = -1.0 // next contact recruits a fresh set of taste neurons
                 touchHead(SUGAR_FACE_HZ, 1.0) // sugar left on the face and proboscis
@@ -235,6 +250,22 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
             wanderTarget = x - sign(onFood.x - x + 1e-6) * 15
         }
         if (asleep && !pet.weak) { speed = 0.0; return setAnim(Anim.SLEEP) }
+
+        // Defecation: a pause, the abdomen tip dips and a droplet is left behind the fly.
+        if (poopLeft > 0 || rectum >= DEPOSIT_UNIT && sinceDeposit >= DEPOSIT_GAP_S && groomLeft <= 0) {
+            if (poopLeft <= 0) { poopLeft = DEPOSIT_S; poopDone = false }
+            poopLeft -= dt
+            if (!poopDone && 1 - poopLeft / DEPOSIT_S >= 0.65) {
+                poopDone = true
+                rectum = max(0.0, rectum - DEPOSIT_UNIT)
+                sinceDeposit = 0.0
+                if (pet.droppings.size >= MAX_DROPPINGS) pet.droppings.removeAt(0)
+                pet.droppings += (x - facing * 1.3).coerceIn(-HALF_WIDTH + 1, HALF_WIDTH - 1)
+                say("Plop!", 1.2)
+            }
+            speed = 0.0
+            return setAnim(Anim.POOP)
+        }
 
         // Voluntary flight: the indirect flight-muscle motor neurons above 15 Hz for 160 ms.
         if (smart) {
@@ -340,6 +371,17 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         setAnim(Anim.FLY)
     }
 
+    /** Clean up the droppings; a clean home cheers the pet up. Returns how many there were. */
+    fun clean(): Int {
+        val n = pet.droppings.size
+        if (n == 0) return 0
+        pet.droppings.clear()
+        pet.cleans++
+        pet.mood = min(100.0, pet.mood + min(15.0, 2.0 * n))
+        say(if (n == 1) "Cleaned up 1 dropping" else "Cleaned up $n droppings")
+        return n
+    }
+
     private fun takeoff() {
         loom = null
         escapeTimes.addLast(timeS)
@@ -357,6 +399,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     }
 
     private fun fly(dt: Double) {
+        poopLeft = 0.0
         flightLeft -= dt
         val total = max(0.2, flightLeft + animTime)
         val f = (animTime / total).coerceIn(0.0, 1.0)
@@ -396,5 +439,12 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         const val BACK_GAIN = 0.3
         const val TURN_HZ = 25.0
         const val STRIDE_MM = 1.6
+        // Defecation (web/src/world.js BODY; compressed: a real fly's gut takes about an hour).
+        const val GUT_TRANSIT_S = 60.0     // a meal reaches the rectum
+        const val DEPOSIT_UNIT = 1.5       // seconds of drinking per droplet
+        const val DEPOSIT_GAP_S = 12.0     // least time between droplets
+        const val DEPOSIT_S = 1.1          // the pause and abdomen dip; the droplet leaves at 65%
+        const val BASAL_DEPOSIT_S = 240.0  // an empty gut still passes one about this often
+        const val MAX_DROPPINGS = 20
     }
 }

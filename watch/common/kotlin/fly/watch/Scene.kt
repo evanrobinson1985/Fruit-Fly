@@ -1,6 +1,6 @@
 package fly.watch
 
-// The game's scene, shared by the watch (app) and phone (phone) apps: the pre-rendered fly
+// The watch game's scene: the pre-rendered fly
 // sprites, the grass-arena scenery layers, and drawing them for a frame of the world.
 
 import android.graphics.BitmapFactory
@@ -27,6 +27,7 @@ class Sprites(val frames: Map<String, List<ImageBitmap>>) {
         Anim.FEED -> frames.getValue("feed").let { it[(f.proboscis * 5).roundToInt().coerceIn(0, 5)] }
         Anim.FLY -> frames.getValue("fly").let { it[(f.animTime * 25).toInt() % it.size] }
         Anim.SLEEP -> frames.getValue("sleep")[0]
+        Anim.POOP -> frames.getValue("poop").let { it[(f.animTime / FlyWorld.DEPOSIT_S * it.size).toInt().coerceIn(0, it.size - 1)] }
         // Frames 0-5 head sweeps, 6-11 leg rubbing, alternating every 1.1 s (DNg12).
         Anim.GROOM -> frames.getValue("groom").let {
             val rub = (f.animTime / 1.1).toInt() % 2 == 1
@@ -134,6 +135,14 @@ fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySiz
         val r = FlyWorld.FOOD_RADIUS.toFloat() * v.k * (0.45f + 0.55f * (amount / 30.0).toFloat().coerceIn(0f, 1f))
         drawOval(Color(0xE6D9A441), Offset(cx - r, groundY - r * 0.32f), Size(2 * r, r * 0.55f))
         drawOval(Color(0xAAFFF4D6), Offset(cx - r * 0.5f, groundY - r * 0.28f), Size(r * 0.55f, r * 0.16f))
+    }
+    // Droppings: tiny glossy brown spots (about 0.2 mm across, as a real fly's).
+    for (dx in f.droppings) {
+        val cx = sx(dx)
+        if (cx < -10 || cx > w + 10) continue
+        val r = (0.12f * v.k).coerceAtLeast(2.5f)
+        drawOval(Color(0xFF6E4A22), Offset(cx - r, groundY - r * 0.45f), Size(2 * r, r * 0.9f))
+        drawOval(Color(0x99FFE9C8), Offset(cx - r * 0.45f, groundY - r * 0.35f), Size(r * 0.5f, r * 0.25f))
     }
     // The fly: its claws are FEET_LINE of the way down each sprite frame.
     val img = sprites.pick(f)

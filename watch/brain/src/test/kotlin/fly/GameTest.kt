@@ -47,6 +47,21 @@ class GameTest {
     }
 
     @Test
+    fun aMealComesOutAsDroppings() {
+        // 6 s of drinking: four droplets' worth, which pass through within a few minutes.
+        val pet = Pet(satiety = 50.0, gut = 6.0)
+        val w = FlyWorld(c, pet, seed = 3)
+        var pooped = false
+        runUntil(w, 120.0) { pooped = pooped || it.anim == Anim.POOP; false }
+        println("droppings after 2 min: ${pet.droppings.size} gut=${pet.gut} rectum=${w.rectum}")
+        assertTrue(pooped)
+        assertTrue(pet.droppings.size in 2..10)
+        val mood = pet.mood
+        assertEquals(pet.droppings.size, w.clean())
+        assertTrue(pet.droppings.isEmpty() && pet.mood > mood && pet.cleans == 1)
+    }
+
+    @Test
     fun tapTriggersEscapeFlight() {
         val pet = Pet()
         val w = FlyWorld(c, pet, seed = 2)

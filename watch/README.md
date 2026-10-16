@@ -35,6 +35,10 @@ rules (`tools/compose_preview.py`). They are not captures from a watch.
 - **Food, energy and mood** are the three arcs at the top of the face. Food drains over
   about 12 hours, energy while it's awake, and it sleeps from 22:00 to 07:00 (sleeping
   flies are harder to startle). If food runs out, the fly lies still until you feed it.
+- **Droppings:** what it drinks passes through its gut and, a minute or so later, the fly
+  stops, dips the tip of its abdomen and leaves a tiny brown droplet behind it (a meal
+  eaten before you closed the game is waiting on the stage when you come back). Uncleaned
+  droppings slowly sour its mood: tap the brown chip left of **Feed** to clean them up.
 - **i** opens stats, live neuron rates and credits.
 
 ## What's real and what isn't
@@ -85,17 +89,18 @@ builds install over older ones and keep your pet. It is not suitable for Play St
 
 ## On your phone
 
-`phone/` is the same game for Android phones (Android 8 or newer, portrait; made for
-tall screens like the Galaxy S23 Ultra), with a bigger view of the arena, stat bars,
-Feed / Tickle buttons, a how-to-play panel and a live readout of the neurons that drive
-the fly. It shares the world, fly sprites, grass scenery and sounds (`common/`), but runs
-the website's whole connectome: all 165,122 neurons, packed into the APK from
-`web/assets` (never downloaded; it loads in about half a second). Its sensory neurons fire
-at their background rates, so, as on the website, the leg motor neurons decide when it
-walks, pauses and turns, and it flies off and grooms on its own (`FlyWorld.smart`). In a
-40 s test at rest it walked 41% of the time, groomed 31%, flew 23% and stood 6%, at
-1.4× real time on a GitHub runner (`FullBrainTest`). The phone's fly is its own pet,
-separate from the watch's, which keeps the 16,540-neuron circuit.
+`phone/` is Feed the Fly for Android phones (Android 8 or newer, portrait; made for tall
+screens like the Galaxy S23 Ultra). It is the website's game mode (`web/index.html?game`)
+full screen: the same 3D fly, grass arena, sky, sounds and whole 165,122-neuron brain as on
+the website, not the watch's 2D sprites. The site, connectome and three.js are packed into
+the APK and served to the app's WebView by a small web server on 127.0.0.1, so it works
+offline and never downloads the connectome (the APK is about 60 MB). The pet (food, energy,
+mood, droppings) is saved by the page and keeps living while the app is closed; the
+phone's fly is its own pet, separate from the watch's. Feed, Tickle, Clean and Lab (the
+website's science panels) are along the bottom.
+
+The Kotlin whole-CNS mode (`GameEngine(fullBrain = true)`, `FlyWorld.smart`) stays in
+`:brain` and is still tested (`FullBrainTest`), but the phone app no longer uses it.
 
 To install it, download the `feed-the-fly-phone-apk` artifact from the same Actions run,
 unzip it on the phone, and open `feed-the-fly-phone.apk`. Android asks once to allow
@@ -115,8 +120,9 @@ cd watch/tools && npm install three@0.169.0 playwright && node render_sprites.mj
 ```
 
 `:brain` is plain Kotlin (engine in `brain/src/main/kotlin/fly/brain`, game in
-`fly/game`), tested on the JVM. `:app` is the Wear OS Compose UI and `:phone` the phone UI;
-`common/` holds what both use (engine thread, sound, scene drawing).
+`fly/game`), tested on the JVM. `:app` is the Wear OS Compose UI and `common/` its engine
+thread, sound and scene drawing. `:phone` is a WebView shell; its build copies `web/` into the
+APK.
 
 ## Credits
 

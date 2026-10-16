@@ -116,6 +116,15 @@ cited next to each entry in `flysim/interface.py`):
 - Hampel, S., Franconville, R., Simpson, J. H. & Seeds, A. M. A neural command circuit for
   grooming movement control. *eLife* 4, e08758 (2015).
 
+## Defecation
+
+- Cognigni, P., Bailey, A. P. & Miguel-Aliaga, I. Enteric neurons and systemic signals couple
+  nutritional and reproductive status with intestinal homeostasis. *Cell Metab.* 13, 92–104
+  (2011): fecal deposits as a readout of intestinal transit.
+- Wayland, M. T. *et al.* Spotting the differences: probing host/microbiota interactions with a
+  dedicated software tool for the analysis of faecal outputs in *Drosophila*. *J. Insect
+  Physiol.* 69, 126–135 (2014): size, shape and number of deposits.
+
 ## Other descending neurons read out as behavior
 
 - Takeoff modes: von Reyn, C. R. *et al.* A spike-timing mechanism for action selection.
@@ -164,6 +173,8 @@ recorded samples.
 
 Uses the same connectome, neuron model, FlyBody fly and NeuroMechFly leg recordings as above;
 see [watch/README.md](watch/README.md). Built with Jetpack Compose for Wear OS (Apache 2.0).
+The phone app bundles three.js r169 (MIT; `watch/phone/vendor/three/LICENSE`) to run the
+website offline.
 
 ## Software and fonts
 
