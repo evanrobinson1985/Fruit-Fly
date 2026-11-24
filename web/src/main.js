@@ -1005,7 +1005,7 @@ async function boot() {
   scene.add(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
-  predators = new FrogPredators(scene, ASSETS + "frogs.glb", respawnAfterPredation, world.radius);
+  predators = new FrogPredators(scene, ASSETS + "frogs-animated.glb", respawnAfterPredation, world.radius);
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");

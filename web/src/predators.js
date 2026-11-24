@@ -84,7 +84,7 @@ export class FrogPredators {
           if (object.isSkinnedMesh) object.visible = object.name === mesh.name;
         });
 
-        const rawBounds = new THREE.Box3().setFromObject(rig);
+        const rawBounds = new THREE.Box3().setFromObject(mesh);
         const rawLength = Math.max(0.001, rawBounds.max.x - rawBounds.min.x);
         const scale = def.targetLength / rawLength;
         const model = new THREE.Group();
@@ -94,7 +94,7 @@ export class FrogPredators {
         model.scale.setScalar(scale);
         model.updateMatrixWorld(true);
 
-        const bounds = new THREE.Box3().setFromObject(model);
+        const bounds = new THREE.Box3().setFromObject(mesh);
         model.position.x -= (bounds.min.x + bounds.max.x) / 2;
         model.position.y -= (bounds.min.y + bounds.max.y) / 2;
         model.position.z -= bounds.min.z;
