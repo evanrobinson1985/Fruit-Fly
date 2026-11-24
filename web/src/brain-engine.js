@@ -200,6 +200,8 @@ export class Brain {
     this.driveCum = new Float64Array(0);
     this.driveLambda = 0;
     this.driveExpNeg = 1;
+    // Rates survive reset(), so rebuild the cached Poisson drive before the next run.
+    this._dirty = true;
     const d = this.det;
     if (d) { d.mod.fill(0); d.vbuf.fill(0); d.f.fill(1); d.fStep.fill(0); d.dm.fill(0); d.dmStep.fill(0); }
   }

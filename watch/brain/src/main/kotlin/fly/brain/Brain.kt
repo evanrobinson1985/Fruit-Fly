@@ -96,9 +96,12 @@ class Brain(private val c: Connectome, seed: Int = 1) {
     private val spk = IntArray(n)
     private val rate = DoubleArray(n)
     private var driveIdx = IntArray(0)
-    private var driveP = DoubleArray(0)
+    private var driveCum = DoubleArray(0)
+    private var driveLambda = 0.0
+    private var driveExpNeg = 1.0
     private var dirty = false
-    private var rng = if (seed == 0) 1 else seed
+    private val initialSeed = if (seed == 0) 1 else seed
+    private var rng = initialSeed
     var step = 0
         private set
 
@@ -119,6 +122,7 @@ class Brain(private val c: Connectome, seed: Int = 1) {
         v.fill(p.v0.toFloat()); g.fill(0f); ad.fill(0f); ref.fill(0); x.fill(1f); xStep.fill(0); tLast.fill(0)
         isActive.fill(false); nActive = 0
         buf.forEach { it.fill(0f) }; nTouched.fill(0)
+        rng = initialSeed
         step = 0
     }
 
@@ -137,6 +141,23 @@ class Brain(private val c: Connectome, seed: Int = 1) {
         s = s xor (s shl 13); s = s xor (s ushr 17); s = s xor (s shl 5)
         rng = s
         return (s.toLong() and 0xffffffffL) / 4294967296.0
+    }
+
+    /** Draw Poisson(driveLambda), using the same small/large-rate paths as JavaScript. */
+    private fun poisson(): Int {
+        val lambda = driveLambda
+        if (lambda < 30.0) {
+            var k = 0
+            var product = random()
+            while (product > driveExpNeg) {
+                k++
+                product *= random()
+            }
+            return k
+        }
+        val z = kotlin.math.sqrt(-2.0 * ln(1.0 - random())) *
+            kotlin.math.cos(2.0 * Math.PI * random())
+        return max(0, (lambda + kotlin.math.sqrt(lambda) * z).roundToInt())
     }
 
     /** Advance a dormant neuron exactly: u(t) = A e^-t/tm + B e^-t/ts + C e^-t/ta. */
@@ -182,7 +203,14 @@ class Brain(private val c: Connectome, seed: Int = 1) {
         if (dirty) {
             val idx = (0 until n).filter { rate[it] > 0 }
             driveIdx = idx.toIntArray()
-            driveP = DoubleArray(idx.size) { rate[idx[it]] * p.dt * 1e-3 }
+            driveCum = DoubleArray(idx.size)
+            var totalRate = 0.0
+            idx.forEachIndexed { k, i ->
+                totalRate += rate[i] * p.dt * 1e-3
+                driveCum[k] = totalRate
+            }
+            driveLambda = totalRate
+            driveExpNeg = exp(-totalRate)
             dirty = false
         }
         val v0 = p.v0.toFloat()
@@ -214,11 +242,24 @@ class Brain(private val c: Connectome, seed: Int = 1) {
                 activate(i, t)
             }
             nTouched[slot] = 0
-            for (k in driveIdx.indices) {
-                if (random() < driveP[k]) {
-                    val i = driveIdx[k]
+            // Match the browser engine: draw one Poisson count for the total
+            // background drive, then choose each receiving neuron proportional to
+            // its configured rate. This also permits multiple input events per neuron
+            // in one step, unlike independent per-neuron Bernoulli trials.
+            if (driveIdx.isNotEmpty() && driveLambda > 0.0) {
+                var remaining = poisson()
+                while (remaining > 0) {
+                    val u = random() * driveLambda
+                    var lo = 0
+                    var hi = driveCum.lastIndex
+                    while (lo < hi) {
+                        val mid = (lo + hi) ushr 1
+                        if (driveCum[mid] < u) lo = mid + 1 else hi = mid
+                    }
+                    val i = driveIdx[lo]
                     activate(i, t)
                     g[i] += kick
+                    remaining--
                 }
             }
             var ns = 0

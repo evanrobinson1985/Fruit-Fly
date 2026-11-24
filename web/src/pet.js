@@ -94,6 +94,7 @@ const NAME_CSS = `
  */
 export function askName({ current = "", first = true } = {}) {
   return new Promise((resolve) => {
+    const previousFocus = document.activeElement;
     if (!document.getElementById("name-css")) {
       const style = document.createElement("style");
       style.id = "name-css";
@@ -102,10 +103,14 @@ export function askName({ current = "", first = true } = {}) {
     }
     const card = document.createElement("div");
     card.id = "name-card";
+    card.setAttribute("role", "dialog");
+    card.setAttribute("aria-modal", "true");
+    card.setAttribute("aria-labelledby", "name-title");
+    card.setAttribute("aria-describedby", "name-description");
     card.innerHTML = `
       <form autocomplete="off">
-        <h2></h2>
-        <p></p>
+        <h2 id="name-title"></h2>
+        <p id="name-description"></p>
         <div class="row"><input id="name-input" maxlength="${MAX_NAME}" enterkeyhint="done" aria-label="Your fly's name">
           <button type="button" id="name-dice" aria-label="Suggest a name">🎲</button></div>
         <button type="submit"></button>
@@ -120,6 +125,21 @@ export function askName({ current = "", first = true } = {}) {
     input.value = current;
     input.placeholder = suggestName();
     $("#name-dice").onclick = () => { input.value = suggestName(input.value); input.focus(); };
+
+    // Keep keyboard users and screen-reader focus inside this modal until a name is saved.
+    card.addEventListener("keydown", (e) => {
+      if (e.key !== "Tab") return;
+      const controls = [...card.querySelectorAll("input:not([disabled]), button:not([disabled])")];
+      const firstControl = controls[0], lastControl = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === firstControl) {
+        e.preventDefault();
+        lastControl.focus();
+      } else if (!e.shiftKey && document.activeElement === lastControl) {
+        e.preventDefault();
+        firstControl.focus();
+      }
+    });
+
     card.querySelector("form").onsubmit = (e) => {
       e.preventDefault();
       const name = (input.value.trim() || input.placeholder).slice(0, MAX_NAME);
@@ -127,6 +147,7 @@ export function askName({ current = "", first = true } = {}) {
       Object.assign(pet, { name, named: true });
       pet.save();
       card.remove();
+      if (previousFocus && previousFocus.isConnected && typeof previousFocus.focus === "function") previousFocus.focus();
       dispatchEvent(new CustomEvent("fly-named", { detail: name }));
       resolve(name);
     };
