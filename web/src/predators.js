@@ -134,6 +134,7 @@ export class FrogPredators {
           stalk: findAction(/stalk|crouch|sneak/i),
           lunge: findAction(/big.?jump|lunge|jump|leap|attack/i),
           catch: findAction(/catch|bite|eat|tongue/i),
+          croak: findAction(/croak|call/i),
         };
         if (!animationSet.walk && animationActions.size === 1) {
           animationSet.walk = animationActions.values().next().value;
@@ -153,6 +154,7 @@ export class FrogPredators {
           phase: Math.random() * Math.PI * 2, speed: 0,
           length: def.targetLength, catchCooldown: 0, state: "waiting",
           stateTimer: 0, landingTimer: 0, tongueTimer: 0, hopClock: Math.random() * 2,
+          croakTimer: 0, croakCooldown: 7 + Math.random() * 9,
         });
       } catch (error) {
         errors.push(def.name + ": " + (error?.message || String(error)));
@@ -214,16 +216,17 @@ export class FrogPredators {
       set("upperarm_l", 0.025); set("upperarm_r", 0.025);
     } else if (state === "stalking") {
       const crouch = 1;
-      set("hips", -0.10 * crouch);
+      const stealthStep = Math.sin(t * 5.2 + frog.phase);
+      set("hips", -0.10 * crouch + 0.018 * stealthStep);
       set("spine_1", 0.12 * crouch);
       set("spine_2", 0.08 * crouch);
       set("head", -0.16 + 0.025 * wave);
-      set("thigh_l", -0.48 * crouch); set("thigh_r", -0.48 * crouch);
-      set("shin_l", 0.72 * crouch); set("shin_r", 0.72 * crouch);
-      set("ankle_l", -0.22 * crouch); set("ankle_r", -0.22 * crouch);
-      set("foot_l", 0.16 * crouch); set("foot_r", 0.16 * crouch);
-      set("upperarm_l", -0.18); set("upperarm_r", -0.18);
-      set("forearm_l", 0.22); set("forearm_r", 0.22);
+      set("thigh_l", -0.48 * crouch + 0.13 * stealthStep); set("thigh_r", -0.48 * crouch - 0.13 * stealthStep);
+      set("shin_l", 0.72 * crouch + 0.16 * Math.max(0, stealthStep)); set("shin_r", 0.72 * crouch + 0.16 * Math.max(0, -stealthStep));
+      set("ankle_l", -0.22 * crouch - 0.08 * stealthStep); set("ankle_r", -0.22 * crouch + 0.08 * stealthStep);
+      set("foot_l", 0.16 * crouch + 0.05 * stealthStep); set("foot_r", 0.16 * crouch - 0.05 * stealthStep);
+      set("upperarm_l", -0.18 + 0.06 * stealthStep); set("upperarm_r", -0.18 - 0.06 * stealthStep);
+      set("forearm_l", 0.22 - 0.05 * stealthStep); set("forearm_r", 0.22 + 0.05 * stealthStep);
       set("head", -0.18 + 0.02 * wave);
     } else if (state === "landing") {
       const impact = 1 - ease(t / 0.34);
@@ -278,7 +281,8 @@ export class FrogPredators {
   _pose(frog, dt) {
     const state = frog.state;
     const desired = state === "lunging" ? frog.animationSet.lunge :
-      state === "approaching" ? frog.animationSet.walk : null;
+      state === "approaching" ? frog.animationSet.walk :
+      state === "croaking" ? frog.animationSet.croak : null;
     const next = desired || null;
 
     if (next && next !== frog.activeAction) {
@@ -352,6 +356,14 @@ export class FrogPredators {
       frog.heading = wrapAngle(frog.heading + turn);
 
       let targetSpeed = 0;
+      frog.croakCooldown = Math.max(0, frog.croakCooldown - dt);
+      if (frog.croakTimer > 0) {
+        frog.croakTimer = Math.max(0, frog.croakTimer - dt);
+        frog.state = "croaking";
+        frog.speed *= Math.exp(-dt * 5);
+        this._pose(frog, dt);
+        continue;
+      }
       const previousState = frog.state;
       if (distance > 96) {
         frog.state = "approaching";
@@ -364,6 +376,12 @@ export class FrogPredators {
         targetSpeed = 48;
       } else {
         frog.state = "waiting";
+      }
+      if (frog.state === "waiting" && frog.croakCooldown <= 0 && frog.animationSet.croak) {
+        frog.croakTimer = 2.0;
+        frog.croakCooldown = 9 + Math.random() * 12;
+        frog.state = "croaking";
+        frog.stateTimer = 0;
       }
       if (previousState === "lunging" && frog.state !== "lunging") {
         frog.landingTimer = 0.34;
