@@ -52,8 +52,17 @@ val copySite by tasks.registering(Copy::class) {
         exclude("assets/NOTICE.md")
     }
     from("vendor") { into("vendor") }
-    doLast { // the page can't start without three.js
-        check(file("vendor/three/build/three.module.js").exists()) { "phone/vendor/three/build/three.module.js is missing" }
+    doLast { // Fail the build if any Three.js module required by the phone page is missing.
+        val requiredModules = listOf(
+            "vendor/three/build/three.module.js",
+            "vendor/three/examples/jsm/controls/OrbitControls.js",
+            "vendor/three/examples/jsm/utils/BufferGeometryUtils.js",
+            "vendor/three/examples/jsm/utils/SkeletonUtils.js",
+            "vendor/three/examples/jsm/loaders/GLTFLoader.js",
+        )
+        requiredModules.forEach { path ->
+            check(file(path).isFile) { "Required phone Three.js module is missing: phone/$path" }
+        }
     }
 }
 tasks.named("preBuild") { dependsOn(copySite) }
