@@ -15,7 +15,15 @@ function inspect(path) {
     joints: (skin.joints || []).map(n => nodes[n]?.name || ("node-" + n)),
     skeleton: skin.skeleton == null ? null : (nodes[skin.skeleton]?.name || ("node-" + skin.skeleton))
   }));
-  const meshes = (json.meshes || []).map(mesh => ({name: mesh.name || "(unnamed mesh)", primitives: (mesh.primitives || []).length}));
+  const meshes = (json.meshes || []).map((mesh, index) => ({index, name: mesh.name || "(unnamed mesh)", primitives: (mesh.primitives || []).length}));
+  const sceneRoots = json.scenes?.[json.scene || 0]?.nodes || [];
+  const hierarchy = [];
+  const walk = (index, depth = 0) => {
+    const node = nodes[index]; if (!node) return;
+    hierarchy.push({index, depth, name: node.name || "(unnamed node)", mesh: node.mesh ?? null, skin: node.skin ?? null, translation: node.translation || null, rotation: node.rotation || null});
+    for (const child of node.children || []) walk(child, depth + 1);
+  };
+  for (const index of sceneRoots) walk(index);
   const animations = (json.animations || []).map(clip => {
     const targets = new Set(), paths = new Set();
     for (const channel of clip.channels || []) {
@@ -28,6 +36,6 @@ function inspect(path) {
       durationSeconds: Math.max(0, ...(clip.samplers || []).map(s => json.accessors?.[s.input]?.max?.[0] ?? 0))};
   });
   console.log("\n=== " + path + " (" + statSync(file).size + " bytes) ===");
-  console.log(JSON.stringify({glbVersion:version, sceneNodes:nodes.length, skins, meshes, animations}, null, 2));
+  console.log(JSON.stringify({glbVersion:version, sceneNodes:nodes.length, sceneRoots, hierarchy, skins, meshes, animations}, null, 2));
 }
 for (const file of files) inspect(file);
