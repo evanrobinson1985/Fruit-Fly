@@ -100,7 +100,8 @@ class Brain(private val c: Connectome, seed: Int = 1) {
     private var driveLambda = 0.0
     private var driveExpNeg = 1.0
     private var dirty = false
-    private var rng = if (seed == 0) 1 else seed
+    private val initialSeed = if (seed == 0) 1 else seed
+    private var rng = initialSeed
     var step = 0
         private set
 
@@ -121,6 +122,7 @@ class Brain(private val c: Connectome, seed: Int = 1) {
         v.fill(p.v0.toFloat()); g.fill(0f); ad.fill(0f); ref.fill(0); x.fill(1f); xStep.fill(0); tLast.fill(0)
         isActive.fill(false); nActive = 0
         buf.forEach { it.fill(0f) }; nTouched.fill(0)
+        rng = initialSeed
         step = 0
     }
 
