@@ -131,9 +131,9 @@ export class FrogPredators {
         const animationSet = {
           idle: findAction(/idle|rest|breath/i),
           walk: findAction(/hop|walk|locomotion|run|move/i),
-          stalk: findAction(/stalk|crouch|sneak/i) || findAction(/hop/i),
+          stalk: findAction(/stalk|crouch|sneak/i),
           lunge: findAction(/big.?jump|lunge|jump|leap|attack/i),
-          catch: findAction(/catch|bite|eat|tongue|croak/i),
+          catch: findAction(/catch|bite|eat|tongue/i),
         };
         if (!animationSet.walk && animationActions.size === 1) {
           animationSet.walk = animationActions.values().next().value;
@@ -152,6 +152,7 @@ export class FrogPredators {
           x: def.start[0], y: def.start[1], heading: def.heading,
           phase: Math.random() * Math.PI * 2, speed: 0,
           length: def.targetLength, catchCooldown: 0, state: "waiting",
+          stateTimer: 0, landingTimer: 0, tongueTimer: 0, hopClock: Math.random() * 2,
         });
       } catch (error) {
         errors.push(def.name + ": " + (error?.message || String(error)));
@@ -176,44 +177,146 @@ export class FrogPredators {
     }
   }
 
+  _proceduralPose(frog, dt, state) {
+    const bones = frog.bones;
+    const t = frog.stateTimer;
+    const wave = Math.sin(t * (state === "stalking" ? 3.2 : 5.5) + frog.phase);
+    const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+    const rotations = {
+      hips: [0, 0, 0],
+      spine_1: [0, 0, 0],
+      spine_2: [0, 0, 0],
+      head: [0, 0, 0],
+      jaw: [0, 0, 0],
+      throat: [0, 0, 0],
+      upperarm_l: [0, 0, 0],
+      forearm_l: [0, 0, 0],
+      hand_l: [0, 0, 0],
+      upperarm_r: [0, 0, 0],
+      forearm_r: [0, 0, 0],
+      hand_r: [0, 0, 0],
+      thigh_l: [0, 0, 0],
+      shin_l: [0, 0, 0],
+      ankle_l: [0, 0, 0],
+      foot_l: [0, 0, 0],
+      thigh_r: [0, 0, 0],
+      shin_r: [0, 0, 0],
+      ankle_r: [0, 0, 0],
+      foot_r: [0, 0, 0],
+    };
+    const set = (name, x, y = 0, z = 0) => { if (rotations[name]) rotations[name] = [x, y, z]; };
+
+    if (state === "idle" || state === "waiting") {
+      set("spine_1", 0.018 * wave);
+      set("spine_2", -0.014 * wave);
+      set("head", -0.025 + 0.018 * Math.sin(t * 1.4));
+      set("throat", 0.035 + 0.025 * Math.sin(t * 2.1));
+      set("upperarm_l", 0.025); set("upperarm_r", 0.025);
+    } else if (state === "stalking") {
+      const crouch = 1;
+      set("hips", -0.10 * crouch);
+      set("spine_1", 0.12 * crouch);
+      set("spine_2", 0.08 * crouch);
+      set("head", -0.16 + 0.025 * wave);
+      set("thigh_l", -0.48 * crouch); set("thigh_r", -0.48 * crouch);
+      set("shin_l", 0.72 * crouch); set("shin_r", 0.72 * crouch);
+      set("ankle_l", -0.22 * crouch); set("ankle_r", -0.22 * crouch);
+      set("foot_l", 0.16 * crouch); set("foot_r", 0.16 * crouch);
+      set("upperarm_l", -0.18); set("upperarm_r", -0.18);
+      set("forearm_l", 0.22); set("forearm_r", 0.22);
+      set("head", -0.18 + 0.02 * wave);
+    } else if (state === "landing") {
+      const impact = 1 - ease(t / 0.34);
+      set("hips", 0.18 * impact);
+      set("spine_1", -0.12 * impact);
+      set("spine_2", -0.08 * impact);
+      set("thigh_l", 0.38 * impact); set("thigh_r", 0.38 * impact);
+      set("shin_l", -0.58 * impact); set("shin_r", -0.58 * impact);
+      set("ankle_l", 0.24 * impact); set("ankle_r", 0.24 * impact);
+      set("upperarm_l", 0.16 * impact); set("upperarm_r", 0.16 * impact);
+      set("forearm_l", -0.24 * impact); set("forearm_r", -0.24 * impact);
+      set("head", 0.10 * impact);
+    } else if (state === "catching") {
+      const strike = ease(t / 0.075) * (1 - ease((t - 0.13) / 0.20));
+      set("jaw", -0.24 * strike);
+      set("head", -0.12 * strike);
+      set("throat", 0.16 * strike);
+      set("spine_2", 0.07 * strike);
+      set("upperarm_l", -0.08); set("upperarm_r", -0.08);
+    }
+
+    // Restore the authored rest pose before applying our small, local joint offsets.
+    // This prevents procedural angles accumulating or fighting the GLB animation mixer.
+    for (const [name, entry] of bones) entry.bone.quaternion.copy(entry.rest);
+    for (const [name, angles] of Object.entries(rotations)) {
+      const entry = bones.get(name);
+      if (!entry) continue;
+      const offset = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(angles[0], angles[1], angles[2], "XYZ")
+      );
+      entry.bone.quaternion.copy(entry.rest).multiply(offset);
+    }
+
+    // The tongue is a three-segment chain. Extend its bones along their own
+    // bind directions for a quick strike, then retract them without changing
+    // the underlying skin weights.
+    for (const name of ["tongue_1", "tongue_2", "tongue_tip"]) {
+      const entry = bones.get(name);
+      if (!entry) continue;
+      if (!entry.positionRest) entry.positionRest = entry.bone.position.clone();
+      entry.bone.position.copy(entry.positionRest);
+      if (state === "catching") {
+        const strike = ease(t / 0.075) * (1 - ease((t - 0.13) / 0.20));
+        const direction = entry.positionRest.clone();
+        if (direction.lengthSq() < 1e-8) direction.set(0, 1, 0);
+        entry.bone.position.add(direction.normalize().multiplyScalar(direction.length() * strike * 0.8));
+      }
+    }
+  }
+
   _pose(frog, dt) {
     const state = frog.state;
-    const desired = state === "catching" ? frog.animationSet.catch :
-      state === "lunging" ? frog.animationSet.lunge :
-      state === "stalking" ? (frog.animationSet.stalk || frog.animationSet.walk) :
-      state === "approaching" ? frog.animationSet.walk :
-      frog.animationSet.idle;
-    const next = desired || (state !== "waiting" ? frog.animationSet.walk : null);
-
-    if (!next && frog.activeAction) {
-      frog.activeAction.stop();
-      frog.activeAction = null;
-      frog.activeAnimationState = state;
-    }
+    const desired = state === "lunging" ? frog.animationSet.lunge :
+      state === "approaching" ? frog.animationSet.walk : null;
+    const next = desired || null;
 
     if (next && next !== frog.activeAction) {
       const previous = frog.activeAction;
       next.reset();
       next.enabled = true;
-      const oneShot = state === "lunging" || state === "catching";
-      next.setLoop(oneShot ? THREE.LoopOnce : THREE.LoopRepeat, oneShot ? 1 : Infinity);
-      next.clampWhenFinished = oneShot;
-      next.setEffectiveTimeScale(state === "stalking" ? 0.48 : state === "approaching" ? 0.82 : 1);
+      next.setLoop(THREE.LoopOnce, 1);
+      next.clampWhenFinished = true;
+      next.setEffectiveTimeScale(state === "approaching" ? 0.82 : 1);
       next.setEffectiveWeight(1);
       next.play();
-      if (previous) previous.crossFadeTo(next, 0.28, false);
-      else next.fadeIn(0.2);
+      if (previous) previous.crossFadeTo(next, 0.16, false);
+      else next.fadeIn(0.12);
       frog.activeAction = next;
       frog.activeAnimationState = state;
+    } else if (!next && frog.activeAction) {
+      frog.activeAction.fadeOut(0.08);
+      frog.activeAction = null;
+      frog.activeAnimationState = null;
     } else if (next && frog.activeAnimationState !== state) {
-      next.setEffectiveTimeScale(state === "stalking" ? 0.48 : state === "approaching" ? 0.82 : 1);
+      next.reset();
+      next.setEffectiveTimeScale(state === "approaching" ? 0.82 : 1);
       frog.activeAnimationState = state;
     }
 
-    // Keep rigs with no authored clips in their correct rest pose rather than
-    // applying the old, visibly incorrect global-axis bone rotations.
     frog.mixer.update(dt);
-    frog.actor.position.set(frog.x, frog.y, 0);
+    if (!next) this._proceduralPose(frog, dt, state);
+
+    // Hop cadence adds a real body lift to the authored leg cycle. The model
+    // is airborne briefly during each stride instead of translating flatly.
+    let lift = 0;
+    if (state === "approaching" || state === "lunging") {
+      frog.hopClock += dt * (state === "lunging" ? 8.2 : 5.0);
+      const pulse = Math.max(0, Math.sin(frog.hopClock));
+      lift = pulse * pulse * (state === "lunging" ? 5.5 : 2.2);
+    } else if (state === "landing") {
+      lift = Math.max(0, 2.2 * (1 - frog.stateTimer / 0.34));
+    }
+    frog.actor.position.set(frog.x, frog.y, lift);
     frog.actor.rotation.z = frog.heading;
   }
 
@@ -224,6 +327,21 @@ export class FrogPredators {
     for (const frog of this.frogs) {
       if (!frog.actor.visible) continue;
       frog.catchCooldown = Math.max(0, frog.catchCooldown - dt);
+      frog.stateTimer += dt;
+      if (frog.tongueTimer > 0) {
+        frog.tongueTimer = Math.max(0, frog.tongueTimer - dt);
+        frog.state = "catching";
+        frog.speed = 0;
+        this._pose(frog, dt);
+        continue;
+      }
+      if (frog.landingTimer > 0) {
+        frog.landingTimer = Math.max(0, frog.landingTimer - dt);
+        frog.state = "landing";
+        frog.speed *= Math.exp(-dt * 8);
+        this._pose(frog, dt);
+        continue;
+      }
       const dx = fly.x - frog.x;
       const dy = fly.y - frog.y;
       const distance = Math.hypot(dx, dy);
@@ -232,6 +350,7 @@ export class FrogPredators {
       frog.heading = wrapAngle(frog.heading + turn);
 
       let targetSpeed = 0;
+      const previousState = frog.state;
       if (distance > 96) {
         frog.state = "approaching";
         targetSpeed = 26;
@@ -239,11 +358,17 @@ export class FrogPredators {
         frog.state = "stalking";
         targetSpeed = 11;
       } else if (distance > frog.length * 0.38 && fly.z < 12) {
-        // Close-range attack: accelerate toward the fly instead of stopping just outside it.
         frog.state = "lunging";
         targetSpeed = 48;
       } else {
         frog.state = "waiting";
+      }
+      if (previousState === "lunging" && frog.state !== "lunging") {
+        frog.landingTimer = 0.34;
+        frog.stateTimer = 0;
+        frog.state = "landing";
+      } else if (previousState !== frog.state) {
+        frog.stateTimer = 0;
       }
       if (fly.z >= 12 && distance < 48) targetSpeed = 0;
       frog.speed += (targetSpeed - frog.speed) * Math.min(1, dt * 3.5);
@@ -268,6 +393,8 @@ export class FrogPredators {
         frog.catchCooldown = 1.8;
         this.catchLock = 0.8;
         frog.state = "catching";
+        frog.stateTimer = 0;
+        frog.tongueTimer = 0.42;
         frog.speed = 0;
         this._pose(frog, 0);
         this.onCatch({ id: frog.id, name: frog.name, x: frog.x, y: frog.y });
