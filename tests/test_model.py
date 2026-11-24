@@ -47,6 +47,9 @@ def test_transmitter_resolution_tracks_confidence_and_provenance():
         {"body": 4, "consensus_nt": "unclear", "celltype_predicted_nt": "unclear",
          "celltype_predicted_nt_confidence": 0.10, "predicted_nt": "unclear",
          "predicted_nt_confidence": 0.10, "ground_truth": None},
+        {"body": 5, "consensus_nt": "acetylcholine", "celltype_predicted_nt": "acetylcholine",
+         "celltype_predicted_nt_confidence": 1.4, "predicted_nt": "acetylcholine",
+         "predicted_nt_confidence": 1.4, "ground_truth": None},
     ])
     resolved = resolve_transmitter_table(rows)
     assert resolved.loc[1, "nt"] == "acetylcholine"
@@ -61,6 +64,7 @@ def test_transmitter_resolution_tracks_confidence_and_provenance():
     assert resolved.loc[4, "nt"] == "unclear"
     assert resolved.loc[4, "nt_source"] == "unresolved"
     assert resolved.loc[4, "nt_confidence"] == 0.0
+    assert resolved.loc[5, "nt_confidence"] == 1.0  # malformed confidence is bounded
 
 
 def test_confidence_weighted_connectome_scales_presynaptic_outputs():
