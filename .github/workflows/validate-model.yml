@@ -34,5 +34,7 @@ jobs:
         run: |
           node --input-type=module --check < web/src/main.js
           node --input-type=module --check < web/src/predators.js
+      - name: Inspect uploaded frog rigs and animation clips
+        run: node web/tools/inspect_frog_glb.mjs
       - name: Compare browser engine against validation probes
         run: node web/tools/check_engine.mjs
