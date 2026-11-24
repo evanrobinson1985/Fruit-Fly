@@ -160,6 +160,7 @@ when it flees. There is also a phone version, which is the website's game mode w
 pip install -r requirements.txt
 # Google Cloud CLI (gsutil) is needed once to fetch ~570 MB of connectome data into data/
 python -m flysim download
+python -m flysim audit-transmitters           # inspect label provenance/confidence
 python -m flysim escape --seconds 3 --gif     # looming disc -> Giant Fiber -> takeoff
 python -m flysim feed --seconds 3 --gif       # standing on food -> MN9 -> feeding bout
 python -m flysim forage --seconds 15          # vinegar plume + food patch
