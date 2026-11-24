@@ -27,8 +27,10 @@ DEFAULT_DATA_DIR = Path(os.environ.get("FLYSIM_DATA", Path(__file__).resolve().p
 
 # Sign of each fast transmitter in Drosophila. Glutamate acts mainly through the
 # inhibitory GluCl channel and histamine through HisCl, so both are treated as
-# inhibitory (as in Shiu et al. 2024, Nature 634:210). Monoamines act through
-# slow metabotropic receptors; by default they are given no fast effect.
+# inhibitory in the Shiu et al. 2024 baseline. Glutamate can also excite in some
+# fly circuits, depending on postsynaptic receptors; this baseline is an explicit
+# approximation, not a universal biological rule. Monoamines act through slow
+# metabotropic receptors and are given no fast effect here.
 NT_SIGN = {
     "acetylcholine": 1.0,
     "gaba": -1.0,
@@ -143,7 +145,10 @@ def build(data_dir: Path = DEFAULT_DATA_DIR, nt_sign: dict | None = None) -> Con
     idx = pd.Series(np.arange(len(neurons)), index=neurons.bodyId.values)
     pre = idx.loc[w.body_pre.values].to_numpy()
     post = idx.loc[w.body_post.values].to_numpy()
-    sign = neurons.nt.map(lambda t: transmitter_sign(t, nt_sign)).to_numpy(np.float32)
+    signs = {**NT_SIGN, **nt_sign}
+    sign = neurons.nt.map(
+        lambda t: signs.get(str(t).strip().lower(), 0.0) if pd.notna(t) else 0.0
+    ).to_numpy(np.float32)
     weight = w.weight.to_numpy(np.float32) * sign[pre]
 
     nz = weight != 0
