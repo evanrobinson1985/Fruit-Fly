@@ -34,7 +34,12 @@ jobs:
           APK=watch/phone/build/outputs/apk/release/phone-release.apk
           unzip -Z1 "$APK" | grep -Fx "assets/web/src/main.js"
           unzip -Z1 "$APK" | grep -Fx "assets/web/assets/frogs.glb"
-          echo "Verified: main.js and frogs.glb are packaged in the phone APK."
+          unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/build/three.module.js"
+          unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/examples/jsm/controls/OrbitControls.js"
+          unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js"
+          unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/examples/jsm/utils/SkeletonUtils.js"
+          unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/examples/jsm/loaders/GLTFLoader.js"
+          echo "Verified: phone page, frog model, and all required Three.js modules are packaged."
       - name: Name the APKs
         run: |
           mkdir -p out
