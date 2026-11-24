@@ -147,7 +147,7 @@ Python engine, seeds 1–3; browser engine from `node web/tools/check_engine.mjs
 | mean rate with spontaneous background | 0.374 Hz (browser 0.384) | 0.412 Hz | 0.415 Hz |
 | octopamine neurons at rest | 7.6 Hz (browser 8.9) | 8.6 Hz | 9.3 Hz |
 | same, octopamine drive uncapped (0.02 mV/synapse) | | 20.8 Hz mean, OA 223 Hz (runaway) | |
-| GF driven: TTMn | 0–1 spikes in 300 ms | ~1 per GF spike, 0.7–0.8 ms after it | 67 Hz with GF at 85 Hz |
+| GF driven: TTMn | 0–1 spikes in 300 ms | 0–1 spikes in 300 ms (no electrical dataset) | 0 Hz (no electrical dataset) |
 | 200 KCs paired with PPL101 for 10 s: MBON11 to those KCs | | 13.0 → 2.0 Hz | 12.7 → 0.0 Hz |
 | same, MBON11 to 200 unpaired KCs | | 6.3 → 3.0 Hz | 5.3 → 2.0 Hz |
 | same, all MBONs, paired / unpaired KCs | | 175 → 104 / 139 → 135 Hz | 118 → 15 / 39 → 17 Hz |

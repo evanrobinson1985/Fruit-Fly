@@ -15,7 +15,8 @@
 // The optional "detailed" model (setDetailed; flysim.model.make_detailed) adds:
 // octopamine as a slow, capped depolarizing drive m on its targets (dv gets + m),
 // dopamine-gated depression of the mushroom body's KC -> MBON synapses, and the
-// Giant Fiber's electrical synapses onto TTMn and PSI (a voltage step 0.8 ms later).
+// optional electrical synapses supplied separately from the chemical connectome. The bundled
+// export currently contains no electrical edges; none are inferred from chemical edges.
 
 export function decodeVarints(bytes, count, out, start = 0) {
   let p = start;
@@ -153,7 +154,7 @@ export class Brain {
     d.eta = P.mb_eta;
     d.dtDan = p.dt / P.tau_dan;
     d.dtMem = p.dt / (P.tau_mem * 1000);
-    // Giant Fiber electrical synapses.
+    // Optional, separately sourced electrical synapses (empty in the bundled data).
     d.gapT = [...new Set(A.gapPost)];
     d.gapLocal = new Int32Array(n).fill(-1);
     d.gapT.forEach((i, k) => (d.gapLocal[i] = k));

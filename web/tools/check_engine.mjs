@@ -43,6 +43,9 @@ probe("taste", G.taste);
 const D = meta.detailed;
 const all = new Int32Array((await decodePng(new Uint8Array(readFileSync(new URL(D.file, dir))), D.ints * 4)).buffer);
 const arrays = Object.fromEntries(Object.entries(D.layout).map(([k, [o, n]]) => [k, all.subarray(o, o + n)]));
+if (arrays.gapPre.length !== 0 || arrays.gapPost.length !== 0) {
+  throw new Error("Default browser export must not infer electrical junctions from chemical edges");
+}
 const types = JSON.parse(readFileSync(new URL("brain-types.json", dir))).types;
 const tid = new Uint16Array((await decodePng(new Uint8Array(readFileSync(new URL("brain-type.png", dir))), meta.n * 2)).buffer);
 const ofType = (...names) => { const ids = names.map((t) => types.indexOf(t) + 1); const out = []; tid.forEach((t, i) => ids.includes(t) && out.push(i)); return out; };

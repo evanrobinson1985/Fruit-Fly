@@ -31,12 +31,13 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   keeps it (Cache Storage), so later visits load it from the device; a new export is
   downloaded again and replaces the old copy.
 - **Neuron model switch (Simulation panel):** *Standard* is the model above. *Detailed*
-  adds three things the standard model leaves out, using wiring it otherwise discards
+  adds two things the standard model leaves out, using wiring it otherwise discards
   (a further 450 KB download): the 131 octopamine neurons act as a slow arousal signal on
   their 200,000 targets; dopamine teaches the mushroom body (a Kenyon cell's synapses onto
   an output neuron weaken when it fires while that compartment's dopamine neurons are
-  active, and recover over minutes); and the Giant Fiber's electrical synapses drive the
-  jump and flight motor path (TTMn, PSI) at the measured latency. The Status panel counts
+  active, and recover over minutes). Electrical junctions are accepted only from a separate
+  evidence-backed dataset; none are currently bundled, so no Giant Fiber gap junctions are
+  simulated by default. The Status panel counts
   the weakened synapses. It runs about 30–40% slower. See "Detailed model" below.
 - **Spontaneous activity:** with the switch on (default), about 11,800 sensory neurons fire
   at low background rates, as real ones do (`flysim/interface.py: SPONTANEOUS_HZ`), so the
@@ -260,7 +261,7 @@ Limits to keep in mind:
   neuromodulation or plasticity. One visible consequence: the Giant Fiber's synapse onto the
   jump motor neuron (TTMn) is mostly electrical, so TTMn barely responds (5–11 Hz) while the
   Giant Fiber fires at 300+ Hz. Escape is therefore read from the Giant Fiber itself. The
-  detailed model (below) adds the Giant Fiber's gap junctions, octopamine and dopamine.
+  detailed model (below) adds octopamine and dopamine, but not unverified electrical edges.
 - **Point neurons with predicted signs.** Each neuron is a single compartment, and whether a
   synapse excites or inhibits comes from its transmitter, predicted from electron-microscope
   images. Serotonin, and dopamine outside the mushroom body, act through receptors that can
@@ -290,9 +291,10 @@ Limits to keep in mind:
   175 → 104 Hz for the paired set and 139 → 135 Hz for an unpaired set. Real odors only
   activate 5–11 of the 4,064 KCs in this model (about 5% in a real fly), so learning from
   odors in the browser is real but small.
-- **Giant Fiber gap junctions** onto TTMn and PSI (shakB; Allen et al. 2006): each GF spike
-  arrives as a 10 mV step 0.8 ms later, the measured GF → TTM latency (Tanouye & Wyman 1980).
-  With the GF firing at 85 Hz, TTMn goes from 0 Hz (chemical synapses only) to 67 Hz.
+- **Electrical junctions are not yet populated.** Earlier versions incorrectly treated
+  selected chemical-connectome edges from DNp01 to TTMn/PSI as confirmed gap junctions.
+  The model now requires a separate `ElectricalSynapses` dataset and leaves the electrical
+  pathway empty when none is supplied. This avoids inventing anatomical connections.
 
 Validation: `tests/test_model.py` (tiny networks), `results/validation.md`, and
 `node web/tools/check_engine.mjs` for the browser engine.
