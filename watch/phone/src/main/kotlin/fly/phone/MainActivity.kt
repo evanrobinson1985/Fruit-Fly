@@ -53,8 +53,10 @@ class MainActivity : Activity() {
         }
         setContentView(web)
         immersive()
-        if (savedInstanceState == null) web.loadUrl("http://127.0.0.1:$port/index.html?game")
-        else web.restoreState(savedInstanceState)
+        // Always use the port opened by this process. Restoring an old WebView state can
+        // resurrect a stale URL (for example http://127.0.0.1/ without the server port),
+        // which fails even though the embedded server is running correctly.
+        web.loadUrl("http://127.0.0.1:$port/index.html?game")
     }
 
     private fun immersive() {
