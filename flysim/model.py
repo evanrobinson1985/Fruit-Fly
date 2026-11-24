@@ -125,13 +125,12 @@ class ElectricalSynapses:
 
     These edges must come from an electrical-synapse dataset or curated evidence;
     they are deliberately not inferred from the chemical connectome. Include both
-    directions for a bidirectional gap junction. Optional weights are voltage
-    steps in mV; omitted weights use DetailedParams.gap_v.
+    directions for a bidirectional gap junction. Every edge uses the configured
+    DetailedParams.gap_v voltage step.
     """
 
     pre: np.ndarray
     post: np.ndarray
-    weight: np.ndarray | None = None
 
 
 @numba.njit(cache=True, fastmath=True)
