@@ -16,6 +16,8 @@ import { FrogPredators } from "./predators.js";
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
 const GAME = new URLSearchParams(location.search).has("game");
+let frogMode = "both";
+try { frogMode = localStorage.getItem("frog-mode") || "both"; } catch {}
 // The game starts with the pet: hide the lab panels and, the first time, name the fly.
 if (GAME) {
   document.body.classList.add("game-lab-hidden");
@@ -26,6 +28,16 @@ let predators = null;
 const STEP_MS = 20;         // brain/body exchange interval
 const SMOOTH_MS = 60;       // motor rate smoothing
 const $ = (id) => document.getElementById(id);
+
+function setFrogMode(mode) {
+  frogMode = ["none", "small", "big", "both"].includes(mode) ? mode : "both";
+  predators?.setMode(frogMode);
+  if ($("frog-mode")) $("frog-mode").value = frogMode;
+  document.querySelectorAll("[data-frog-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.frogMode === frogMode));
+  });
+  try { localStorage.setItem("frog-mode", frogMode); } catch {}
+}
 
 // ---------- renderer & scene (Z up, mm) ----------
 const canvas = $("stage");
@@ -127,7 +139,11 @@ $("snd-off").onclick = () => setSound(false);
 $("snd-vol").value = audio.volume;
 $("snd-vol").addEventListener("input", () => { audio.setVolume(+$("snd-vol").value); try { localStorage.setItem("volume", $("snd-vol").value); } catch {} });
 setSound(audio.enabled);
-$("frog-mode").addEventListener("change", () => predators?.setMode(GAME ? "none" : $("frog-mode").value));
+$("frog-mode").addEventListener("change", () => setFrogMode($("frog-mode").value));
+document.querySelectorAll("[data-frog-mode]").forEach((button) => {
+  button.addEventListener("click", () => setFrogMode(button.dataset.frogMode));
+});
+setFrogMode(frogMode);
 
 // Sky: outdoors (grass floor) a scattering sky with weather clouds and, in rain, a rainbow;
 // indoors the dark lab.
@@ -981,7 +997,7 @@ async function boot() {
   weather.attachFly(flyRoot);
   setSkin(skin);
   predators = new FrogPredators(scene, ASSETS + "frogs.glb", respawnAfterPredation);
-  predators.setMode(GAME ? "none" : $("frog-mode").value);
+  predators.setMode(frogMode);
   predators.load().then(() => {
     $("frog-note").textContent = "Both rigged frogs loaded. Either can stalk and catch the fly.";
   }).catch((error) => {
