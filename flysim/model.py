@@ -216,7 +216,7 @@ def _run_detailed(n_steps, t0, v, g, a_ad, x_stp, ref, buf, indptr, post, w, dri
 
 
 class Detailed:
-    """Wiring for the detailed model, built from the full and functional connectomes."""
+    """Detailed chemical wiring plus optional, separately sourced electrical edges."""
 
     def __init__(self, c: Connectome, mod, p: DetailedParams | None = None,
                  gap_junctions: ElectricalSynapses | None = None):
@@ -261,10 +261,14 @@ class Detailed:
             gpost = np.empty(0, np.int32)
             gw = np.empty(0, np.float32)
         else:
-            gpre = np.asarray(gap_junctions.pre, dtype=np.int64)
-            gpost = np.asarray(gap_junctions.post, dtype=np.int32)
-            if gpre.ndim != 1 or gpost.ndim != 1 or len(gpre) != len(gpost):
-                raise ValueError("ElectricalSynapses pre/post must be equal-length 1-D arrays")
+            pre_raw = np.asarray(gap_junctions.pre)
+            post_raw = np.asarray(gap_junctions.post)
+            if (pre_raw.ndim != 1 or post_raw.ndim != 1 or len(pre_raw) != len(post_raw)
+                    or not np.issubdtype(pre_raw.dtype, np.integer)
+                    or not np.issubdtype(post_raw.dtype, np.integer)):
+                raise ValueError("ElectricalSynapses pre/post must be equal-length 1-D integer arrays")
+            gpre = pre_raw.astype(np.int64, copy=False)
+            gpost = post_raw.astype(np.int32, copy=False)
             if np.any(gpre < 0) or np.any(gpre >= n) or np.any(gpost < 0) or np.any(gpost >= n):
                 raise ValueError("ElectricalSynapses indices must be valid model-neuron indices")
             gw = np.full(len(gpre), p.gap_v, np.float32)
