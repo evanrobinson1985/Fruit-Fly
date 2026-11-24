@@ -296,7 +296,7 @@ export class FrogPredators {
       frog.activeAction = next;
       frog.activeAnimationState = state;
     } else if (!next && frog.activeAction) {
-      frog.activeAction.fadeOut(0.08);
+      frog.activeAction.stop();
       frog.activeAction = null;
       frog.activeAnimationState = null;
     } else if (next && frog.activeAnimationState !== state) {
