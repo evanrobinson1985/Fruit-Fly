@@ -115,7 +115,7 @@ def test_explicit_giant_fiber_gap_junction_drives_ttmn():
     # Only a separately supplied electrical edge produces the fast ~0.8 ms response.
     c = net([(0, 1, 1)], 2, types=["DNp01", "TTMn"])
     electrical = ElectricalSynapses(
-        pre=np.array([0]), post=np.array([1]), weight=np.array([10.0])
+        pre=np.array([0]), post=np.array([1])
     )
     det = Brain(c, monitor=[0, 1], detailed=_detailed(c, gap_junctions=electrical))
     det.set_rates([0], 100.0)
