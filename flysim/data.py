@@ -38,8 +38,19 @@ NT_SIGN = {
     "serotonin": 0.0,
     "octopamine": 0.0,
     "tyramine": 0.0,
-    "unclear": 1.0,  # most unresolved central neurons are cholinergic
+    "unclear": 1.0,  # retained for the unmodified Shiu-2024 baseline; realistic drops these edges
 }
+
+
+def transmitter_sign(label: str | None, overrides: dict | None = None) -> float:
+    """Return the modeled fast synaptic sign for a transmitter label.
+
+    Unknown labels default to 0 (no assumed fast effect), not excitation.
+    Slow neuromodulators are handled separately by the detailed model.
+    """
+    mapping = {**NT_SIGN, **(overrides or {})}
+    key = str(label).strip().lower() if label is not None else ""
+    return float(mapping.get(key, 0.0))
 
 
 def download(data_dir: Path = DEFAULT_DATA_DIR) -> None:
@@ -132,7 +143,7 @@ def build(data_dir: Path = DEFAULT_DATA_DIR, nt_sign: dict | None = None) -> Con
     idx = pd.Series(np.arange(len(neurons)), index=neurons.bodyId.values)
     pre = idx.loc[w.body_pre.values].to_numpy()
     post = idx.loc[w.body_post.values].to_numpy()
-    sign = neurons.nt.map(lambda t: nt_sign.get(t, 1.0)).to_numpy(np.float32)
+    sign = neurons.nt.map(lambda t: transmitter_sign(t, nt_sign)).to_numpy(np.float32)
     weight = w.weight.to_numpy(np.float32) * sign[pre]
 
     nz = weight != 0
