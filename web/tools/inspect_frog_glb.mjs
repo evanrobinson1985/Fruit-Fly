@@ -31,8 +31,12 @@ function inspect(path) {
       if (n != null) targets.add(nodes[n]?.name || ("node-" + n));
       if (channel.target?.path) paths.add(channel.target.path);
     }
+    const rootTracks = (clip.channels || []).filter(channel => nodes[channel.target?.node]?.name === "root").map(channel => {
+      const sampler = clip.samplers?.[channel.sampler], input = json.accessors?.[sampler?.input], output = json.accessors?.[sampler?.output];
+      return {path: channel.target?.path, inputMin: input?.min, inputMax: input?.max, outputMin: output?.min, outputMax: output?.max, outputCount: output?.count};
+    });
     return {name: clip.name || "(unnamed animation)", channels: (clip.channels || []).length,
-      targetNodes: [...targets], targetPaths: [...paths],
+      targetNodes: [...targets], targetPaths: [...paths], rootTracks,
       durationSeconds: Math.max(0, ...(clip.samplers || []).map(s => json.accessors?.[s.input]?.max?.[0] ?? 0))};
   });
   console.log("\n=== " + path + " (" + statSync(file).size + " bytes) ===");

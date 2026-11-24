@@ -78,6 +78,11 @@ export class FrogPredators {
         if (!mesh || !mesh.isSkinnedMesh) {
           throw new Error("Cloned rig did not contain skinned mesh '" + meshSource.name + "'.");
         }
+        // The AFK export has two frog meshes bound to the same 31-joint rig.
+        // Each predator gets its own cloned rig and only its own visible mesh.
+        rig.traverse((object) => {
+          if (object.isSkinnedMesh) object.visible = object.name === mesh.name;
+        });
 
         const rawBounds = new THREE.Box3().setFromObject(rig);
         const rawLength = Math.max(0.001, rawBounds.max.x - rawBounds.min.x);
@@ -125,10 +130,10 @@ export class FrogPredators {
         };
         const animationSet = {
           idle: findAction(/idle|rest|breath/i),
-          walk: findAction(/walk|locomotion|run|move/i),
-          stalk: findAction(/stalk|crouch|sneak/i),
-          lunge: findAction(/lunge|jump|leap|attack/i),
-          catch: findAction(/catch|bite|eat|tongue/i),
+          walk: findAction(/hop|walk|locomotion|run|move/i),
+          stalk: findAction(/stalk|crouch|sneak/i) || findAction(/hop/i),
+          lunge: findAction(/big.?jump|lunge|jump|leap|attack/i),
+          catch: findAction(/catch|bite|eat|tongue|croak/i),
         };
         if (!animationSet.walk && animationActions.size === 1) {
           animationSet.walk = animationActions.values().next().value;
@@ -180,11 +185,20 @@ export class FrogPredators {
       frog.animationSet.idle;
     const next = desired || (state !== "waiting" ? frog.animationSet.walk : null);
 
+    if (!next && frog.activeAction) {
+      frog.activeAction.stop();
+      frog.activeAction = null;
+      frog.activeAnimationState = state;
+    }
+
     if (next && next !== frog.activeAction) {
       const previous = frog.activeAction;
       next.reset();
       next.enabled = true;
-      next.setEffectiveTimeScale(state === "stalking" ? 0.55 : state === "approaching" ? 0.85 : 1);
+      const oneShot = state === "lunging" || state === "catching";
+      next.setLoop(oneShot ? THREE.LoopOnce : THREE.LoopRepeat, oneShot ? 1 : Infinity);
+      next.clampWhenFinished = oneShot;
+      next.setEffectiveTimeScale(state === "stalking" ? 0.48 : state === "approaching" ? 0.82 : 1);
       next.setEffectiveWeight(1);
       next.play();
       if (previous) previous.crossFadeTo(next, 0.28, false);
@@ -192,7 +206,7 @@ export class FrogPredators {
       frog.activeAction = next;
       frog.activeAnimationState = state;
     } else if (next && frog.activeAnimationState !== state) {
-      next.setEffectiveTimeScale(state === "stalking" ? 0.55 : state === "approaching" ? 0.85 : 1);
+      next.setEffectiveTimeScale(state === "stalking" ? 0.48 : state === "approaching" ? 0.82 : 1);
       frog.activeAnimationState = state;
     }
 
