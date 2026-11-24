@@ -50,16 +50,16 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d0c0a);
-scene.fog = new THREE.Fog(0x0d0c0a, 60, 260);
+scene.fog = new THREE.Fog(0x0d0c0a, 120, 650);
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.55;
-const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 1000);
+const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 2000);
 camera.up.set(0, 0, 1);
 camera.position.set(-9, -9, 6);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.minDistance = 3;
-controls.maxDistance = 320;
+controls.maxDistance = 720;
 controls.maxPolarAngle = Math.PI * 0.49;
 
 scene.add(new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.7));
@@ -591,10 +591,16 @@ $("skin-plain").onclick = () => setSkin("plain");
 $("floor-lab").onclick = () => setFloor(false);
 $("floor-grass").onclick = () => setFloor(true);
 let closeUp = true;
+let followFly = true;
+$("camera-follow").onclick = () => {
+  followFly = !followFly;
+  $("camera-follow").textContent = followFly ? "Unlock camera" : "Follow fly";
+  $("camera-follow").setAttribute("aria-pressed", String(followFly));
+};
 $("cam").onclick = () => {
   closeUp = !closeUp;
   $("cam").textContent = closeUp ? "Close-up" : "Arena view";
-  const d = closeUp ? 14 : 160;
+  const d = closeUp ? 14 : 640;
   const dir = camera.position.clone().sub(controls.target).normalize();
   camera.position.copy(controls.target).addScaledVector(dir, d);
 };
@@ -894,7 +900,7 @@ function frame(now) {
     const simT = (prev.t ?? 0) + ((curr.t ?? 0) - (prev.t ?? 0)) * f;
     const dts = Math.max(0, simT - weatherT);
     weatherT = simT;
-    predators?.update(dts, { x, y, z: z + perch.z });
+    predators?.update(dtf, { x, y, z: z + perch.z });
     if (simT < stim.windUntil) weather.wind.copy(stim.windVec); else weather.wind.set(0, 0);
     const feet = perch.z + z;
     const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0, grooming: body.state === "grooming" },
@@ -910,8 +916,10 @@ function frame(now) {
     tmpN.copy(perch.n).add(jolt.tilt).normalize();
     flyRoot.quaternion.setFromUnitVectors(UP, tmpN)
       .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
-    camera.position.add(delta);
-    controls.target.set(x, y, 0.8 + z + perch.z);
+    if (followFly) {
+      camera.position.add(delta);
+      controls.target.set(x, y, 0.8 + z + perch.z);
+    }
     terrain.update(x, y, now / 1000, feet, h, simT, camera);
     if (skyDome.visible) sun.position.set(x, y, 0).addScaledVector(skyDome.sunDir, 30); // the sky's sun
     else sun.position.set(x + 8, y - 6, 20);                                               // the lab lamp
