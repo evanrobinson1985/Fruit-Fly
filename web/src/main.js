@@ -11,6 +11,7 @@ import { Terrain, TURF_TOP } from "./terrain.js";
 import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
 import { SkyDome } from "./sky.js";
 import { FlyAudio } from "./audio.js";
+import { FrogPredators } from "./predators.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
@@ -21,6 +22,7 @@ if (GAME) {
   import("./pet.js").then((m) => m.nameOnFirstStart());
 }
 let game = null;
+let predators = null;
 const STEP_MS = 20;         // brain/body exchange interval
 const SMOOTH_MS = 60;       // motor rate smoothing
 const $ = (id) => document.getElementById(id);
@@ -125,6 +127,7 @@ $("snd-off").onclick = () => setSound(false);
 $("snd-vol").value = audio.volume;
 $("snd-vol").addEventListener("input", () => { audio.setVolume(+$("snd-vol").value); try { localStorage.setItem("volume", $("snd-vol").value); } catch {} });
 setSound(audio.enabled);
+$("frog-mode").addEventListener("change", () => predators?.setMode(GAME ? "none" : $("frog-mode").value));
 
 // Sky: outdoors (grass floor) a scattering sky with weather clouds and, in rain, a rainbow;
 // indoors the dark lab.
@@ -747,6 +750,29 @@ resize();
 
 const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion(), tmpN = new THREE.Vector3();
 const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, cool: 0 };
+
+// A predator catch changes only the fly's physical location and locomotion state.
+// The connectome worker, synaptic state, memory, gut and accumulated experience remain intact.
+function respawnAfterPredation(frog) {
+  if (!flyRoot) return;
+  let x = -frog.x, y = -frog.y;
+  let r = Math.hypot(x, y);
+  if (r < 1) { x = -1; y = 0; r = 1; }
+  x = (x / r) * 76;
+  y = (y / r) * 76;
+  body.x = x; body.y = y; body.z = 0;
+  body.speed = 0; body.turn = 0; body.airborne = 0;
+  body.state = "standing"; body.heading = Math.atan2(y - frog.y, x - frog.x) * 180 / Math.PI;
+  body.threatDir = null; body.feeding = false; body.boutLeft = 0; body.proboscis = 0;
+  const t = curr.t || 0;
+  Object.assign(prev, { x, y, z: 0, heading: body.heading, phase: body.phase, t });
+  Object.assign(curr, { x, y, z: 0, heading: body.heading, phase: body.phase, t });
+  tPrev = tCurr = performance.now();
+  perch.z = 0; perch.hop = null; perch.cool = 0; perch.n.set(0, 0, 1);
+  flyRoot.visible = false;
+  setTimeout(() => { if (flyRoot) flyRoot.visible = true; }, 240);
+  $("hint").textContent = frog.name + " caught the fly. It reappeared across the enclosure; its neural state was preserved.";
+}
 // The fly stands on its six feet. It stays on a leaf while at least two feet are still on it,
 // so it walks across gaps between leaflets and along ragged edges without bobbing. It hops
 // (wings open, a short arc) only when it really changes level: both front feet reach a
@@ -851,6 +877,7 @@ function frame(now) {
     const simT = (prev.t ?? 0) + ((curr.t ?? 0) - (prev.t ?? 0)) * f;
     const dts = Math.max(0, simT - weatherT);
     weatherT = simT;
+    predators?.update(dts, { x, y, z: z + perch.z });
     if (simT < stim.windUntil) weather.wind.copy(stim.windVec); else weather.wind.set(0, 0);
     const feet = perch.z + z;
     const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0, grooming: body.state === "grooming" },
@@ -953,6 +980,14 @@ async function boot() {
   scene.add(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
+  predators = new FrogPredators(scene, ASSETS + "frogs.glb", respawnAfterPredation);
+  predators.setMode(GAME ? "none" : $("frog-mode").value);
+  predators.load().then(() => {
+    $("frog-note").textContent = "Both rigged frogs loaded. Either can stalk and catch the fly.";
+  }).catch((error) => {
+    $("frog-note").textContent = "Frog model file missing or could not load. Add web/assets/frogs.glb to the repository. " + error.message;
+    console.warn("Frog predator models did not load:", error);
+  });
   if (GAME) {
     const { startGame } = await import("./game.js");
     game = startGame({
@@ -972,4 +1007,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; } }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; }, get predators() { return predators; } }; // for debugging from the console
