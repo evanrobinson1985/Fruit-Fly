@@ -6,6 +6,11 @@ on:
       - "watch/**"
       - "web/**"            # the phone app packs the website
       - ".github/workflows/watch-apk.yml"
+  pull_request:
+    paths:
+      - "watch/**"
+      - "web/**"            # test the combined phone/watch changes before merging
+      - ".github/workflows/watch-apk.yml"
   workflow_dispatch:
 
 jobs:
