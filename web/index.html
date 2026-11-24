@@ -127,9 +127,16 @@
     .ui { flex-direction: column; height: auto; min-height: 100%; }
     .left, .right { width: auto; align-self: stretch; max-height: none; }
     .left { margin-top: 48vh; }
-    /* When the lab controls are folded, move their small Show tab out of the
-       lower arena area so it does not hover halfway down the phone screen. */
-    .left.folded { margin-top: 8px; }
+    /* Keep the collapsed lab tab pinned to the bottom edge of the phone,
+       matching the original compact-controls layout. */
+    .left.folded {
+      position: fixed;
+      left: max(16px, env(safe-area-inset-left, 0px));
+      bottom: max(8px, env(safe-area-inset-bottom, 0px));
+      width: min(300px, calc(100vw - 32px));
+      margin: 0;
+      z-index: 20;
+    }
     .right { overflow: visible; }
   }
   @media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } }
