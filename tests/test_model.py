@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from flysim.data import Connectome, functional, transmitter_sign
-from flysim.model import Brain, LIFParams
+from flysim.model import Brain, ElectricalSynapses, LIFParams
 
 
 def net(edges, n, types=None, nt=None, superclass=None):
@@ -89,7 +89,7 @@ def test_functional_edits():
     assert c.w.min() == 5      # original untouched
 
 
-def _detailed(c, mod_edges=(), **kw):
+def _detailed(c, mod_edges=(), gap_junctions=None, **kw):
     """Detailed-model wiring for a tiny net; mod_edges are (pre, post, count) from monoamine neurons."""
     from flysim.data import Modulatory
     from flysim.model import Detailed, DetailedParams
@@ -99,22 +99,42 @@ def _detailed(c, mod_edges=(), **kw):
     indptr = np.zeros(n + 1, np.int64)
     np.cumsum(np.bincount(pre, minlength=n), out=indptr[1:])
     m = Modulatory(indptr, np.array([e[1] for e in mod_edges], np.int32), np.array([e[2] for e in mod_edges], np.int32))
-    return Detailed(c, m, DetailedParams(**kw))
+    return Detailed(c, m, DetailedParams(**kw), gap_junctions=gap_junctions)
 
 
-def test_giant_fiber_gap_junction_drives_ttmn():
-    # A weak chemical synapse alone cannot fire TTMn; the electrical one does, ~0.8 ms after each GF spike.
+def test_chemical_edges_are_not_inferred_as_gap_junctions():
+    # A chemical Giant Fiber -> TTMn edge is not evidence of an electrical junction.
     c = net([(0, 1, 1)], 2, types=["DNp01", "TTMn"])
-    std = Brain(c, monitor=[0, 1])
-    std.set_rates([0], 100.0)
-    assert std.run(500)[1] == 0
     det = Brain(c, monitor=[0, 1], detailed=_detailed(c))
+    det.set_rates([0], 100.0)
+    assert det.run(500)[1] == 0
+    assert det.detailed.gap_post.size == 0
+
+
+def test_explicit_giant_fiber_gap_junction_drives_ttmn():
+    # Only a separately supplied electrical edge produces the fast ~0.8 ms response.
+    c = net([(0, 1, 1)], 2, types=["DNp01", "TTMn"])
+    electrical = ElectricalSynapses(
+        pre=np.array([0]), post=np.array([1]), weight=np.array([10.0])
+    )
+    det = Brain(c, monitor=[0, 1], detailed=_detailed(c, gap_junctions=electrical))
     det.set_rates([0], 100.0)
     counts = det.run(500)
     assert counts[1] >= 0.8 * counts[0] > 0
     t, i = det.spike_events()
     first_gf = t[i == 0][0]
     assert 0.7 <= t[(i == 1) & (t > first_gf)][0] - first_gf <= 1.0
+
+
+def test_electrical_synapse_indices_are_validated():
+    c = net([], 2)
+    bad = ElectricalSynapses(pre=np.array([2]), post=np.array([1]))
+    from flysim.data import Modulatory
+    empty = Modulatory(np.zeros(3, np.int64), np.array([], np.int32), np.array([], np.int32))
+    from flysim.model import Detailed
+    import pytest
+    with pytest.raises(ValueError, match="valid model-neuron indices"):
+        Detailed(c, empty, gap_junctions=bad)
 
 
 def test_dopamine_depresses_kc_to_mbon_only_when_paired():
