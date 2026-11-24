@@ -225,13 +225,14 @@ export class FrogPredators {
       } else if (distance > 36) {
         frog.state = "stalking";
         targetSpeed = 11;
-      } else if (distance > 14 && fly.z < 10) {
+      } else if (distance > frog.length * 0.38 && fly.z < 12) {
+        // Close-range attack: accelerate toward the fly instead of stopping just outside it.
         frog.state = "lunging";
-        targetSpeed = 42;
+        targetSpeed = 48;
       } else {
         frog.state = "waiting";
       }
-      if (fly.z >= 10 && distance < 48) targetSpeed = 0;
+      if (fly.z >= 12 && distance < 48) targetSpeed = 0;
       frog.speed += (targetSpeed - frog.speed) * Math.min(1, dt * 3.5);
       frog.x += Math.cos(frog.heading) * frog.speed * dt;
       frog.y += Math.sin(frog.heading) * frog.speed * dt;
@@ -248,7 +249,9 @@ export class FrogPredators {
       const mouthX = frog.x + Math.cos(frog.heading) * frog.length * 0.34;
       const mouthY = frog.y + Math.sin(frog.heading) * frog.length * 0.34;
       const mouthDistance = Math.hypot(fly.x - mouthX, fly.y - mouthY);
-      if (this.catchLock <= 0 && frog.catchCooldown <= 0 && fly.z < 10 && mouthDistance < 5.5) {
+      const attackRange = Math.max(12, frog.length * 0.48);
+      const withinBite = mouthDistance < attackRange || distance < attackRange * 0.85;
+      if (this.catchLock <= 0 && frog.catchCooldown <= 0 && fly.z < 12 && withinBite) {
         frog.catchCooldown = 1.8;
         this.catchLock = 0.8;
         frog.state = "catching";
