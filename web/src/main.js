@@ -16,8 +16,9 @@ import { FrogPredators } from "./predators.js";
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
 const GAME = new URLSearchParams(location.search).has("game");
-let frogMode = "both";
-try { frogMode = localStorage.getItem("frog-mode") || "both"; } catch {}
+let frogMode = "none";
+// Version the preference key so existing installs do not inherit the old Both default.
+try { frogMode = localStorage.getItem("frog-mode-v2") || "none"; } catch {}
 // The game starts with the pet: hide the lab panels and, the first time, name the fly.
 if (GAME) {
   document.body.classList.add("game-lab-hidden");
@@ -30,13 +31,13 @@ const SMOOTH_MS = 60;       // motor rate smoothing
 const $ = (id) => document.getElementById(id);
 
 function setFrogMode(mode) {
-  frogMode = ["none", "small", "big", "both"].includes(mode) ? mode : "both";
+  frogMode = ["none", "small", "big", "both"].includes(mode) ? mode : "none";
   predators?.setMode(frogMode);
 
   document.querySelectorAll("[data-frog-mode]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.frogMode === frogMode));
   });
-  try { localStorage.setItem("frog-mode", frogMode); } catch {}
+  try { localStorage.setItem("frog-mode-v2", frogMode); } catch {}
 }
 
 // ---------- renderer & scene (Z up, mm) ----------
