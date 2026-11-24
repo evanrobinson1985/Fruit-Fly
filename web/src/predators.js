@@ -268,8 +268,9 @@ export class FrogPredators {
       if (state === "catching") {
         const strike = ease(t / 0.075) * (1 - ease((t - 0.13) / 0.20));
         const direction = entry.positionRest.clone();
-        if (direction.lengthSq() < 1e-8) direction.set(0, 1, 0);
-        entry.bone.position.add(direction.normalize().multiplyScalar(direction.length() * strike * 0.8));
+        const segmentLength = direction.length();
+        if (segmentLength < 1e-4) direction.set(0, 1, 0);
+        entry.bone.position.add(direction.normalize().multiplyScalar(Math.max(segmentLength, 0.08) * strike * 0.85));
       }
     }
   }
@@ -284,8 +285,9 @@ export class FrogPredators {
       const previous = frog.activeAction;
       next.reset();
       next.enabled = true;
-      next.setLoop(THREE.LoopOnce, 1);
-      next.clampWhenFinished = true;
+      const loopingHop = state === "approaching";
+      next.setLoop(loopingHop ? THREE.LoopRepeat : THREE.LoopOnce, loopingHop ? Infinity : 1);
+      next.clampWhenFinished = !loopingHop;
       next.setEffectiveTimeScale(state === "approaching" ? 0.82 : 1);
       next.setEffectiveWeight(1);
       next.play();
