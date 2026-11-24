@@ -920,7 +920,11 @@ function frame(now) {
       .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
     if (followFly) {
       camera.position.add(delta);
-      controls.target.set(x, y, 0.8 + z + perch.z);
+      // Aim slightly above the fly so its body sits at the visual center of the screen.
+      // The offset scales with camera distance, keeping the framing consistent while zooming.
+      const followFrameOffset = camera.position.distanceTo(controls.target)
+        * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) / 3;
+      controls.target.set(x, y, 0.8 + z + perch.z + followFrameOffset);
     }
     terrain.update(x, y, now / 1000, feet, h, simT, camera);
     if (skyDome.visible) sun.position.set(x, y, 0).addScaledVector(skyDome.sunDir, 30); // the sky's sun
