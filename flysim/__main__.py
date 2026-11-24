@@ -20,7 +20,7 @@ def main():
     ap = argparse.ArgumentParser(description="Closed-loop whole-CNS fruit fly simulation (MaleCNS v1.0).")
     ap.add_argument("scenario", nargs="?", default="forage", choices=[*SCENARIOS, "download"])
     ap.add_argument("--seconds", type=float, default=5.0)
-    ap.add_argument("--preset", default="realistic", choices=["realistic", "shiu2024"])
+    ap.add_argument("--preset", default="realistic", choices=["realistic", "realistic_confidence", "shiu2024"])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="results")
     ap.add_argument("--gif", action="store_true", help="also write an animation")
