@@ -127,6 +127,9 @@
     .ui { flex-direction: column; height: auto; min-height: 100%; }
     .left, .right { width: auto; align-self: stretch; max-height: none; }
     .left { margin-top: 48vh; }
+    /* When the lab controls are folded, move their small Show tab out of the
+       lower arena area so it does not hover halfway down the phone screen. */
+    .left.folded { margin-top: 8px; }
     .right { overflow: visible; }
   }
   @media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } }
