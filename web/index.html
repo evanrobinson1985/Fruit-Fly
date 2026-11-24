@@ -122,22 +122,26 @@
   .bar { height: 4px; background: rgba(255, 240, 220, 0.1); border-radius: 2px; overflow: hidden; }
   .bar > div { height: 100%; width: 0; background: var(--cuticle); transition: width 0.2s; }
   @media (max-width: 760px) {
-    /* Phone: the fly keeps the top half; panels scroll up from below it. */
-    body { overflow-y: auto; }
-    .ui { flex-direction: column; height: auto; min-height: 100%; }
-    .left, .right { width: auto; align-self: stretch; max-height: none; }
-    .left { margin-top: 48vh; }
-    /* Keep the collapsed lab tab pinned to the bottom edge of the phone,
-       matching the original compact-controls layout. */
-    .left.folded {
+    /* The pet action bar remains fixed at the bottom. Keep the entire lab panel
+       in the space above it, below the pet health readouts, and make it scroll. */
+    body { overflow: hidden; }
+    .ui { display: block; height: 100%; min-height: 0; padding: 0; }
+    .left, .left.folded {
       position: fixed;
-      left: max(16px, env(safe-area-inset-left, 0px));
-      bottom: max(8px, env(safe-area-inset-bottom, 0px));
-      width: min(300px, calc(100vw - 32px));
+      left: max(14px, env(safe-area-inset-left, 0px));
+      bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+      width: min(300px, calc(100vw - 28px));
+      max-height: calc(100vh - 190px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
       margin: 0;
-      z-index: 20;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      z-index: 10;
     }
-    .right { overflow: visible; }
+    @supports (height: 100dvh) {
+      .left, .left.folded {
+        max-height: calc(100dvh - 190px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+      }
+    }
   }
   @media (prefers-reduced-motion: reduce) { .bar > div { transition: none; } }
 </style>
@@ -251,6 +255,10 @@
         </div>
       </details>
       <div class="hint" id="hint">Drag to orbit. Scroll to zoom.</div>
+      <details class="sec" id="sec-neural">
+        <summary>Neural activity</summary>
+  
+      </details>
       <details class="sec" id="sec-status" open>
         <summary>Status</summary>
         <dl class="stats sec-body">
@@ -268,37 +276,7 @@
     </div>
   </section>
 
-  <aside class="right" aria-label="Neural activity">
-    <div class="right-head panel">
-      <span class="label">Neural activity</span>
-      <button id="right-toggle" class="fold" aria-expanded="true" aria-controls="right-body" title="Hide the neural readouts">Hide</button>
-    </div>
-    <div id="right-body" class="right-body">
-      <details class="panel" id="sec-motor" open>
-        <summary class="label">Descending &amp; motor neurons</summary>
-        <canvas class="chart" id="chart-motor"></canvas>
-        <div class="legend" id="legend-motor"></div>
-      </details>
-      <details class="panel" id="sec-sense" open>
-        <summary class="label">Sensory input</summary>
-        <canvas class="chart" id="chart-sense"></canvas>
-        <div class="legend" id="legend-sense"></div>
-      </details>
-      <details class="panel" id="sec-map" open>
-        <summary class="label">Whole CNS, dorsal view · spikes flash</summary>
-        <canvas id="brainmap"></canvas>
-      </details>
-      <details class="panel credits" id="sec-credits" open>
-        <summary class="label">Credits</summary>
-        <p><b>Connectome:</b> <a href="https://male-cns.janelia.org" target="_blank" rel="noopener">MaleCNS v1.0</a>, HHMI Janelia FlyEM, Google Research, Cambridge Connectomics / MRC LMB and consortium (CC-BY 4.0).</p>
-        <p><b>Neuron model:</b> Shiu, Sterne <i>et al.</i>, <i>Nature</i> 2024.</p>
-        <p><b>3D fly:</b> <a href="https://github.com/TuragaLab/flybody" target="_blank" rel="noopener">FlyBody</a>, Vaxenburg, Siwanowicz <i>et al.</i>, <i>Nature</i> 2025 (Apache-2.0).</p>
-        <p><b>Rigging &amp; leg recordings:</b> <a href="https://github.com/NeLy-EPFL/flygym" target="_blank" rel="noopener">NeuroMechFly / flygym</a>, Ramdya lab, EPFL (Apache-2.0).</p>
-        <p><b>3D frog predators:</b> <a href="https://blendswap.com/blend/29791" target="_blank" rel="noopener">2 Realistic Frogs (Rigged)</a> by RubenCUR on BlendSwap (CC0). Original frog models credited to <a href="https://sketchfab.com/ffishAsia-and-floraZia" target="_blank" rel="noopener">ffish.asia / floraZia.com</a> (CC-BY 4.0).</p>
-        <button id="credits-open">Full credits &amp; citations</button>
-      </details>
-    </div>
-  </aside>
+
 </div>
 
 <dialog id="credits" aria-labelledby="credits-title">
