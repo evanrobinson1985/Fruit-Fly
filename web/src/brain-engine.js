@@ -14,8 +14,8 @@
 //
 // The optional "detailed" model (setDetailed; flysim.model.make_detailed) adds:
 // octopamine as a slow, capped depolarizing drive m on its targets (dv gets + m),
-// dopamine-gated depression of the mushroom body's KC -> MBON synapses, and optional
-// electrical synapses supplied separately from the chemical connectome. The bundled
+// dopamine-gated depression of the mushroom body's KC -> MBON synapses, and the
+// optional electrical synapses supplied separately from the chemical connectome. The bundled
 // export currently contains no electrical edges; none are inferred from chemical edges.
 
 export function decodeVarints(bytes, count, out, start = 0) {
@@ -201,6 +201,8 @@ export class Brain {
     this.driveCum = new Float64Array(0);
     this.driveLambda = 0;
     this.driveExpNeg = 1;
+    // Rates survive reset(), so rebuild the cached Poisson drive before the next run.
+    this._dirty = true;
     const d = this.det;
     if (d) { d.mod.fill(0); d.vbuf.fill(0); d.f.fill(1); d.fStep.fill(0); d.dm.fill(0); d.dmStep.fill(0); }
   }
