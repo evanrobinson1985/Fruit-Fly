@@ -31,7 +31,7 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   keeps it (Cache Storage), so later visits load it from the device; a new export is
   downloaded again and replaces the old copy.
 - **Neuron model switch (Simulation panel):** *Standard* is the model above. *Detailed*
-  adds three things the standard model leaves out, using wiring it otherwise discards
+  adds two things the standard model leaves out, using wiring it otherwise discards
   (a further 450 KB download): the 131 octopamine neurons act as a slow arousal signal on
   their 200,000 targets; dopamine teaches the mushroom body (a Kenyon cell's synapses onto
   an output neuron weaken when it fires while that compartment's dopamine neurons are
@@ -261,7 +261,7 @@ Limits to keep in mind:
   neuromodulation or plasticity. One visible consequence: the Giant Fiber's synapse onto the
   jump motor neuron (TTMn) is mostly electrical, so TTMn barely responds (5–11 Hz) while the
   Giant Fiber fires at 300+ Hz. Escape is therefore read from the Giant Fiber itself. The
-  detailed model (below) adds the octopamine and dopamine, but not unverified electrical edges.
+  detailed model (below) adds octopamine and dopamine, but not unverified electrical edges.
 - **Point neurons with predicted signs.** Each neuron is a single compartment, and whether a
   synapse excites or inhibits comes from its transmitter, predicted from electron-microscope
   images. Serotonin, and dopamine outside the mushroom body, act through receptors that can
