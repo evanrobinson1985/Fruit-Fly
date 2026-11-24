@@ -50,14 +50,18 @@ export class FrogPredators {
     gltf.scene.updateMatrixWorld(true);
     const skinnedMeshes = [];
     gltf.scene.traverse((object) => { if (object.isSkinnedMesh) skinnedMeshes.push(object); });
+    const normalizeNodeName = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const availableMeshes = skinnedMeshes.map((mesh) => mesh.name || "(unnamed mesh)");
     const errors = [];
 
     for (const def of FROG_DEFINITIONS) {
       try {
+        // Blender/GLB exports may replace spaces and punctuation with underscores.
+        // Compare normalized names so "(F).lower" and "_(F)lower" resolve identically.
+        const expectedMeshName = normalizeNodeName(def.meshName);
         const exactMesh = gltf.scene.getObjectByName(def.meshName);
-        const meshSource = exactMesh?.isSkinnedMesh ? exactMesh : skinnedMeshes.find((mesh) =>
-          (mesh.name || "").toLowerCase().includes(def.id === "small" ? "montane brown frog" : "japanese toad"));
+        const meshSource = (exactMesh?.isSkinnedMesh ? exactMesh : null) ||
+          skinnedMeshes.find((mesh) => normalizeNodeName(mesh.name) === expectedMeshName);
         if (!meshSource) {
           throw new Error("Could not find skinned mesh '" + def.meshName +
             "'. Available skinned meshes: " + (availableMeshes.join(", ") || "none"));
