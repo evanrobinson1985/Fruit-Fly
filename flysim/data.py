@@ -310,3 +310,36 @@ def modulatory(c: Connectome, data_dir: Path = DEFAULT_DATA_DIR) -> Modulatory:
     np.cumsum(np.bincount(pre, minlength=c.n), out=indptr[1:])
     np.savez(cache, indptr=indptr, post=post, count=count)
     return Modulatory(indptr, post, count)
+
+ 
+def transmitter_audit(c: Connectome) -> pd.DataFrame:
+    """Summarize transmitter evidence and confidence across the loaded neurons.
+
+    Counts are grouped by resolved transmitter and evidence provenance. This is
+    a data-quality report, not a measure of synaptic efficacy.
+    """
+    required = {"bodyId", "nt", "nt_source", "nt_confidence"}
+    missing = required.difference(c.neurons.columns)
+    if missing:
+        raise ValueError(f"Connectome is missing transmitter audit fields: {sorted(missing)}")
+
+    neurons = c.neurons.copy()
+    neurons["nt"] = neurons["nt"].fillna("unclear").astype(str)
+    neurons["nt_source"] = neurons["nt_source"].fillna("unresolved").astype(str)
+    neurons["nt_confidence"] = (
+        pd.to_numeric(neurons["nt_confidence"], errors="coerce")
+        .fillna(0.0).clip(0.0, 1.0)
+    )
+    report = (
+        neurons.groupby(["nt", "nt_source"], dropna=False)
+        .agg(
+            neurons=("bodyId", "size"),
+            mean_confidence=("nt_confidence", "mean"),
+            median_confidence=("nt_confidence", "median"),
+        )
+        .reset_index()
+    )
+    report["fraction"] = report["neurons"] / max(1, len(neurons))
+    return report.sort_values(
+        ["neurons", "nt", "nt_source"], ascending=[False, True, True]
+    ).reset_index(drop=True)
