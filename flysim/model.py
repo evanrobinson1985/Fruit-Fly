@@ -113,11 +113,25 @@ class DetailedParams:
     mb_eta: float = 1e-3     # fractional depression per KC spike per unit dopamine
     tau_dan: float = 1000.0  # ms, dopamine trace (in spikes) at each compartment
     tau_mem: float = 300.0   # s, recovery of depressed KC -> MBON synapses
-    # Giant Fiber electrical synapses onto TTMn and PSI (shakB gap junctions): each
-    # GF spike arrives as a brief depolarization, so TTMn follows it one-for-one at
-    # the measured ~0.8 ms latency (Tanouye & Wyman 1980) instead of the chemical delay.
+    # Electrical-junction voltage step used when an input dataset omits
+    # per-junction strengths. No junctions are inferred from chemical edges.
     gap_v: float = 10.0      # mV step in the target
-    gap_delay: float = 0.8   # ms (conduction to the thoracic ganglion)
+    gap_delay: float = 0.8   # ms, configurable junction/conduction latency
+
+
+@dataclass
+class ElectricalSynapses:
+    """Explicit directed electrical connections in model-neuron index space.
+
+    These edges must come from an electrical-synapse dataset or curated evidence;
+    they are deliberately not inferred from the chemical connectome. Include both
+    directions for a bidirectional gap junction. Optional weights are voltage
+    steps in mV; omitted weights use DetailedParams.gap_v.
+    """
+
+    pre: np.ndarray
+    post: np.ndarray
+    weight: np.ndarray | None = None
 
 
 @numba.njit(cache=True, fastmath=True)
@@ -205,8 +219,8 @@ def _run_detailed(n_steps, t0, v, g, a_ad, x_stp, ref, buf, indptr, post, w, dri
 class Detailed:
     """Wiring for the detailed model, built from the full and functional connectomes."""
 
-    def __init__(self, c: Connectome, mod, p: DetailedParams | None = None):
-        from .data import Connectome as _C  # noqa: F401
+    def __init__(self, c: Connectome, mod, p: DetailedParams | None = None,
+                 gap_junctions: ElectricalSynapses | None = None):
         self.p = p = p or DetailedParams()
         nn, n = c.neurons, c.n
         nt = nn.nt.to_numpy()
@@ -242,14 +256,32 @@ class Detailed:
         start = np.concatenate([[0], np.cumsum(per)[:-1]])
         self.kc_start[is_kc & (per > 0)] = start[is_kc & (per > 0)]
         self.n_plastic = int(plastic.sum())
-        # Giant Fiber gap junctions onto TTMn and PSI, where the connectome links them.
-        gf = np.flatnonzero(ty == "DNp01")
-        rows = [(j, q) for j in gf for q in c.post[c.indptr[j]:c.indptr[j + 1]] if ty[q] in ("TTMn", "PSI")]
-        gpre = np.array([r[0] for r in rows], np.int64)
+        # Electrical junctions are a separate data source, never chemical edges.
+        if gap_junctions is None:
+            gpre = np.empty(0, np.int64)
+            gpost = np.empty(0, np.int32)
+            gw = np.empty(0, np.float32)
+        else:
+            gpre = np.asarray(gap_junctions.pre, dtype=np.int64)
+            gpost = np.asarray(gap_junctions.post, dtype=np.int32)
+            if gpre.ndim != 1 or gpost.ndim != 1 or len(gpre) != len(gpost):
+                raise ValueError("ElectricalSynapses pre/post must be equal-length 1-D arrays")
+            if np.any(gpre < 0) or np.any(gpre >= n) or np.any(gpost < 0) or np.any(gpost >= n):
+                raise ValueError("ElectricalSynapses indices must be valid model-neuron indices")
+            if gap_junctions.weight is None:
+                gw = np.full(len(gpre), p.gap_v, np.float32)
+            else:
+                gw = np.asarray(gap_junctions.weight, dtype=np.float32)
+                if gw.ndim != 1 or len(gw) != len(gpre):
+                    raise ValueError("ElectricalSynapses weight must match pre/post length")
+                if not np.all(np.isfinite(gw)) or np.any(gw < 0):
+                    raise ValueError("ElectricalSynapses weights must be finite, non-negative mV values")
+            order = np.lexsort((gpost, gpre))
+            gpre, gpost, gw = gpre[order], gpost[order], gw[order]
         self.gap_indptr = np.zeros(n + 1, np.int64)
         np.cumsum(np.bincount(gpre, minlength=n), out=self.gap_indptr[1:])
-        self.gap_post = np.array([r[1] for r in rows], np.int32)
-        self.gap_w = np.full(len(rows), p.gap_v, np.float32)
+        self.gap_post = gpost
+        self.gap_w = gw
 
     def memory(self, f) -> float:
         """Mean depression of the KC -> MBON synapses (0 = naive)."""
@@ -379,10 +411,16 @@ def make_brain(c: Connectome, preset: str = "realistic", seed: int = 0, monitor=
     return Brain(functional(c, **edits), LIFParams(**{**p, **params}), seed=seed, monitor=monitor)
 
 
-def make_detailed(c: Connectome, seed: int = 0, dparams: DetailedParams | None = None, monitor=None, **params) -> Brain:
-    """The "realistic" preset plus octopamine neuromodulation, dopamine-gated plasticity
-    of the mushroom body's KC -> MBON synapses, and the Giant Fiber's electrical synapses."""
+def make_detailed(c: Connectome, seed: int = 0, dparams: DetailedParams | None = None, monitor=None,
+                  gap_junctions: ElectricalSynapses | None = None, **params) -> Brain:
+    """Build the detailed model with monoamine effects and optional explicit electrical wiring.
+
+    Electrical connections are absent unless supplied as ElectricalSynapses from
+    a separate, evidence-backed dataset. Chemical connectome edges are never used
+    as a proxy for gap junctions.
+    """
     from .data import modulatory
     p, edits = PRESETS["realistic"]
     fc = functional(c, **edits)
-    return Brain(fc, LIFParams(**{**p, **params}), seed=seed, monitor=monitor, detailed=Detailed(fc, modulatory(c), dparams))
+    detailed = Detailed(fc, modulatory(c), dparams, gap_junctions=gap_junctions)
+    return Brain(fc, LIFParams(**{**p, **params}), seed=seed, monitor=monitor, detailed=detailed)
