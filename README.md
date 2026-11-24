@@ -208,6 +208,16 @@ biologically motivated changes:
    lobe's excitatory local neurons (lLN1_bc) lock into ~250 Hz self-sustained firing
    whenever there is any smell input or background activity.
 
+**Experimental transmitter-confidence preset** (`--preset realistic_confidence`). The MaleCNS
+neurotransmitter table records the recommended consensus label, the confidence of the
+cell-type prediction, the neuron-specific prediction and its confidence, and whether
+curated ground truth overrides the prediction. The loader now retains that provenance
+per neuron. The experimental preset scales each neuron's outgoing chemical synapses by
+the confidence of the transmitter assignment used for that neuron. This is a conservative
+uncertainty treatment, not a claim that confidence is a calibrated probability of synaptic
+strength. The default `realistic` preset is unchanged. See
+[`docs/TRANSMITTER_CONFIDENCE.md`](docs/TRANSMITTER_CONFIDENCE.md).
+
 **Senses and motors** (`flysim/interface.py`). These are hand-built links,
 each with a literature citation in the code:
 
