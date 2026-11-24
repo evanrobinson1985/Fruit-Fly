@@ -1009,9 +1009,19 @@ async function boot() {
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");
-    $("frog-note").textContent = count === 2
-      ? "Both frogs loaded: " + loaded + "."
-      : "Loaded one frog: " + loaded + ". Check the browser log for the other model.";
+    const clipSummary = predators.frogs.map((frog) => {
+      const names = [...frog.animationActions.keys()];
+      return frog.name + ": " + (names.length ? names.join(", ") : "no authored animation clips");
+    }).join(" | ");
+    $("frog-note").textContent = (count === 2
+      ? "Both frogs loaded: " + loaded + ". "
+      : "Loaded one frog: " + loaded + ". ") + clipSummary;
+    console.info("Frog rig animation diagnostics:", predators.frogs.map((frog) => ({
+      frog: frog.name,
+      bones: frog.bones.size,
+      clips: [...frog.animationActions.keys()],
+      matched: Object.entries(frog.animationSet).filter(([, action]) => action).map(([state]) => state),
+    })));
   }).catch((error) => {
     $("frog-note").textContent = "Frog loading failed: " + (error?.message || String(error));
     console.error("Frog predator models did not load:", error);
