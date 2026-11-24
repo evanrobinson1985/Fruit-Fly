@@ -9,7 +9,7 @@ const FROG_DEFINITIONS = [
     rootName: "rig",
     meshName: "Montane Brown Frog (F).lower",
     targetLength: 42,
-    start: [-88, 64],
+    start: [-176, 128],
     heading: -0.6,
   },
   {
@@ -18,13 +18,14 @@ const FROG_DEFINITIONS = [
     rootName: "rig.Big.Frog",
     meshName: "Japanese Toad (M).lower",
     targetLength: 66,
-    start: [88, -64],
+    start: [176, -128],
     heading: 2.5,
   },
 ];
 
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const normalizeNodeName = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export class FrogPredators {
   constructor(scene, url, onCatch = () => {}, arenaRadius = 100) {
@@ -51,7 +52,6 @@ export class FrogPredators {
     gltf.scene.updateMatrixWorld(true);
     const skinnedMeshes = [];
     gltf.scene.traverse((object) => { if (object.isSkinnedMesh) skinnedMeshes.push(object); });
-    const normalizeNodeName = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const availableMeshes = skinnedMeshes.map((mesh) => mesh.name || "(unnamed mesh)");
     const errors = [];
 
@@ -219,19 +219,19 @@ export class FrogPredators {
       frog.heading = wrapAngle(frog.heading + turn);
 
       let targetSpeed = 0;
-      if (distance > 48) {
+      if (distance > 96) {
         frog.state = "approaching";
-        targetSpeed = 13;
-      } else if (distance > 18) {
+        targetSpeed = 26;
+      } else if (distance > 36) {
         frog.state = "stalking";
-        targetSpeed = 5.5;
-      } else if (distance > 7 && fly.z < 10) {
+        targetSpeed = 11;
+      } else if (distance > 14 && fly.z < 10) {
         frog.state = "lunging";
-        targetSpeed = 27;
+        targetSpeed = 42;
       } else {
         frog.state = "waiting";
       }
-      if (fly.z >= 10 && distance < 24) targetSpeed = 0;
+      if (fly.z >= 10 && distance < 48) targetSpeed = 0;
       frog.speed += (targetSpeed - frog.speed) * Math.min(1, dt * 3.5);
       frog.x += Math.cos(frog.heading) * frog.speed * dt;
       frog.y += Math.sin(frog.heading) * frog.speed * dt;
