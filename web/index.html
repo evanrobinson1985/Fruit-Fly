@@ -118,25 +118,6 @@
   .dlg-head button { flex: 0 0 auto; }
   button.linkish { background: none; border: 0; padding: 0; color: var(--cuticle); text-decoration: underline; font: inherit; cursor: pointer; }
   body.game-lab-hidden .ui { display: none; }
-  #game-frog-controls { display: none; }
-  body.game-lab-hidden #game-frog-controls {
-    position: fixed; z-index: 20; top: max(10px, env(safe-area-inset-top, 0px));
-    left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap;
-    align-items: center; justify-content: center; gap: 7px; width: max-content;
-    max-width: calc(100% - 20px); padding: 9px 11px; border-radius: 14px;
-    color: #f7eddb; background: rgba(24, 21, 17, 0.92);
-    border: 1px solid rgba(230, 197, 145, 0.3); backdrop-filter: blur(10px);
-    box-shadow: 0 5px 24px rgba(0,0,0,.35);
-  }
-  #game-frog-controls .frog-title { font-size: 12px; font-weight: 700; margin-right: 2px; }
-  #game-frog-controls button {
-    min-height: 36px; padding: 7px 10px; border: 1px solid rgba(230,197,145,.35);
-    border-radius: 9px; color: inherit; background: rgba(255,255,255,.07);
-    font: inherit; font-size: 12px; cursor: pointer;
-  }
-  #game-frog-controls button[aria-pressed="true"] {
-    color: #20190f; background: #d9b77d; border-color: #d9b77d; font-weight: 700;
-  }
   #loading { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 12px 16px; width: min(420px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
   .bar { height: 4px; background: rgba(255, 240, 220, 0.1); border-radius: 2px; overflow: hidden; }
   .bar > div { height: 100%; width: 0; background: var(--cuticle); transition: width 0.2s; }
@@ -152,13 +133,6 @@
 </style>
 
 <canvas id="stage" aria-label="3D view of the simulated fly in its arena"></canvas>
-<div id="game-frog-controls" role="group" aria-label="Frog predator controls">
-  <span class="frog-title">Frogs</span>
-  <button type="button" data-frog-mode="none" aria-pressed="false">Off</button>
-  <button type="button" data-frog-mode="small" aria-pressed="false">Brown frog</button>
-  <button type="button" data-frog-mode="big" aria-pressed="false">Toad</button>
-  <button type="button" data-frog-mode="both" aria-pressed="true">Both</button>
-</div>
 <div class="ui">
   <section class="left panel" aria-label="Controls">
     <div class="head">
@@ -186,6 +160,18 @@
           </div>
         </div>
       </details>
+      <details class="sec" id="sec-predators" open>
+        <summary>Lab controls · Frog predators</summary>
+        <div class="sec-body">
+          <div class="tools" role="group" aria-label="Choose frog predators">
+            <button type="button" data-frog-mode="none" aria-pressed="false">Off</button>
+            <button type="button" data-frog-mode="small" aria-pressed="false">Brown frog</button>
+            <button type="button" data-frog-mode="big" aria-pressed="false">Toad</button>
+            <button type="button" data-frog-mode="both" aria-pressed="true">Both</button>
+          </div>
+          <div class="hint" id="frog-note" role="status" aria-live="polite">Loading the frog models…</div>
+        </div>
+      </details>
       <details class="sec" id="sec-scene" open>
         <summary>Scene</summary>
         <div class="sec-body">
@@ -194,17 +180,7 @@
             <button id="floor-lab" aria-pressed="true">Lab arena</button>
             <button id="floor-grass" aria-pressed="false">Grass &amp; weeds</button>
           </div>
-          <div class="row" role="group" aria-label="Frog predators">
-            <label class="label" for="frog-mode" style="flex:0 0 auto">Frogs</label>
-            <select id="frog-mode">
-              <option value="none">None</option>
-              <option value="small">Montane Brown Frog</option>
-              <option value="big">Japanese Toad</option>
-              <option value="both" selected>Both frogs</option>
-            </select>
-          </div>
-          <div class="hint" id="frog-note">Loading the two rigged frog models…</div>
-          <div class="row" role="group" aria-label="Fly skin">
+<div class="row" role="group" aria-label="Fly skin">
             <span class="label" style="flex:0 0 auto">Skin</span>
             <button id="skin-real" aria-pressed="true">Realistic</button>
             <button id="skin-plain" aria-pressed="false">Plain</button>
