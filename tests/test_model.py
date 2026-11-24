@@ -2,8 +2,8 @@
 import numpy as np
 import pandas as pd
 
-from flysim.data import Connectome, functional, resolve_transmitter_table, transmitter_sign
-from flysim.model import Brain, ElectricalSynapses, LIFParams
+from flysim.data import Connectome, functional, resolve_transmitter_table, transmitter_audit, transmitter_sign
+from flysim.model import Brain, ElectricalSynapses, LIFParams, make_brain
 
 
 def net(edges, n, types=None, nt=None, superclass=None):
@@ -216,3 +216,30 @@ def test_octopamine_raises_excitability_with_a_cap():
     b.set_rates([0], 50.0)
     b.run(2000)
     assert 0.95 < b.mod[1] <= 1.0 + 1e-6  # saturates at mod_max (decaying a little between spikes)
+
+ 
+def test_realistic_confidence_preset_applies_to_presynaptic_outputs_only():
+    c = net([(0, 1, 8), (1, 2, 10)], 3)
+    c.neurons["nt_confidence"] = [0.25, 0.75, 1.0]
+    c.neurons["nt_source"] = ["consensus", "celltype_prediction", "ground_truth"]
+
+    weighted = make_brain(c, "realistic_confidence")
+    baseline = make_brain(c, "realistic")
+
+    assert np.allclose(weighted.c.w, [2.0, 7.5])
+    assert np.allclose(baseline.c.w, [8.0, 10.0])
+    assert np.array_equal(c.w, [8.0, 10.0])
+
+
+def test_transmitter_audit_reports_provenance_and_population_fraction():
+    c = net([(0, 1, 8)], 3, nt=["acetylcholine", "gaba", "acetylcholine"])
+    c.neurons["nt_confidence"] = [0.9, 0.7, 0.0]
+    c.neurons["nt_source"] = ["consensus", "ground_truth", "unresolved"]
+
+    report = transmitter_audit(c)
+
+    assert report.neurons.sum() == 3
+    assert np.isclose(report.fraction.sum(), 1.0)
+    row = report[(report.nt == "acetylcholine") & (report.nt_source == "consensus")].iloc[0]
+    assert row.neurons == 1
+    assert np.isclose(row.mean_confidence, 0.9)
