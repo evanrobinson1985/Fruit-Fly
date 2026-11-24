@@ -2,6 +2,9 @@
 browser: web/assets/brain-detail.png (int32 arrays in a grayscale PNG, see pngpack.py)
 and a "detailed" entry in web/assets/brain.json with the arrays' layout and parameters.
 
+Electrical edges are empty unless an explicit ElectricalSynapses dataset is wired into
+this export. Chemical connectome edges are never reinterpreted as gap junctions.
+
     python web/tools/export_detailed.py      (after export_brain.py)
 """
 from __future__ import annotations
@@ -38,7 +41,7 @@ def main():
         "da": np.repeat(np.arange(c.n), np.diff(d.d_indptr)), "daMbon": mbons[d.d_post],
         "daCount": np.zeros(len(d.d_post), np.int64),
         "kc": np.flatnonzero(np.char.startswith(ty, "KC")), "mbon": mbons,
-        # Giant Fiber -> TTMn / PSI electrical synapses.
+        # Explicit electrical-junction data only; empty in the default export.
         "gapPre": np.repeat(np.arange(c.n), np.diff(d.gap_indptr)), "gapPost": d.gap_post,
     }
     # Raw counts behind the normalized DAN -> MBON weights.
