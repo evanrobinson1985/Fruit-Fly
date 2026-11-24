@@ -37,7 +37,7 @@ def main():
         path = out / "transmitter-audit.csv"
         report.to_csv(path, index=False)
         print(report.to_string(index=False))
-        print(f"\\n{len(connectome.neurons):,} neurons audited; report written to {path}")
+        print(f"\n{len(connectome.neurons):,} neurons audited; report written to {path}")
         return
     world, fly = SCENARIOS[a.scenario]()
     print(f"Loading connectome and building '{a.preset}' brain...")
