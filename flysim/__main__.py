@@ -18,9 +18,9 @@ SCENARIOS = {
 
 def main():
     ap = argparse.ArgumentParser(description="Closed-loop whole-CNS fruit fly simulation (MaleCNS v1.0).")
-    ap.add_argument("scenario", nargs="?", default="forage", choices=[*SCENARIOS, "download"])
+    ap.add_argument("scenario", nargs="?", default="forage", choices=[*SCENARIOS, "download", "audit-transmitters"])
     ap.add_argument("--seconds", type=float, default=5.0)
-    ap.add_argument("--preset", default="realistic", choices=["realistic", "shiu2024"])
+    ap.add_argument("--preset", default="realistic", choices=["realistic", "realistic_confidence", "shiu2024"])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="results")
     ap.add_argument("--gif", action="store_true", help="also write an animation")
@@ -28,6 +28,16 @@ def main():
 
     if a.scenario == "download":
         data.load()
+        return
+    if a.scenario == "audit-transmitters":
+        connectome = data.load()
+        report = data.transmitter_audit(connectome)
+        out = Path(a.out)
+        out.mkdir(parents=True, exist_ok=True)
+        path = out / "transmitter-audit.csv"
+        report.to_csv(path, index=False)
+        print(report.to_string(index=False))
+        print(f"\n{len(connectome.neurons):,} neurons audited; report written to {path}")
         return
     world, fly = SCENARIOS[a.scenario]()
     print(f"Loading connectome and building '{a.preset}' brain...")

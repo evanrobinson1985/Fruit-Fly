@@ -2,8 +2,8 @@
 import numpy as np
 import pandas as pd
 
-from flysim.data import Connectome, functional, transmitter_sign
-from flysim.model import Brain, ElectricalSynapses, LIFParams
+from flysim.data import Connectome, functional, resolve_transmitter_table, transmitter_audit, transmitter_sign
+from flysim.model import Brain, ElectricalSynapses, LIFParams, make_brain
 
 
 def net(edges, n, types=None, nt=None, superclass=None):
@@ -31,6 +31,58 @@ def test_unknown_transmitter_has_no_assumed_fast_effect():
     assert transmitter_sign(None) == 0.0
     # Explicit overrides remain available for evidence-backed experiments.
     assert transmitter_sign("glycine", {"glycine": -1.0}) == -1.0
+
+
+def test_transmitter_resolution_tracks_confidence_and_provenance():
+    rows = pd.DataFrame([
+        {"body": 1, "consensus_nt": "acetylcholine", "celltype_predicted_nt": "acetylcholine",
+         "celltype_predicted_nt_confidence": 0.82, "predicted_nt": "gaba",
+         "predicted_nt_confidence": 0.91, "ground_truth": None},
+        {"body": 2, "consensus_nt": "unclear", "celltype_predicted_nt": "unclear",
+         "celltype_predicted_nt_confidence": 0.20, "predicted_nt": "GABA",
+         "predicted_nt_confidence": 0.73, "ground_truth": None},
+        {"body": 3, "consensus_nt": "glutamate", "celltype_predicted_nt": "acetylcholine",
+         "celltype_predicted_nt_confidence": 0.90, "predicted_nt": "acetylcholine",
+         "predicted_nt_confidence": 0.90, "ground_truth": "glutamate"},
+        {"body": 4, "consensus_nt": "unclear", "celltype_predicted_nt": "unclear",
+         "celltype_predicted_nt_confidence": 0.10, "predicted_nt": "unclear",
+         "predicted_nt_confidence": 0.10, "ground_truth": None},
+        {"body": 5, "consensus_nt": "acetylcholine", "celltype_predicted_nt": "acetylcholine",
+         "celltype_predicted_nt_confidence": 1.4, "predicted_nt": "acetylcholine",
+         "predicted_nt_confidence": 1.4, "ground_truth": None},
+    ])
+    resolved = resolve_transmitter_table(rows)
+    assert resolved.loc[1, "nt"] == "acetylcholine"
+    assert resolved.loc[1, "nt_source"] == "consensus"
+    assert resolved.loc[1, "nt_confidence"] == np.float32(0.82)
+    assert resolved.loc[2, "nt"] == "gaba"
+    assert resolved.loc[2, "nt_source"] == "neuron_prediction"
+    assert resolved.loc[2, "nt_confidence"] == np.float32(0.73)
+    assert resolved.loc[3, "nt"] == "glutamate"
+    assert resolved.loc[3, "nt_source"] == "ground_truth"
+    assert resolved.loc[3, "nt_confidence"] == 1.0
+    assert resolved.loc[4, "nt"] == "unclear"
+    assert resolved.loc[4, "nt_source"] == "unresolved"
+    assert resolved.loc[4, "nt_confidence"] == 0.0
+    assert resolved.loc[5, "nt_confidence"] == 1.0  # malformed confidence is bounded
+
+
+def test_confidence_weighted_connectome_scales_presynaptic_outputs():
+    c = net([(0, 1, 8), (1, 2, 10)], 3)
+    c.neurons["nt_confidence"] = [0.25, 0.8, 1.0]
+    weighted = functional(
+        c, drop_kc_kc=False, drop_sensory_inputs=False,
+        drop_unclear=False, confidence_weighted=True,
+    )
+    assert np.allclose(weighted.w, [2.0, 8.0])
+    assert np.array_equal(c.w, [8.0, 10.0])  # source connectome remains untouched
+
+
+def test_confidence_weighting_requires_metadata():
+    c = net([(0, 1, 8)], 2)
+    import pytest
+    with pytest.raises(ValueError, match="nt_confidence metadata"):
+        functional(c, confidence_weighted=True)
 
 
 def test_silent_without_input():
@@ -164,3 +216,30 @@ def test_octopamine_raises_excitability_with_a_cap():
     b.set_rates([0], 50.0)
     b.run(2000)
     assert 0.95 < b.mod[1] <= 1.0 + 1e-6  # saturates at mod_max (decaying a little between spikes)
+
+ 
+def test_realistic_confidence_preset_applies_to_presynaptic_outputs_only():
+    c = net([(0, 1, 8), (1, 2, 10)], 3)
+    c.neurons["nt_confidence"] = [0.25, 0.75, 1.0]
+    c.neurons["nt_source"] = ["consensus", "celltype_prediction", "ground_truth"]
+
+    weighted = make_brain(c, "realistic_confidence")
+    baseline = make_brain(c, "realistic")
+
+    assert np.allclose(weighted.c.w, [2.0, 7.5])
+    assert np.allclose(baseline.c.w, [8.0, 10.0])
+    assert np.array_equal(c.w, [8.0, 10.0])
+
+
+def test_transmitter_audit_reports_provenance_and_population_fraction():
+    c = net([(0, 1, 8)], 3, nt=["acetylcholine", "gaba", "acetylcholine"])
+    c.neurons["nt_confidence"] = [0.9, 0.7, 0.0]
+    c.neurons["nt_source"] = ["consensus", "ground_truth", "unresolved"]
+
+    report = transmitter_audit(c)
+
+    assert report.neurons.sum() == 3
+    assert np.isclose(report.fraction.sum(), 1.0)
+    row = report[(report.nt == "acetylcholine") & (report.nt_source == "consensus")].iloc[0]
+    assert row.neurons == 1
+    assert np.isclose(row.mean_confidence, 0.9)
