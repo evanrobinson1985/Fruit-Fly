@@ -109,6 +109,31 @@ export class FrogPredators {
           if (object.isBone) bones.set(object.name, { bone: object, rest: object.quaternion.clone(), normalized: normalizeNodeName(object.name) });
         });
 
+        // Use the GLB's authored animation tracks instead of guessing bone roles
+        // and rotating unrelated joints around one global axis.
+        const mixer = new THREE.AnimationMixer(rig);
+        const animationActions = new Map();
+        for (const clip of gltf.animations || []) {
+          const action = mixer.clipAction(clip, rig);
+          action.enabled = true;
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          animationActions.set(clip.name || ("animation-" + (animationActions.size + 1)), action);
+        }
+        const findAction = (pattern) => {
+          for (const [name, action] of animationActions) if (pattern.test(name)) return action;
+          return null;
+        };
+        const animationSet = {
+          idle: findAction(/idle|rest|breath/i),
+          walk: findAction(/walk|locomotion|run|move/i),
+          stalk: findAction(/stalk|crouch|sneak/i),
+          lunge: findAction(/lunge|jump|leap|attack/i),
+          catch: findAction(/catch|bite|eat|tongue/i),
+        };
+        if (!animationSet.walk && animationActions.size === 1) {
+          animationSet.walk = animationActions.values().next().value;
+        }
+
         const actor = new THREE.Group();
         actor.name = "predator-" + def.id;
         actor.add(model);
@@ -117,7 +142,8 @@ export class FrogPredators {
         this.scene.add(actor);
 
         this.frogs.push({
-          ...def, actor, model, bones,
+          ...def, actor, model, bones, mixer, animationActions, animationSet,
+          activeAction: null, activeAnimationState: null,
           x: def.start[0], y: def.start[1], heading: def.heading,
           phase: Math.random() * Math.PI * 2, speed: 0,
           length: def.targetLength, catchCooldown: 0, state: "waiting",
@@ -146,61 +172,34 @@ export class FrogPredators {
   }
 
   _pose(frog, dt) {
-    const moving = frog.speed > 0.7;
-    frog.phase += dt * (moving ? 7.0 : 0.45);
-    const phase = frog.phase;
-    const swing = moving ? Math.sin(phase) : 0;
-    const crouch = frog.state === "stalking" || frog.state === "lunging" ? 1 : 0;
+    const state = frog.state;
+    const desired = state === "catching" ? frog.animationSet.catch :
+      state === "lunging" ? frog.animationSet.lunge :
+      state === "stalking" ? (frog.animationSet.stalk || frog.animationSet.walk) :
+      state === "approaching" ? frog.animationSet.walk :
+      frog.animationSet.idle;
+    const next = desired || (state !== "waiting" ? frog.animationSet.walk : null);
 
-    // Blender exporters often rename bones or replace punctuation. Resolve limb roles
-    // flexibly instead of silently doing nothing when a rig uses slightly different labels.
-    const findBone = (aliases, side) => {
-      const suffix = side.toLowerCase();
-      for (const [name, entry] of frog.bones) {
-        const n = entry.normalized || normalizeNodeName(name);
-        if (!n.endsWith(suffix)) continue;
-        if (aliases.some((a) => n.includes(a))) return entry;
-      }
-      return null;
-    };
-    const rotate = (entry, angle, axis = this.axis) => {
-      if (!entry) return;
-      this.delta.setFromAxisAngle(axis, angle);
-      entry.bone.quaternion.copy(entry.rest).multiply(this.delta);
-    };
-    const role = (side, aliases) => findBone(aliases, side);
-    const thigh = ["thigh", "upperleg", "femur", "hindleg", "frontleg"];
-    const shin = ["shin", "calf", "lowerleg", "tibia"];
-    const foot = ["foot", "ankle", "toe", "tarsus"];
-    const upperArm = ["upperarm", "upperforeleg", "humerus", "foreleg"];
-    const forearm = ["forearm", "lowerarm", "radius"];
-    const hand = ["hand", "finger", "palm"];
-    for (const side of ["L", "R"]) {
-      const sign = side === "L" ? 1 : -1;
-      const stride = swing * sign;
-      // Frogs use a powerful alternating hind-leg push and a smaller forelimb recovery.
-      rotate(role(side, thigh), stride * 0.34);
-      rotate(role(side, shin), Math.max(0, stride) * 0.62 - crouch * 0.12);
-      rotate(role(side, foot), -stride * 0.24);
-      rotate(role(side, upperArm), -stride * 0.20);
-      rotate(role(side, forearm), Math.max(0, -stride) * 0.28);
-      rotate(role(side, hand), stride * 0.12);
+    if (next && next !== frog.activeAction) {
+      const previous = frog.activeAction;
+      next.reset();
+      next.enabled = true;
+      next.setEffectiveTimeScale(state === "stalking" ? 0.55 : state === "approaching" ? 0.85 : 1);
+      next.setEffectiveWeight(1);
+      next.play();
+      if (previous) previous.crossFadeTo(next, 0.28, false);
+      else next.fadeIn(0.2);
+      frog.activeAction = next;
+      frog.activeAnimationState = state;
+    } else if (next && frog.activeAnimationState !== state) {
+      next.setEffectiveTimeScale(state === "stalking" ? 0.55 : state === "approaching" ? 0.85 : 1);
+      frog.activeAnimationState = state;
     }
-    // Support rigs that label hind legs as generic left/right leg bones.
-    const genericLeg = [...frog.bones.entries()].filter(([name]) => {
-      const n = normalizeNodeName(name);
-      return /leg/.test(n) && !/(thigh|shin|calf|foot|toe|upper|lower)/.test(n);
-    });
-    if (genericLeg.length && moving) {
-      genericLeg.forEach(([, entry], i) => rotate(entry, Math.sin(phase + (i % 2 ? Math.PI : 0)) * 0.22));
-    }
-    // If the rig has an animation clip, the procedural limb motion still provides a
-    // fallback for static rigs; all available bones remain at their authored rest pose.
-    const spine = [...frog.bones.entries()].find(([name]) => normalizeNodeName(name).includes("spine003"));
-    rotate(spine?.[1], -0.06 * crouch + Math.sin(phase * 2) * 0.018);
 
-    const bob = moving ? Math.max(0, Math.sin(phase * 2)) * 0.55 : 0;
-    frog.actor.position.set(frog.x, frog.y, bob);
+    // Keep rigs with no authored clips in their correct rest pose rather than
+    // applying the old, visibly incorrect global-axis bone rotations.
+    frog.mixer.update(dt);
+    frog.actor.position.set(frog.x, frog.y, 0);
     frog.actor.rotation.z = frog.heading;
   }
 
@@ -266,6 +265,7 @@ export class FrogPredators {
   dispose() {
     for (const frog of this.frogs) {
       this.scene.remove(frog.actor);
+      frog.mixer?.stopAllAction();
       frog.actor.traverse((o) => {
         if (o.isMesh) {
           o.geometry?.dispose();
