@@ -55,6 +55,66 @@ def transmitter_sign(label: str | None, overrides: dict | None = None) -> float:
     return float(mapping.get(key, 0.0))
 
 
+def resolve_transmitter_table(nt: pd.DataFrame) -> pd.DataFrame:
+    """Resolve MaleCNS neuron-level transmitter labels with explicit provenance.
+
+    MaleCNS consensus_nt is the recommended label: it copies the cell-type
+    prediction except where curated experimental ground truth overrides it.
+    If consensus is unclear, fall back to the cell-type prediction and then
+    the neuron-specific prediction. Confidence follows the prediction actually
+    used. A matching curated ground-truth label is marked as evidence-backed
+    with confidence 1.0; that value is a provenance flag, not a calibrated
+    posterior probability.
+    """
+    required = {
+        "body", "consensus_nt", "celltype_predicted_nt",
+        "celltype_predicted_nt_confidence", "predicted_nt",
+        "predicted_nt_confidence", "ground_truth",
+    }
+    missing = required.difference(nt.columns)
+    if missing:
+        raise ValueError(f"Neurotransmitter table is missing columns: {sorted(missing)}")
+
+    table = nt.drop_duplicates("body").set_index("body")
+    def valid(values):
+        labels = values.fillna("").astype(str).str.strip()
+        return labels.ne("") & ~labels.str.lower().isin({"unclear", "none", "nan"})
+
+    consensus_ok = valid(table["consensus_nt"])
+    celltype_ok = valid(table["celltype_predicted_nt"])
+    neuron_ok = valid(table["predicted_nt"])
+
+    label = table["consensus_nt"].where(
+        consensus_ok,
+        table["celltype_predicted_nt"].where(
+            celltype_ok, table["predicted_nt"].where(neuron_ok, "unclear")
+        ),
+    )
+    confidence = pd.to_numeric(
+        table["celltype_predicted_nt_confidence"], errors="coerce"
+    ).where(consensus_ok | celltype_ok, pd.to_numeric(
+        table["predicted_nt_confidence"], errors="coerce"
+    ).where(neuron_ok, 0.0))
+    confidence = confidence.fillna(0.0).clip(0.0, 1.0)
+
+    source = pd.Series("unresolved", index=table.index, dtype="object")
+    source.loc[neuron_ok] = "neuron_prediction"
+    source.loc[celltype_ok] = "celltype_prediction"
+    source.loc[consensus_ok] = "consensus"
+    ground_truth = table["ground_truth"].fillna("").astype(str).str.strip()
+    gt_ok = valid(ground_truth) & label.astype(str).str.strip().str.lower().eq(
+        ground_truth.str.lower()
+    )
+    source.loc[gt_ok] = "ground_truth"
+    confidence.loc[gt_ok] = 1.0
+
+    return pd.DataFrame({
+        "nt": label.astype(str).str.strip().str.lower(),
+        "nt_confidence": confidence.astype(np.float32),
+        "nt_source": source,
+    }, index=table.index)
+
+
 def download(data_dir: Path = DEFAULT_DATA_DIR) -> None:
     """Fetch the three raw files (~570 MB) with gsutil if they are missing."""
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -124,12 +184,14 @@ def build(data_dir: Path = DEFAULT_DATA_DIR, nt_sign: dict | None = None) -> Con
     annot = pd.read_feather(data_dir / ANNOT)
     annot = annot[annot.status == "Traced"].copy()
 
-    nt = pd.read_feather(data_dir / NT, columns=["body", "consensus_nt", "celltype_predicted_nt", "predicted_nt"])
-    nt = nt.drop_duplicates("body").set_index("body")
-    # Consensus (type-level vote, or ground truth) first, then per-body prediction.
-    best = nt.consensus_nt.where(nt.consensus_nt.notna() & (nt.consensus_nt != "unclear"), nt.celltype_predicted_nt)
-    best = best.where(best.notna(), nt.predicted_nt).fillna("unclear")
-    annot["nt"] = annot.bodyId.map(best).fillna("unclear").to_numpy()
+    nt = pd.read_feather(data_dir / NT, columns=[
+        "body", "consensus_nt", "celltype_predicted_nt", "celltype_predicted_nt_confidence",
+        "predicted_nt", "predicted_nt_confidence", "ground_truth",
+    ])
+    resolved_nt = resolve_transmitter_table(nt)
+    annot["nt"] = annot.bodyId.map(resolved_nt["nt"]).fillna("unclear").to_numpy()
+    annot["nt_confidence"] = annot.bodyId.map(resolved_nt["nt_confidence"]).fillna(0.0).to_numpy(np.float32)
+    annot["nt_source"] = annot.bodyId.map(resolved_nt["nt_source"]).fillna("unresolved").to_numpy()
 
     w = pd.read_feather(data_dir / WEIGHTS, columns=["body_pre", "body_post", "weight"])
     keep = set(annot.bodyId)
@@ -139,7 +201,7 @@ def build(data_dir: Path = DEFAULT_DATA_DIR, nt_sign: dict | None = None) -> Con
     side = annot.somaSide.where(annot.somaSide.isin(["L", "R"]), annot.rootSide)
     annot["side"] = side.where(side.isin(["L", "R"]), None)
     cols = ["bodyId", "type", "instance", "superclass", "class", "subclass", "side", "nt",
-            "flywireType", "receptorType", "assignedOlHex1", "assignedOlHex2"]
+            "flywireType", "receptorType", "assignedOlHex1", "assignedOlHex2", "nt_confidence", "nt_source"]
     neurons = annot[cols].copy()
 
     idx = pd.Series(np.arange(len(neurons)), index=neurons.bodyId.values)
@@ -175,7 +237,7 @@ def load(data_dir: Path = DEFAULT_DATA_DIR, rebuild: bool = False) -> Connectome
 
 
 def functional(c: Connectome, drop_kc_kc: bool = True, drop_sensory_inputs: bool = True,
-               drop_unclear: bool = True) -> Connectome:
+               drop_unclear: bool = True, confidence_weighted: bool = False) -> Connectome:
     """Copy of `c` with edits that make the wiring diagram behave like a brain.
 
     drop_kc_kc: Kenyon cell -> Kenyon cell synapses are axo-axonal in the
@@ -199,6 +261,11 @@ def functional(c: Connectome, drop_kc_kc: bool = True, drop_sensory_inputs: bool
     if drop_unclear:
         cut |= (nn["nt"] == "unclear").to_numpy()[pre]
     w = c.w.copy()
+    if confidence_weighted:
+        if "nt_confidence" not in nn.columns:
+            raise ValueError("confidence_weighted=True requires neuron nt_confidence metadata")
+        confidence = pd.to_numeric(nn["nt_confidence"], errors="coerce").fillna(0.0).clip(0.0, 1.0).to_numpy(np.float32)
+        w *= confidence[pre]
     w[cut] = 0
     return Connectome(nn, c.indptr, c.post, w)
 
