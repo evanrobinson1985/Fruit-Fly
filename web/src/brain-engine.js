@@ -154,7 +154,7 @@ export class Brain {
     d.eta = P.mb_eta;
     d.dtDan = p.dt / P.tau_dan;
     d.dtMem = p.dt / (P.tau_mem * 1000);
-    // Giant Fiber electrical synapses.
+    // Optional, separately sourced electrical synapses (empty in the bundled data).
     d.gapT = [...new Set(A.gapPost)];
     d.gapLocal = new Int32Array(n).fill(-1);
     d.gapT.forEach((i, k) => (d.gapLocal[i] = k));
