@@ -629,7 +629,7 @@ function foldable(btnId, bodyId, panel) {
   set(layout[btnId] ?? true);
 }
 foldable("left-toggle", "left-body", document.querySelector(".left"));
-foldable("right-toggle", "right-body");
+// Neural activity now lives inside the collapsible lab menu.
 
 $("credits-open").onclick = $("credits-open-2").onclick = () => $("credits").showModal();
 $("credits-close").onclick = () => $("credits").close();
