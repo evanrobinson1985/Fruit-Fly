@@ -41,66 +41,91 @@ export class FrogPredators {
   }
 
   async load() {
-    const gltf = await this.loader.loadAsync(this.url);
+    let gltf;
+    try {
+      gltf = await this.loader.loadAsync(this.url);
+    } catch (error) {
+      throw new Error("Could not fetch or parse " + this.url + ": " + (error?.message || String(error)));
+    }
     gltf.scene.updateMatrixWorld(true);
+    const skinnedMeshes = [];
+    gltf.scene.traverse((object) => { if (object.isSkinnedMesh) skinnedMeshes.push(object); });
+    const availableMeshes = skinnedMeshes.map((mesh) => mesh.name || "(unnamed mesh)");
+    const errors = [];
+
     for (const def of FROG_DEFINITIONS) {
-      const source = gltf.scene.getObjectByName(def.rootName);
-      if (!source) throw new Error("Could not find frog rig: " + def.rootName);
-      const rig = cloneSkinned(source);
-      const mesh = rig.getObjectByName(def.meshName);
-      if (!mesh || !mesh.isSkinnedMesh) throw new Error("Missing skinned frog mesh: " + def.meshName);
+      try {
+        const exactMesh = gltf.scene.getObjectByName(def.meshName);
+        const meshSource = exactMesh?.isSkinnedMesh ? exactMesh : skinnedMeshes.find((mesh) =>
+          (mesh.name || "").toLowerCase().includes(def.id === "small" ? "montane brown frog" : "japanese toad"));
+        if (!meshSource) {
+          throw new Error("Could not find skinned mesh '" + def.meshName +
+            "'. Available skinned meshes: " + (availableMeshes.join(", ") || "none"));
+        }
 
-      const rawBounds = new THREE.Box3().setFromObject(rig);
-      const rawLength = Math.max(0.001, rawBounds.max.x - rawBounds.min.x);
-      const scale = def.targetLength / rawLength;
-      const model = new THREE.Group();
-      model.add(rig);
-      model.rotation.x = -Math.PI / 2; // GLB is Y-up; the simulation is Z-up.
-      model.scale.setScalar(scale);
-      model.updateMatrixWorld(true);
+        let source = gltf.scene.getObjectByName(def.rootName);
+        if (!source) {
+          source = meshSource;
+          while (source.parent && source.parent !== gltf.scene) source = source.parent;
+        }
+        const rig = cloneSkinned(source);
+        const mesh = rig.getObjectByName(meshSource.name);
+        if (!mesh || !mesh.isSkinnedMesh) {
+          throw new Error("Cloned rig did not contain skinned mesh '" + meshSource.name + "'.");
+        }
 
-      const bounds = new THREE.Box3().setFromObject(model);
-      model.position.x -= (bounds.min.x + bounds.max.x) / 2;
-      model.position.y -= (bounds.min.y + bounds.max.y) / 2;
-      model.position.z -= bounds.min.z;
+        const rawBounds = new THREE.Box3().setFromObject(rig);
+        const rawLength = Math.max(0.001, rawBounds.max.x - rawBounds.min.x);
+        const scale = def.targetLength / rawLength;
+        const model = new THREE.Group();
+        model.add(rig);
+        model.rotation.x = -Math.PI / 2;
+        model.scale.setScalar(scale);
+        model.updateMatrixWorld(true);
 
-      const bones = new Map();
-      rig.traverse((o) => {
-        if (o.isMesh || o.isSkinnedMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-          if (o.material) {
-            const materials = Array.isArray(o.material) ? o.material : [o.material];
-            for (const material of materials) {
-              if ("roughness" in material) material.roughness = Math.max(0.32, material.roughness);
+        const bounds = new THREE.Box3().setFromObject(model);
+        model.position.x -= (bounds.min.x + bounds.max.x) / 2;
+        model.position.y -= (bounds.min.y + bounds.max.y) / 2;
+        model.position.z -= bounds.min.z;
+
+        const bones = new Map();
+        rig.traverse((object) => {
+          if (object.isMesh || object.isSkinnedMesh) {
+            object.castShadow = true;
+            object.receiveShadow = true;
+            if (object.material) {
+              const materials = Array.isArray(object.material) ? object.material : [object.material];
+              for (const material of materials) {
+                if ("roughness" in material) material.roughness = Math.max(0.32, material.roughness);
+              }
             }
           }
-        }
-        if (o.isBone) bones.set(o.name, { bone: o, rest: o.quaternion.clone() });
-      });
+          if (object.isBone) bones.set(object.name, { bone: object, rest: object.quaternion.clone() });
+        });
 
-      const actor = new THREE.Group();
-      actor.name = "predator-" + def.id;
-      actor.add(model);
-      actor.position.set(def.start[0], def.start[1], 0);
-      actor.rotation.z = def.heading;
-      this.scene.add(actor);
+        const actor = new THREE.Group();
+        actor.name = "predator-" + def.id;
+        actor.add(model);
+        actor.position.set(def.start[0], def.start[1], 0);
+        actor.rotation.z = def.heading;
+        this.scene.add(actor);
 
-      this.frogs.push({
-        ...def,
-        actor,
-        model,
-        bones,
-        x: def.start[0],
-        y: def.start[1],
-        heading: def.heading,
-        phase: Math.random() * Math.PI * 2,
-        speed: 0,
-        length: def.targetLength,
-        catchCooldown: 0,
-        state: "waiting",
-      });
+        this.frogs.push({
+          ...def, actor, model, bones,
+          x: def.start[0], y: def.start[1], heading: def.heading,
+          phase: Math.random() * Math.PI * 2, speed: 0,
+          length: def.targetLength, catchCooldown: 0, state: "waiting",
+        });
+      } catch (error) {
+        errors.push(def.name + ": " + (error?.message || String(error)));
+        console.warn("Could not prepare frog model " + def.name, error);
+      }
     }
+
+    if (!this.frogs.length) {
+      throw new Error("The GLB opened, but neither frog rig could be prepared. " + errors.join(" | "));
+    }
+    if (errors.length) console.warn("Some frog models were skipped:", errors.join(" | "));
     this.ready = true;
     this.setMode(this.mode);
     return this.frogs.length;
