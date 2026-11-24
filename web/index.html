@@ -168,6 +168,16 @@
             <button id="floor-lab" aria-pressed="true">Lab arena</button>
             <button id="floor-grass" aria-pressed="false">Grass &amp; weeds</button>
           </div>
+          <div class="row" role="group" aria-label="Frog predators">
+            <label class="label" for="frog-mode" style="flex:0 0 auto">Frogs</label>
+            <select id="frog-mode">
+              <option value="none">None</option>
+              <option value="small">Montane Brown Frog</option>
+              <option value="big">Japanese Toad</option>
+              <option value="both" selected>Both frogs</option>
+            </select>
+          </div>
+          <div class="hint" id="frog-note">Loading the two rigged frog models…</div>
           <div class="row" role="group" aria-label="Fly skin">
             <span class="label" style="flex:0 0 auto">Skin</span>
             <button id="skin-real" aria-pressed="true">Realistic</button>
@@ -271,6 +281,7 @@
         <p><b>Neuron model:</b> Shiu, Sterne <i>et al.</i>, <i>Nature</i> 2024.</p>
         <p><b>3D fly:</b> <a href="https://github.com/TuragaLab/flybody" target="_blank" rel="noopener">FlyBody</a>, Vaxenburg, Siwanowicz <i>et al.</i>, <i>Nature</i> 2025 (Apache-2.0).</p>
         <p><b>Rigging &amp; leg recordings:</b> <a href="https://github.com/NeLy-EPFL/flygym" target="_blank" rel="noopener">NeuroMechFly / flygym</a>, Ramdya lab, EPFL (Apache-2.0).</p>
+        <p><b>3D frog predators:</b> <a href="https://blendswap.com/blend/29791" target="_blank" rel="noopener">2 Realistic Frogs (Rigged)</a> by RubenCUR on BlendSwap (CC0). Original frog models credited to <a href="https://sketchfab.com/ffishAsia-and-floraZia" target="_blank" rel="noopener">ffish.asia / floraZia.com</a> (CC-BY 4.0).</p>
         <button id="credits-open">Full credits &amp; citations</button>
       </details>
     </div>
