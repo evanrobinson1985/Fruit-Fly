@@ -398,6 +398,13 @@ def rate_hz(counts: np.ndarray, idx, ms: float) -> np.ndarray:
 PRESETS = {
     "shiu2024": (dict(), dict(drop_kc_kc=False, drop_sensory_inputs=False, drop_unclear=False)),
     "realistic": (dict(stp_u=0.2, tau_rec=500.0, adapt=1.0, tau_adapt=200.0), dict()),
+    # Experimental variant: scale each presynaptic neuron's output by the
+    # confidence of its MaleCNS transmitter assignment. The standard preset
+    # remains unchanged until this variant is validated against circuit data.
+    "realistic_confidence": (
+        dict(stp_u=0.2, tau_rec=500.0, adapt=1.0, tau_adapt=200.0),
+        dict(confidence_weighted=True),
+    ),
 }
 
 
