@@ -268,14 +268,7 @@ class Detailed:
                 raise ValueError("ElectricalSynapses pre/post must be equal-length 1-D arrays")
             if np.any(gpre < 0) or np.any(gpre >= n) or np.any(gpost < 0) or np.any(gpost >= n):
                 raise ValueError("ElectricalSynapses indices must be valid model-neuron indices")
-            if gap_junctions.weight is None:
-                gw = np.full(len(gpre), p.gap_v, np.float32)
-            else:
-                gw = np.asarray(gap_junctions.weight, dtype=np.float32)
-                if gw.ndim != 1 or len(gw) != len(gpre):
-                    raise ValueError("ElectricalSynapses weight must match pre/post length")
-                if not np.all(np.isfinite(gw)) or np.any(gw < 0):
-                    raise ValueError("ElectricalSynapses weights must be finite, non-negative mV values")
+            gw = np.full(len(gpre), p.gap_v, np.float32)
             order = np.lexsort((gpost, gpre))
             gpre, gpost, gw = gpre[order], gpost[order], gw[order]
         self.gap_indptr = np.zeros(n + 1, np.int64)
