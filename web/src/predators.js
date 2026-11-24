@@ -9,7 +9,7 @@ const FROG_DEFINITIONS = [
     rootName: "rig",
     meshName: "Montane Brown Frog (F).lower",
     targetLength: 42,
-    start: [-58, 42],
+    start: [-88, 64],
     heading: -0.6,
   },
   {
@@ -18,7 +18,7 @@ const FROG_DEFINITIONS = [
     rootName: "rig.Big.Frog",
     meshName: "Japanese Toad (M).lower",
     targetLength: 66,
-    start: [58, -42],
+    start: [88, -64],
     heading: 2.5,
   },
 ];
@@ -27,10 +27,11 @@ const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 export class FrogPredators {
-  constructor(scene, url, onCatch = () => {}) {
+  constructor(scene, url, onCatch = () => {}, arenaRadius = 100) {
     this.scene = scene;
     this.url = url;
     this.onCatch = onCatch;
+    this.arenaRadius = arenaRadius;
     this.loader = new GLTFLoader();
     this.frogs = [];
     this.mode = "both";
@@ -105,7 +106,7 @@ export class FrogPredators {
               }
             }
           }
-          if (object.isBone) bones.set(object.name, { bone: object, rest: object.quaternion.clone() });
+          if (object.isBone) bones.set(object.name, { bone: object, rest: object.quaternion.clone(), normalized: normalizeNodeName(object.name) });
         });
 
         const actor = new THREE.Group();
@@ -145,28 +146,60 @@ export class FrogPredators {
   }
 
   _pose(frog, dt) {
-    const moving = frog.speed > 0.4;
-    frog.phase += dt * (moving ? 5.5 : 0.65);
-    const swing = moving ? Math.sin(frog.phase) : 0;
+    const moving = frog.speed > 0.7;
+    frog.phase += dt * (moving ? 7.0 : 0.45);
+    const phase = frog.phase;
+    const swing = moving ? Math.sin(phase) : 0;
     const crouch = frog.state === "stalking" || frog.state === "lunging" ? 1 : 0;
-    const setBone = (name, angle) => {
-      const entry = frog.bones.get(name);
+
+    // Blender exporters often rename bones or replace punctuation. Resolve limb roles
+    // flexibly instead of silently doing nothing when a rig uses slightly different labels.
+    const findBone = (aliases, side) => {
+      const suffix = side.toLowerCase();
+      for (const [name, entry] of frog.bones) {
+        const n = entry.normalized || normalizeNodeName(name);
+        if (!n.endsWith(suffix)) continue;
+        if (aliases.some((a) => n.includes(a))) return entry;
+      }
+      return null;
+    };
+    const rotate = (entry, angle, axis = this.axis) => {
       if (!entry) return;
-      this.delta.setFromAxisAngle(this.axis, angle);
+      this.delta.setFromAxisAngle(axis, angle);
       entry.bone.quaternion.copy(entry.rest).multiply(this.delta);
     };
+    const role = (side, aliases) => findBone(aliases, side);
+    const thigh = ["thigh", "upperleg", "femur", "hindleg", "frontleg"];
+    const shin = ["shin", "calf", "lowerleg", "tibia"];
+    const foot = ["foot", "ankle", "toe", "tarsus"];
+    const upperArm = ["upperarm", "upperforeleg", "humerus", "foreleg"];
+    const forearm = ["forearm", "lowerarm", "radius"];
+    const hand = ["hand", "finger", "palm"];
     for (const side of ["L", "R"]) {
-      const s = side === "L" ? 1 : -1;
-      const phase = swing * s;
-      setBone("DEF-thigh." + side, phase * 0.16);
-      setBone("DEF-shin." + side, Math.max(0, phase) * 0.22);
-      setBone("DEF-foot." + side, -phase * 0.12);
-      setBone("DEF-upper_arm." + side, -phase * 0.10);
-      setBone("DEF-forearm." + side, Math.max(0, -phase) * 0.14);
-      setBone("DEF-hand." + side, phase * 0.08);
+      const sign = side === "L" ? 1 : -1;
+      const stride = swing * sign;
+      // Frogs use a powerful alternating hind-leg push and a smaller forelimb recovery.
+      rotate(role(side, thigh), stride * 0.34);
+      rotate(role(side, shin), Math.max(0, stride) * 0.62 - crouch * 0.12);
+      rotate(role(side, foot), -stride * 0.24);
+      rotate(role(side, upperArm), -stride * 0.20);
+      rotate(role(side, forearm), Math.max(0, -stride) * 0.28);
+      rotate(role(side, hand), stride * 0.12);
     }
-    setBone("DEF-spine.003", -0.035 * crouch + Math.sin(frog.phase * 2) * 0.012);
-    const bob = moving ? Math.max(0, Math.sin(frog.phase * 2)) * 0.32 : 0;
+    // Support rigs that label hind legs as generic left/right leg bones.
+    const genericLeg = [...frog.bones.entries()].filter(([name]) => {
+      const n = normalizeNodeName(name);
+      return /leg/.test(n) && !/(thigh|shin|calf|foot|toe|upper|lower)/.test(n);
+    });
+    if (genericLeg.length && moving) {
+      genericLeg.forEach(([, entry], i) => rotate(entry, Math.sin(phase + (i % 2 ? Math.PI : 0)) * 0.22));
+    }
+    // If the rig has an animation clip, the procedural limb motion still provides a
+    // fallback for static rigs; all available bones remain at their authored rest pose.
+    const spine = [...frog.bones.entries()].find(([name]) => normalizeNodeName(name).includes("spine003"));
+    rotate(spine?.[1], -0.06 * crouch + Math.sin(phase * 2) * 0.018);
+
+    const bob = moving ? Math.max(0, Math.sin(phase * 2)) * 0.55 : 0;
     frog.actor.position.set(frog.x, frog.y, bob);
     frog.actor.rotation.z = frog.heading;
   }
@@ -203,7 +236,7 @@ export class FrogPredators {
       frog.x += Math.cos(frog.heading) * frog.speed * dt;
       frog.y += Math.sin(frog.heading) * frog.speed * dt;
 
-      const maxR = 91;
+      const maxR = Math.max(20, this.arenaRadius - frog.length * 0.62 - 5);
       const r = Math.hypot(frog.x, frog.y);
       if (r > maxR) {
         frog.x *= maxR / r;
