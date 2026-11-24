@@ -227,8 +227,13 @@ def load(data_dir: Path = DEFAULT_DATA_DIR, rebuild: bool = False) -> Connectome
     data_dir = Path(data_dir)
     cache, table = data_dir / "connectome.npz", data_dir / "neurons.feather"
     if cache.exists() and table.exists() and not rebuild:
-        z = np.load(cache)
-        return Connectome(pd.read_feather(table), z["indptr"], z["post"], z["w"])
+        neurons = pd.read_feather(table)
+        # Older caches predate transmitter confidence/provenance metadata.
+        # Rebuild them automatically so the experimental preset never silently
+        # runs without the new fields.
+        if {"nt_confidence", "nt_source"}.issubset(neurons.columns):
+            z = np.load(cache)
+            return Connectome(neurons, z["indptr"], z["post"], z["w"])
     download(data_dir)
     c = build(data_dir)
     np.savez(cache, indptr=c.indptr, post=c.post, w=c.w)
