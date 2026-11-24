@@ -21,7 +21,6 @@ def net(edges, n, types=None, nt=None, superclass=None):
                       np.array([e[2] for e in edges], np.float32))
 
 
-
 def test_unknown_transmitter_has_no_assumed_fast_effect():
     # Unknown labels must not silently become excitatory connections.
     assert transmitter_sign("acetylcholine") == 1.0
