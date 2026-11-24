@@ -35,8 +35,9 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   (a further 450 KB download): the 131 octopamine neurons act as a slow arousal signal on
   their 200,000 targets; dopamine teaches the mushroom body (a Kenyon cell's synapses onto
   an output neuron weaken when it fires while that compartment's dopamine neurons are
-  active, and recover over minutes); Electrical junctions are accepted only from a separate evidence-backed dataset; none
-  are currently bundled, so no Giant Fiber gap junctions are simulated by default. The Status panel counts
+  active, and recover over minutes). Electrical junctions are accepted only from a separate
+  evidence-backed dataset; none are currently bundled, so no Giant Fiber gap junctions are
+  simulated by default. The Status panel counts
   the weakened synapses. It runs about 30–40% slower. See "Detailed model" below.
 - **Spontaneous activity:** with the switch on (default), about 11,800 sensory neurons fire
   at low background rates, as real ones do (`flysim/interface.py: SPONTANEOUS_HZ`), so the
