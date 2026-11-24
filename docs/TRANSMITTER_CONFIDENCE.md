@@ -62,3 +62,19 @@ the receptor's ionotropic or metabotropic action in that cell type.
 The tests cover resolution precedence, confidence provenance, unresolved
 labels, confidence bounds, and presynaptic scaling without mutating the original
 connectome. Full repository CI also runs the browser-engine regression suite.
+
+
+## Audit the source evidence
+
+Before comparing simulations, inspect how the loaded neurons are distributed across
+transmitter labels and evidence sources:
+
+```bash
+python -m flysim audit-transmitters
+```
+
+The command writes `results/transmitter-audit.csv` with neuron counts, population
+fractions, and mean/median confidence for each transmitter/provenance group. It
+does not change model weights. The report helps distinguish curated ground truth
+from consensus and prediction-based labels before interpreting the experimental
+confidence-weighted preset.
