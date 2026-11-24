@@ -61,7 +61,7 @@ export const BODY = {
 
 export class World {
   constructor() {
-    this.radius = 150; // circular arena; expanded to give both frogs room to move
+    this.radius = 300; // twice the previous diameter, giving the frogs and fly more room
     this.odors = [];   // {x, y, strength, sigma, kind}
     this.food = [];    // {x, y, r}
     this.looms = [];   // {t0, azimuth, radius, speed, d0, onsetHeading, x0, y0}
