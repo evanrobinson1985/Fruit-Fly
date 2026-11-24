@@ -135,6 +135,9 @@ def test_electrical_synapse_indices_are_validated():
     import pytest
     with pytest.raises(ValueError, match="valid model-neuron indices"):
         Detailed(c, empty, gap_junctions=bad)
+    fractional = ElectricalSynapses(pre=np.array([0.5]), post=np.array([1]))
+    with pytest.raises(ValueError, match="integer arrays"):
+        Detailed(c, empty, gap_junctions=fractional)
 
 
 def test_dopamine_depresses_kc_to_mbon_only_when_paired():
