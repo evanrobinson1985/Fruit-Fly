@@ -13,6 +13,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceError
 
 /**
  * Feed the Fly on a phone: the website's game mode (index.html?game) full screen in a
@@ -48,6 +49,16 @@ class MainActivity : Activity() {
                     if (url.host == "127.0.0.1") return false
                     startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url))
                     return true
+                }
+
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    super.onReceivedError(view, request, error)
+                    Log.e("FlyWebView", "Load failed: ${request.url} (${error.errorCode}: ${error.description})")
+                }
+
+                override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: android.webkit.WebResourceResponse) {
+                    super.onReceivedHttpError(view, request, response)
+                    Log.e("FlyWebView", "HTTP ${response.statusCode} for ${request.url}")
                 }
             }
         }
