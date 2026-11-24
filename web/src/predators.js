@@ -83,7 +83,8 @@ export class FrogPredators {
         const scale = def.targetLength / rawLength;
         const model = new THREE.Group();
         model.add(rig);
-        model.rotation.x = -Math.PI / 2;
+        // glTF models use +Y as up; the lab world uses +Z. Rotate +90° about X.
+        model.rotation.x = Math.PI / 2;
         model.scale.setScalar(scale);
         model.updateMatrixWorld(true);
 
