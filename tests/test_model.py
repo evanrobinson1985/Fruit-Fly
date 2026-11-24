@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from flysim.data import Connectome, functional
+from flysim.data import Connectome, functional, transmitter_sign
 from flysim.model import Brain, LIFParams
 
 
@@ -19,6 +19,19 @@ def net(edges, n, types=None, nt=None, superclass=None):
     })
     return Connectome(neurons, indptr, np.array([e[1] for e in edges], np.int32),
                       np.array([e[2] for e in edges], np.float32))
+
+
+
+def test_unknown_transmitter_has_no_assumed_fast_effect():
+    # Unknown labels must not silently become excitatory connections.
+    assert transmitter_sign("acetylcholine") == 1.0
+    assert transmitter_sign("GABA") == -1.0
+    assert transmitter_sign("dopamine") == 0.0
+    assert transmitter_sign("glycine") == 0.0
+    assert transmitter_sign("unrecognized transmitter") == 0.0
+    assert transmitter_sign(None) == 0.0
+    # Explicit overrides remain available for evidence-backed experiments.
+    assert transmitter_sign("glycine", {"glycine": -1.0}) == -1.0
 
 
 def test_silent_without_input():
