@@ -32,7 +32,7 @@ const $ = (id) => document.getElementById(id);
 function setFrogMode(mode) {
   frogMode = ["none", "small", "big", "both"].includes(mode) ? mode : "both";
   predators?.setMode(frogMode);
-  if ($("frog-mode")) $("frog-mode").value = frogMode;
+
   document.querySelectorAll("[data-frog-mode]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.frogMode === frogMode));
   });
@@ -139,7 +139,7 @@ $("snd-off").onclick = () => setSound(false);
 $("snd-vol").value = audio.volume;
 $("snd-vol").addEventListener("input", () => { audio.setVolume(+$("snd-vol").value); try { localStorage.setItem("volume", $("snd-vol").value); } catch {} });
 setSound(audio.enabled);
-$("frog-mode").addEventListener("change", () => setFrogMode($("frog-mode").value));
+
 document.querySelectorAll("[data-frog-mode]").forEach((button) => {
   button.addEventListener("click", () => setFrogMode(button.dataset.frogMode));
 });
@@ -998,11 +998,14 @@ async function boot() {
   setSkin(skin);
   predators = new FrogPredators(scene, ASSETS + "frogs.glb", respawnAfterPredation);
   predators.setMode(frogMode);
-  predators.load().then(() => {
-    $("frog-note").textContent = "Both rigged frogs loaded. Either can stalk and catch the fly.";
+  predators.load().then((count) => {
+    const loaded = predators.frogs.map((frog) => frog.name).join(" and ");
+    $("frog-note").textContent = count === 2
+      ? "Both frogs loaded: " + loaded + "."
+      : "Loaded one frog: " + loaded + ". Check the browser log for the other model.";
   }).catch((error) => {
-    $("frog-note").textContent = "Frog model file missing or could not load. Add web/assets/frogs.glb to the repository. " + error.message;
-    console.warn("Frog predator models did not load:", error);
+    $("frog-note").textContent = "Frog loading failed: " + (error?.message || String(error));
+    console.error("Frog predator models did not load:", error);
   });
   if (GAME) {
     const { startGame } = await import("./game.js");
