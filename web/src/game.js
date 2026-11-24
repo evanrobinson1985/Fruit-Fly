@@ -9,6 +9,7 @@ const BITE_PER_S = 6;        // satiety points per second of drinking (as in the
 const DROP_AMOUNT = 30;      // satiety points in one sugar drop
 const MAX_DROPS = 3;
 const DIGEST_AWAY_MAX = 6;   // droppings that can pile up while the app was closed
+const STIMULATED_WAKE_MS = 10 * 60_000; // stimulation keeps a sleeping fly awake for ten minutes
 
 const CSS = `
   #game { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-family: var(--body); }
@@ -146,8 +147,10 @@ export function startGame(api) {
   // At night it sleeps; feeding, tickling or cleaning wakes it for a couple of minutes.
   let wokeUntil = 0;
   function wake() {
-    if (isNight() && Date.now() > wokeUntil) toast(`${pet.name} wakes up`);
-    wokeUntil = Date.now() + 120_000;
+    const wasAsleep = asleep();
+    if (wasAsleep) toast(`${pet.name} wakes up`);
+    // Every interaction restarts the full ten-minute wake window.
+    wokeUntil = Date.now() + STIMULATED_WAKE_MS;
   }
   const asleep = () => isNight() && !pet.weak && Date.now() > wokeUntil;
   let wasFeeding = false, wasEscape = false, tasting = 0, refused = null;
@@ -211,6 +214,7 @@ export function startGame(api) {
     step,
     dropAt,
     asleep,
+    stimulate: wake,
     /** Taste-neuron drive scales with hunger: starved flies' sugar neurons respond more. */
     tasteGain: () => Math.min(1, 0.12 + 1.1 * pet.hunger ** 1.2),
     onDeposit: () => { toast("Plop!", 1.2); save(); },

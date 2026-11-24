@@ -470,6 +470,8 @@ function poke(e) {
   const zone = touchZone(name);
   const local = fly.root.worldToLocal(hit.point.clone());
   const side = /^[lr]/.test(name) && !name.startsWith("c_") ? name[0].toUpperCase() : local.y >= 0 ? "L" : "R";
+  // A poke in pet mode wakes the fly; repeated pokes restart its ten-minute timer.
+  game?.stimulate();
   stim.touch = { zone, side, hz: 120 };
   stim.touchUntil = (curr.t || 0) + 0.3;
   $("hint").textContent = `Touched the ${side === "L" ? "left" : "right"} ${zone}: ${zone} touch neurons fire for 0.3 s.`;

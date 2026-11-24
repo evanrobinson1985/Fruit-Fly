@@ -40,6 +40,8 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
     private var world: FlyWorld? = null
     private var job: Job? = null
     private val commands = ConcurrentLinkedQueue<(FlyWorld) -> Unit>()
+    @Volatile private var stimulatedWakeUntilMs = 0L
+    private val stimulatedWakeDurationMs = 10 * 60 * 1000L
     private val _frame = MutableStateFlow(Frame())
     val frame: StateFlow<Frame> = _frame
 
@@ -47,10 +49,20 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
     fun feed(atX: Double? = null) = commands.add { it.dropFood(atX ?: (it.x + it.facing * (2.5 + 2.5 * Math.random()))) }
 
     /** Tap at a stage position (mm): a hand looms in from that side. */
-    fun tap(xMm: Double) = commands.add { it.tap(xMm) }
+    fun tap(xMm: Double) = commands.add {
+        if (it.asleep || System.currentTimeMillis() < stimulatedWakeUntilMs) {
+            stimulatedWakeUntilMs = System.currentTimeMillis() + stimulatedWakeDurationMs
+        }
+        it.tap(xMm)
+    }
 
     /** Long-press on the fly: tickle its head. */
-    fun tickle() = commands.add { it.tickle() }
+    fun tickle() = commands.add {
+        if (it.asleep || System.currentTimeMillis() < stimulatedWakeUntilMs) {
+            stimulatedWakeUntilMs = System.currentTimeMillis() + stimulatedWakeDurationMs
+        }
+        it.tickle()
+    }
 
     /** Name (or rename) the fly. */
     fun rename(name: String) = commands.add { it.name(name.trim().take(MAX_NAME).ifEmpty { "Dot" }); store.save(it.pet) }
@@ -74,7 +86,8 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
             while (isActive) {
                 val t0 = System.nanoTime()
                 while (true) commands.poll()?.invoke(w) ?: break
-                w.setAsleep(isNight() || w.pet.energy < 12)
+                val scheduledSleep = isNight() || w.pet.energy < 12
+                w.setAsleep(scheduledSleep && System.currentTimeMillis() >= stimulatedWakeUntilMs)
                 w.step()
                 val wall = (System.nanoTime() - t0) / 1e6
                 wallPerStep = wallPerStep * 0.95 + wall * 0.05
