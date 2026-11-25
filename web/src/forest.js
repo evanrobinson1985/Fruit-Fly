@@ -25,7 +25,7 @@ function transcoderPath() {
 // The pond (pond.glb: its basin, cut from the ground tile it came with, plus margin stones,
 // rushes, cattails, water lilies and the water) is 21 m across as modelled; here it is
 // POND_R mm in radius, set into a matching hole in the arena floor.
-export const POND_R = 700;
+export const POND_R = 140;
 const POND_MODEL_R = 10.5; // m: where the basin meets the level ground in the model
 const POND_WATER_Y = -0.3; // m: the model's water level
 
@@ -197,7 +197,7 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
         // Our own water (water.js) takes the model's place, on its outline.
         const geo = m.geometry.clone().applyMatrix4(m.matrixWorld);
         m.parent.remove(m);
-        water = new PondWater(renderer, geo, waterZ, { scale: renderer.getPixelRatio() > 1.5 ? 0.4 : 0.5 });
+        water = new PondWater(renderer, geo, waterZ, { scale: renderer.getPixelRatio() > 1.5 ? 0.3 : 0.4 });
         group.add(water.mesh);
         solids.push(water.mesh); // the fly can stand on the water
         continue;
@@ -232,14 +232,14 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
   transformed.x += sin(uWTime * 0.9 + ph) * 0.18 * sw;
   transformed.y += cos(uWTime * 0.7 + ph * 1.3) * 0.12 * sw;`);
     };
-    const n = 420, weed = new THREE.InstancedMesh(geo, mat, n), mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    const n = 160, weed = new THREE.InstancedMesh(geo, mat, n), mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
     let placed = 0;
     for (let tries = 0; placed < n && tries < n * 6; tries++) {
       // in clumps, in water 15+ mm deep
       const a = r() * Math.PI * 2, d = Math.sqrt(r()) * POND_R * 0.92;
       const x = d * Math.cos(a), y = d * Math.sin(a), z = bedAt(x, y), depth = waterZ - z;
-      if (depth < 15 || wnoise2(x * 0.01, y * 0.01) < 0.45) continue;
-      const h = depth * (0.45 + r() * 0.5), wdt = 1.6 + r() * 1.4;
+      if (depth < 5 || wnoise2(x * 0.04, y * 0.04) < 0.45) continue;
+      const h = depth * (0.45 + r() * 0.5), wdt = 0.9 + r() * 0.8;
       q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), r() * Math.PI * 2);
       mtx.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(wdt, wdt, h));
       weed.setMatrixAt(placed, mtx);
@@ -258,15 +258,15 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
     const mat = new THREE.MeshStandardMaterial({ color: 0x6aa83a, roughness: 0.45 });
     const n = 2600, duck = new THREE.InstancedMesh(frond, mat, n), mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
     let placed = 0;
-    for (let c = 0; c < 26 && placed < n; c++) {
+    for (let c = 0; c < 9 && placed < n; c++) {
       // a raft of fronds drifted against the bank
       const a = r() * Math.PI * 2, d = POND_R * (0.7 + r() * 0.2), cx = d * Math.cos(a), cy = d * Math.sin(a);
-      const m = 60 + Math.floor(r() * 80);
+      const m = 30 + Math.floor(r() * 40);
       for (let i = 0; i < m && placed < n; i++) {
-        const rr = 25 * Math.sqrt(-Math.log(1 - r() * 0.98)), aa = r() * Math.PI * 2;
+        const rr = 8 * Math.sqrt(-Math.log(1 - r() * 0.98)), aa = r() * Math.PI * 2;
         const x = cx + rr * Math.cos(aa), y = cy + rr * Math.sin(aa);
         if (waterZ - bedAt(x, y) < 1.5) continue; // only on open water
-        const s = 0.9 + r() * 0.9;
+        const s = 0.6 + r() * 0.6;
         q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), r() * 6.28);
         mtx.compose(new THREE.Vector3(x, y, waterZ + 0.25), q, new THREE.Vector3(s * 1.2, s, 1));
         duck.setMatrixAt(placed, mtx);
@@ -328,21 +328,23 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
   };
   // A few larger rocks toward the wall, then pebbles and small stones all over.
   const big = [...sets.A, ...sets.C];
-  for (let i = 0; i < 6 && big.length; i++) addStone(big[Math.floor(r() * big.length)], 75 + r() * 55, R * 0.5, R * 0.9, 0.15);
-  for (let i = 0; i < 34 && sets.B.length; i++) addStone(sets.B[i % sets.B.length], 16 + r() * 30, 20, R * 0.93, 0.12);
+  for (let i = 0; i < 3 && big.length; i++) addStone(big[Math.floor(r() * big.length)], 75 + r() * 45, R * 0.5, R * 0.9, 0.15);
+  for (let i = 0; i < 13 && sets.B.length; i++) addStone(sets.B[i % sets.B.length], 16 + r() * 30, 20, R * 0.93, 0.12);
 
   // ---------- shoreline stones: half in the water, all round the edge ----------
   // With the pond's own photographed stone texture, wet and slimy at the waterline.
   {
-    let marginSrc = null;
+    let marginSrc = null, lastA = 0;
     pond.scene.traverse((m) => { if (m.isMesh && /stone/i.test(m.material.name || "")) marginSrc = m.material; });
-    for (let i = 0; i < 22 && sets.B.length; i++) {
-      const a = (i / 22) * Math.PI * 2 + (r() - 0.5) * 0.25;
+    for (let i = 0; i < 9 && sets.B.length; i++) {
+      // scattered, some in little groups, not evenly round the edge
+      const a = i > 0 && r() < 0.35 ? lastA + (r() - 0.5) * 0.35 : r() * Math.PI * 2;
+      lastA = a;
       // the shoreline along this bearing: where the bed comes up to the water
       let shore = 0;
-      for (let d = POND_R * 0.98; d > POND_R * 0.4; d -= 4) if (bedAt(d * Math.cos(a), d * Math.sin(a)) < waterZ + 1) { shore = d; break; }
+      for (let d = POND_R * 0.98; d > POND_R * 0.4; d -= 1.5) if (bedAt(d * Math.cos(a), d * Math.sin(a)) < waterZ + 1) { shore = d; break; }
       if (!shore) continue;
-      const d = shore + (r() - 0.5) * 18, x = d * Math.cos(a), y = d * Math.sin(a), w = 25 + r() * 45;
+      const d = shore + (r() - 0.5) * 6, x = d * Math.cos(a), y = d * Math.sin(a), w = 7 + r() * r() * 26;
       const { holder, height } = stand(sets.B[Math.floor(r() * sets.B.length)], w, x, y, r() * Math.PI * 2, 0);
       holder.position.z = bedAt(x, y) - 0.4 * height;
       const mat = marginSrc ? marginSrc : stoneMaterial(new THREE.Color().setHSL(0.08, 0.07, 0.22), r() * 50, 0);
@@ -355,10 +357,10 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
   // ---------- moss: around the stones' bases mostly ----------
   const mossSrc = moss.scene;
   const stonesPlaced = placed.slice(keepClear.length);
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 20; i++) {
     const w = 22 + r() * 38;
     let at = null;
-    if (i < 36 && stonesPlaced.length) {
+    if (i < 14 && stonesPlaced.length) {
       const st = stonesPlaced[Math.floor(r() * stonesPlaced.length)], a = r() * Math.PI * 2, d = st.r * (0.75 + r() * 0.4);
       const x = st.x + d * Math.cos(a), y = st.y + d * Math.sin(a);
       if (Math.hypot(x, y) + w / 2 < R - 6 && keepClear.every((p) => Math.hypot(p.x - x, p.y - y) > p.r + w / 2)) at = [x, y];
@@ -371,7 +373,7 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
   }
 
   // ---------- ferns: young bracken and lady ferns toward the wall ----------
-  for (const [src, n, wMin, wMax] of [[bracken.scene, 6, 190, 280], [fern.scene, 6, 200, 300]]) {
+  for (const [src, n, wMin, wMax] of [[bracken.scene, 3, 190, 260], [fern.scene, 3, 200, 290]]) {
     for (let i = 0; i < n; i++) {
       const w = wMin + r() * (wMax - wMin);
       const at = spot(w * 0.22, R * 0.62, R * 0.9);
@@ -390,8 +392,7 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
     terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap });
     // the grass round the fly and the light far grass show in the water
-    reflectable(terrain.clumps[0]);
-    reflectable(terrain.clumps[terrain.clumps.length - 1]);
+    reflectable(terrain.clumps[0]); // only the grass round the fly shows in the water (cheaper)
   } catch (e) {
     console.warn("Grass model did not load; keeping the generated grass:", e);
   }

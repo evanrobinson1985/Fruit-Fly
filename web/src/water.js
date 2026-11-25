@@ -187,6 +187,7 @@ export class PondWater {
     if (w !== this.rtReflect.width || h !== this.rtReflect.height) {
       this.rtReflect.setSize(w, h);
       this.rtRefract.setSize(w, h);
+      this.stale = true;
       u.uResolution.value.set(w, h);
     }
     // Camera below the water? (can't happen in the arena) Nothing to reflect then.
@@ -194,7 +195,10 @@ export class PondWater {
     const prevTarget = renderer.getRenderTarget();
     const prevClip = renderer.clippingPlanes, prevLocal = renderer.localClippingEnabled;
     this.mesh.visible = false;
-    if (camZ > this.z + 0.01) {
+    // The reflection is refreshed every other frame (it changes slowly; saves a pass).
+    this.frame = (this.frame || 0) + 1;
+    if (camZ > this.z + 0.01 && (this.frame % 2 === 1 || this.stale)) {
+      this.stale = false;
       // ---------- reflection: a camera mirrored in the plane z = this.z ----------
       const m = this.mirror;
       m.copy(camera, false);

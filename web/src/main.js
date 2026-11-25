@@ -57,13 +57,13 @@ scene.background = new THREE.Color(0x0d0c0a);
 scene.fog = new THREE.Fog(0x0d0c0a, 120, 650);
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.55;
-const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 6000);
+const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 2000);
 camera.up.set(0, 0, 1);
 camera.position.set(-9, -9, 6);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.minDistance = 3;
-controls.maxDistance = 2400; // the whole 2 m arena in view
+controls.maxDistance = 1000; // the whole 90 cm arena in view
 controls.maxPolarAngle = Math.PI * 0.49;
 
 const hemi = new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.7);
@@ -116,7 +116,7 @@ terrain.visible = false;
 // Kept clear: where the fly starts, and where the two frogs start.
 let forest = null;
 const ripple = { fly: 0, flyOn: false };
-loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -820, y: 330, r: 40 }, { x: 790, y: -430, r: 55 }])
+loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }])
   .then((f) => { forest = f; terrain.bake(renderer); }) // the pond, stones and moss become ground the fly can walk on
   .catch((e) => console.warn("Forest scenery did not load:", e));
 function syncExclusions() {
@@ -162,7 +162,7 @@ setFrogMode(frogMode);
 
 // Sky: outdoors (grass floor) a scattering sky with weather clouds and, in rain, a rainbow;
 // indoors the dark lab.
-let fogBase = [600, 2600];
+let fogBase = null; // no haze unless it rains (applySky)
 const skyDome = new SkyDome(scene);
 reflectable(skyDome.group);
 skyDome.visible = false;
@@ -173,12 +173,12 @@ function applySky() {
     skyDome.set(w, weather?.level ?? 2);
     scene.background = null;
     scene.fog.color.setHex(skyDome.horizon, THREE.LinearSRGBColorSpace);
-    fogBase = w === "rain" ? [380, 1750] : null; // haze only in the rain (2 m arena; stretched as the camera pulls back, frame)
+    fogBase = w === "rain" ? [165, 780] : null; // haze only in the rain (stretched as the camera pulls back, frame)
   } else {
     const dark = w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22;
     scene.background = new THREE.Color(dark);
     scene.fog.color.setHex(dark);
-    fogBase = w === "rain" ? [200, 860] : null;
+    fogBase = w === "rain" ? [90, 390] : null;
   }
   sun.intensity = w === "rain" ? 1.3 : w === "snow" ? 1.5 : out ? 2.8 : 2.4;
 }

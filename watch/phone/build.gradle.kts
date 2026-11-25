@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.8.0"
+        versionCode = 14
+        versionName = "0.8.1"
     }
 
     // Same public sideload key as the watch app (see ../app/build.gradle.kts).
