@@ -410,7 +410,7 @@ function seedlingGeometry() {
 // ---------- grass from a model (web/assets/env/grass.glb: Poly Haven grass_medium_01) ----------
 // The same ring placement as the blades, one clump per cell instead of one blade. Clumps
 // near the fly are the model's fuller tufts; further rings use lighter ones, spread wider.
-const GC0 = 1.9;              // level-0 cell size (mm): one clump per cell
+let GC0 = 1.9;                // level-0 cell size (mm): one clump per cell (smaller: denser, see useGrassModel)
 const GR0 = 20;               // radius of level 0; level L reaches GR0 * 2^L
 const GLEVELS = 6;            // out to 640 mm
 export const GRASS_H = 2.4;   // a clump's height near the fly (mm): a lawn at a fly's scale
@@ -611,7 +611,8 @@ export class Terrain {
    * Cover the floor with clumps of a grass model instead of the generated blades.
    * variants: { near, mid, far } BufferGeometries; maps: { map, normalMap }.
    */
-  useGrassModel(variants, maps) {
+  useGrassModel(variants, maps, cell = 1.9) {
+    GC0 = cell;
     const mat = clumpMaterial(this.uniforms, maps);
     // Far rings are small on screen: their clumps keep about a third of their blades.
     const groups = [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5], 0.35]];

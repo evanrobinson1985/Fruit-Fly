@@ -164,7 +164,7 @@ function stoneMaterial(color, seed, base = 0) {
  * Load and place the scenery into terrain.group. Returns the solid meshes (stones, moss)
  * that terrain.bake() should include.
  */
-export async function loadForest(terrain, renderer, base, keepClear = []) {
+export async function loadForest(terrain, renderer, base, keepClear = [], { high = false } = {}) {
   const ktx2 = new KTX2Loader().setTranscoderPath(transcoderPath()).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
   const [stones, moss, bracken, fern, pond] = await Promise.all(
@@ -197,7 +197,8 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
         // Our own water (water.js) takes the model's place, on its outline.
         const geo = m.geometry.clone().applyMatrix4(m.matrixWorld);
         m.parent.remove(m);
-        water = new PondWater(renderer, geo, waterZ, { scale: renderer.getPixelRatio() > 1.5 ? 0.3 : 0.4 });
+        // On a computer: full-resolution passes, the reflection redrawn every frame.
+        water = new PondWater(renderer, geo, waterZ, high ? { scale: 1, reflectEvery: 1 } : { scale: renderer.getPixelRatio() > 1.5 ? 0.3 : 0.4, reflectEvery: 2 });
         group.add(water.mesh);
         solids.push(water.mesh); // the fly can stand on the water
         continue;
@@ -388,11 +389,12 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
     const [grass, map, normalMap] = await Promise.all([
       loader.loadAsync(base + "grass.glb"), tl.loadAsync(base + "grass_diff.png"), tl.loadAsync(base + "grass_nor.jpg")]);
     map.colorSpace = THREE.SRGBColorSpace;
-    for (const t of [map, normalMap]) { t.flipY = false; t.anisotropy = 4; } // glTF UVs
+    for (const t of [map, normalMap]) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
-    terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap });
+    terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, high ? 1.45 : 1.9);
     // the grass round the fly and the light far grass show in the water
-    reflectable(terrain.clumps[0]); // only the grass round the fly shows in the water (cheaper)
+    // the grass shows in the water: all of it on a computer, only round the fly on a phone
+    for (const c of high ? terrain.clumps : terrain.clumps.slice(0, 1)) reflectable(c);
   } catch (e) {
     console.warn("Grass model did not load; keeping the generated grass:", e);
   }

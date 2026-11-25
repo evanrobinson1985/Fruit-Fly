@@ -54,6 +54,7 @@ export class PondWater {
   constructor(renderer, geometry, z, opts = {}) {
     this.z = z;
     this.scale = opts.scale ?? 0.5;
+    this.reflectEvery = opts.reflectEvery ?? 1; // redraw the reflection every n frames
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const w = Math.max(64, Math.round(size.x * this.scale)), h = Math.max(64, Math.round(size.y * this.scale));
     this.rtReflect = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
@@ -195,9 +196,9 @@ export class PondWater {
     const prevTarget = renderer.getRenderTarget();
     const prevClip = renderer.clippingPlanes, prevLocal = renderer.localClippingEnabled;
     this.mesh.visible = false;
-    // The reflection is refreshed every other frame (it changes slowly; saves a pass).
+    // The reflection can be refreshed every other frame on a phone (it changes slowly).
     this.frame = (this.frame || 0) + 1;
-    if (camZ > this.z + 0.01 && (this.frame % 2 === 1 || this.stale)) {
+    if (camZ > this.z + 0.01 && (this.frame % this.reflectEvery === 0 || this.stale)) {
       this.stale = false;
       // ---------- reflection: a camera mirrored in the plane z = this.z ----------
       const m = this.mirror;

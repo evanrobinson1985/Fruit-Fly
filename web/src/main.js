@@ -20,6 +20,14 @@ import { FrogPredators } from "./predators.js";
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
 const GAME = new URLSearchParams(location.search).has("game");
+// Rendering quality: "high" on a computer (full-resolution water reflections and refraction,
+// denser grass, sharper shadows), "low" on a phone. ?quality=high or ?quality=low overrides.
+export const QUALITY = (() => {
+  const q = new URLSearchParams(location.search).get("quality");
+  if (q === "high" || q === "low") return q;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? "low" : "high";
+})();
+const HIGH = QUALITY === "high";
 let frogMode = "none";
 // Version the preference key so existing installs do not inherit the old Both default.
 try { frogMode = localStorage.getItem("frog-mode-v2") || "none"; } catch {}
@@ -47,7 +55,7 @@ function setFrogMode(mode) {
 // ---------- renderer & scene (Z up, mm) ----------
 const canvas = $("stage");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+renderer.setPixelRatio(Math.min(HIGH ? 3 : 2, window.devicePixelRatio));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
@@ -72,7 +80,7 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0dd, 2.4);
 sun.layers.enableAll();
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(HIGH ? 4096 : 2048, HIGH ? 4096 : 2048);
 Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 60 });
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
@@ -116,7 +124,7 @@ terrain.visible = false;
 // Kept clear: where the fly starts, and where the two frogs start.
 let forest = null;
 const ripple = { fly: 0, flyOn: false };
-loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }])
+loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }], { high: HIGH })
   .then((f) => { forest = f; terrain.bake(renderer); }) // the pond, stones and moss become ground the fly can walk on
   .catch((e) => console.warn("Forest scenery did not load:", e));
 function syncExclusions() {
@@ -1128,4 +1136,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, controls, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; }, get predators() { return predators; } }; // for debugging from the console
+window.flyApp = { quality: QUALITY, world, body, smooth, stim, addFood, addOdor, terrain, controls, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; }, get predators() { return predators; } }; // for debugging from the console
