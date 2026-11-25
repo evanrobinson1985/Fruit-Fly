@@ -218,6 +218,8 @@ export function startGame(api) {
     /** Taste-neuron drive scales with hunger: starved flies' sugar neurons respond more. */
     tasteGain: () => Math.min(1, 0.12 + 1.1 * pet.hunger ** 1.2),
     onDeposit: () => { toast("Plop!", 1.2); save(); },
+    /** A message for the player (e.g. a frog ate the fly). */
+    notify: (text, s = 3) => toast(text, s),
     pet,
   };
 }

@@ -153,6 +153,7 @@ export class FrogPredators {
     // The eyes follow the head.
     const head = def_("DEF-spine.006") || def_("DEF-spine.005");
     for (const e of eyes) head.attach(e);
+    // Frogs swallow with their eyes: they pull them down into the head to push prey down.
 
     // Face +X: the snout is ahead of the hips.
     actor.updateMatrixWorld(true);
@@ -208,6 +209,7 @@ export class FrogPredators {
     const L = def.length;
     const frog = {
       ...def, actor, model, mesh, eyes, rest, limbs, tongue, tongueTip: tip, tongueShaft: shaft,
+      eyeRest: eyes.map((e) => e.position.clone()), eyeDown: null, holding: false, gulp: 0,
       spine: SPINE.map(def_).filter(Boolean), chest, throatDown, belly: def_("DEF-belly.C"),
       // the snout: the front of the body, at mouth height
       mouth: new THREE.Vector3(),
@@ -219,6 +221,12 @@ export class FrogPredators {
       bones: new Map(deform.map((b) => [b.name, b])),
       animationActions: new Map([["re-rigged: " + deform.length + " deform bones", null]]),
     };
+    // "Down" for each eye in the head's space (one world mm).
+    frog.eyeDown = eyes.map((e) => {
+      const at = e.getWorldPosition(new THREE.Vector3());
+      const below = at.clone().add(new THREE.Vector3(0, 0, -1).transformDirection(actor.matrixWorld));
+      return e.parent.worldToLocal(below).sub(e.parent.worldToLocal(at.clone()));
+    });
     // Sit it on the ground in its sitting pose.
     this._body(frog);
     this._pose(frog);
@@ -331,6 +339,14 @@ export class FrogPredators {
       // Gathering for a jump: forelegs straighten a little, lifting the chest.
       this._limb(frog, fore, sign, [[0.15, 0.35, -0.92], [0.1, 0.2, -0.97]], gather * 0.6 * (1 - reach));
     }
+    // Swallowing: the eyes sink into the head twice.
+    frog.eyes.forEach((e, i) => {
+      e.position.copy(frog.eyeRest[i]);
+      if (frog.gulp > 0 && frog.eyeDown) {
+        const g = Math.max(0, Math.sin(Math.PI * 2 * (1.4 - frog.gulp) / 0.7)) * frog.length * 0.035;
+        e.position.addScaledVector(frog.eyeDown[i], g);
+      }
+    });
     // Throat and flanks: breathing at rest, a big pulse of the throat when croaking.
     let throat = 0, flank = 0.5 + 0.5 * Math.sin(t * 2.6 + frog.phase);
     if (frog.mode === "sit") throat = 0.5 + 0.5 * Math.sin(t * 7 + frog.phase);
@@ -349,18 +365,31 @@ export class FrogPredators {
     const tg = frog.tongue;
     if (frog.mode !== "strike") { tg.visible = false; return; }
     const t = frog.t;
-    const out = t < 0.07 ? ease(t / 0.07) : 1 - ease((t - 0.11) / 0.16);
+    // Out in 0.07 s; back in 0.16 s, or more slowly with the fly stuck to it.
+    const out = t < 0.07 ? ease(t / 0.07) : frog.holding ? 1 - ease((t - 0.1) / 0.32) : 1 - ease((t - 0.11) / 0.16);
+    frog.tongueOut = out;
     if (out <= 0.001) { tg.visible = false; return; }
     tg.visible = true;
     tg.position.copy(frog.mouth);
-    // toward where the fly was when the strike started, at most the reach
-    const target = frog.actor.worldToLocal(_v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z + 0.5));
+    // toward where it aimed (where the fly was as it struck), at most the reach
+    const target = frog.actor.worldToLocal(_v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z));
     const dir = target.sub(frog.mouth);
     const len = Math.min(dir.length(), frog.reach * 1.1) * out;
     dir.normalize();
     tg.quaternion.setFromUnitVectors(_v2.set(1, 0, 0), dir);
     frog.tongueShaft.scale.set(Math.max(1e-3, len), 1, 1);
     frog.tongueTip.position.set(len, 0, 0);
+  }
+
+  /** Where a fly stuck to a tongue is (world), or null. */
+  heldFly() {
+    for (const frog of this.frogs) {
+      if (frog.holding && frog.tongue.visible) {
+        frog.tongue.updateMatrixWorld(true);
+        return frog.tongueTip.getWorldPosition(new THREE.Vector3());
+      }
+    }
+    return null;
   }
 
   // ---------- natural movement ----------
@@ -454,13 +483,17 @@ export class FrogPredators {
     frog.caught = false;
     frog.catchCooldown = 1.8;
     frog.ate = false;
-    frog.strikeAt = { x: fly.x, y: fly.y, z: fly.z || 0 };
+    frog.holding = false;
+    // Aimed at the fly's body, with a frog's aiming error of a millimetre or so.
+    const a = Math.random() * Math.PI * 2, e = Math.random() * 1.6;
+    frog.strikeAt = { x: fly.x + e * Math.cos(a), y: fly.y + e * Math.sin(a), z: (fly.z || 0) + 0.8 };
     this.catchLock = 0.8;
   }
 
   update(dt, fly) {
     if (!this.ready || !fly || dt <= 0) return;
     dt = Math.min(dt, 0.12);
+    if (fly.gone) { fly = { x: 1e6, y: 1e6, z: 1e3, gone: true }; this.prevFly = null; } // eaten: nothing to hunt
     this.catchLock = Math.max(0, this.catchLock - dt);
     // Frogs see moving prey: is the fly moving?
     const pf = this.prevFly;
@@ -472,6 +505,7 @@ export class FrogPredators {
       frog.catchCooldown = Math.max(0, frog.catchCooldown - dt);
       frog.croakCooldown = Math.max(0, frog.croakCooldown - dt);
       frog.hunting = Math.max(0, frog.hunting - dt);
+      frog.gulp = Math.max(0, frog.gulp - dt);
       frog.t += dt;
       const mouthX = frog.x + Math.cos(frog.heading) * frog.mouth.x;
       const mouthY = frog.y + Math.sin(frog.heading) * frog.mouth.x;
@@ -498,16 +532,29 @@ export class FrogPredators {
       } else if (frog.mode === "croak") {
         if (frog.t >= 2) this._sit(frog, 3 + Math.random() * 5);
       } else if (frog.mode === "strike") {
-        // The tongue reaches the fly at ~0.07 s; it's caught then if it's still there.
-        if (!frog.caught && frog.t >= 0.07) {
+        // The tongue is fully out at 0.07 s: if its sticky tip touches the fly, the fly sticks
+        // to it and is reeled in. If the fly moved, or the aim was off, it misses.
+        if (!frog.caught && frog.t >= 0.07 && !fly.gone) {
           frog.caught = true;
-          // Not every strike lands (about a third miss, as in real frogs).
-          frog.ate = gap < frog.reach * 1.15 && fly.z < 12 && Math.random() < 0.65;
-          if (frog.ate) this.onCatch({ id: frog.id, name: frog.name, x: frog.x, y: frog.y });
-        }
-        if (frog.t >= 0.42) {
+          // where the fully extended tip is: toward the aim point, at most the reach
+          const mouth = _v2.set(frog.x + Math.cos(frog.heading) * frog.mouth.x, frog.y + Math.sin(frog.heading) * frog.mouth.x, frog.mouth.z);
+          const aim = _v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z).sub(mouth);
+          const tip = mouth.add(aim.setLength(Math.min(aim.length(), frog.reach * 1.1)));
+          const touch = Math.hypot(tip.x - fly.x, tip.y - fly.y, tip.z - ((fly.z || 0) + 0.8));
+          frog.ate = touch < frog.length * 0.025 * 2.2 + 1.3; // tip radius + the fly's body
           if (frog.ate) {
-            // Swallowing (the eyes retract to push prey down), then a while before hunting again.
+            frog.holding = true;
+            this.onCatch({ id: frog.id, name: frog.name, x: frog.x, y: frog.y });
+          }
+        }
+        if (frog.holding && frog.t > 0.12 && frog.tongueOut <= 0.02) {
+          frog.holding = false; // in the mouth: swallow
+          frog.gulp = 1.4;
+        }
+        if (frog.t >= (frog.ate ? 0.5 : 0.42)) {
+          if (frog.ate) {
+            // Swallowing, then a while before it hunts again.
+            frog.holding = false;
             frog.hunting = 0;
             frog.catchCooldown = 20 + Math.random() * 20;
             this._sit(frog, 12 + Math.random() * 15);

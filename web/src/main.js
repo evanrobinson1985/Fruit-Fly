@@ -403,7 +403,11 @@ function advanceBody(t) {
   for (const lo of world.looms) if (lo.t0 <= t && body.threatDir === null) body.threatDir = lo.worldAz;
   // A touch on the head or light on the neurons is a cue to groom now (see BODY.groomRestS).
   body.groomCue = (t < stim.touchUntil + 1 && stim.touch?.zone === "head") || !!stim.opto; // DNs lag the touch
-  if (game?.asleep()) {
+  if (eaten) {
+    // On a frog's tongue, then inside the frog: the body does nothing.
+    body.state = "eaten";
+    body.speed = 0; body.turn = 0;
+  } else if (game?.asleep()) {
     // Asleep (game mode, at night): it stays where it is, legs still.
     body.state = "sleeping";
     body.speed = 0;
@@ -776,27 +780,44 @@ resize();
 const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion(), tmpN = new THREE.Vector3();
 const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, cool: 0 };
 
-// A predator catch changes only the fly's physical location and locomotion state.
-// The connectome worker, synaptic state, memory, gut and accumulated experience remain intact.
-function respawnAfterPredation(frog) {
+// A frog's tongue caught the fly: it sticks to the tongue, is reeled in and swallowed, and
+// 10 s later a fly appears on the far side of the enclosure from the frogs. Only its body
+// is affected: the connectome worker, synaptic state, memory, gut and accumulated
+// experience carry on (its body is held still meanwhile).
+const RESPAWN_S = 10;
+let eaten = null; // { frog, at: ms, swallowed }
+function caughtByFrog(frog) {
+  if (!flyRoot || eaten) return;
+  eaten = { frog, at: performance.now(), swallowed: false };
+  body.speed = 0; body.turn = 0; body.airborne = 0;
+  body.feeding = false; body.boutLeft = 0; body.proboscis = 0;
+  $("hint").textContent = frog.name + "'s tongue caught the fly!";
+  game?.notify(`Gulp! The ${frog.name.split(" ").pop().toLowerCase()} got ${game.pet?.name || "the fly"}!`, 3);
+}
+function respawnAfterPredation() {
   if (!flyRoot) return;
-  let x = -frog.x, y = -frog.y;
-  let r = Math.hypot(x, y);
-  if (r < 1) { x = -1; y = 0; r = 1; }
-  x = (x / r) * 76;
-  y = (y / r) * 76;
+  // Opposite the frogs: away from where they are, near the far edge.
+  const frogs = predators?.frogs.filter((f) => f.actor.visible) || [];
+  let cx = 0, cy = 0;
+  for (const f of frogs) { cx += f.x; cy += f.y; }
+  if (frogs.length) { cx /= frogs.length; cy /= frogs.length; }
+  let x = -cx, y = -cy, r = Math.hypot(x, y);
+  if (r < 1) { x = -(eaten?.frog.x || 1); y = -(eaten?.frog.y || 0); r = Math.hypot(x, y) || 1; }
+  const R = world.radius * 0.75;
+  x = (x / r) * R; y = (y / r) * R;
   body.x = x; body.y = y; body.z = 0;
   body.speed = 0; body.turn = 0; body.airborne = 0;
-  body.state = "standing"; body.heading = Math.atan2(y - frog.y, x - frog.x) * 180 / Math.PI;
+  body.state = "standing"; body.heading = Math.atan2(-y, -x) * 180 / Math.PI; // facing the middle
   body.threatDir = null; body.feeding = false; body.boutLeft = 0; body.proboscis = 0;
   const t = curr.t || 0;
   Object.assign(prev, { x, y, z: 0, heading: body.heading, phase: body.phase, t });
   Object.assign(curr, { x, y, z: 0, heading: body.heading, phase: body.phase, t });
   tPrev = tCurr = performance.now();
   perch.z = 0; perch.hop = null; perch.cool = 0; perch.n.set(0, 0, 1);
-  flyRoot.visible = false;
-  setTimeout(() => { if (flyRoot) flyRoot.visible = true; }, 240);
-  $("hint").textContent = frog.name + " caught the fly. It reappeared across the enclosure; its neural state was preserved.";
+  flyRoot.visible = true;
+  eaten = null;
+  $("hint").textContent = "A fly appeared on the far side of the enclosure from the frogs; its neural state was preserved.";
+  game?.notify(`${game.pet?.name || "The fly"} is back, far from the frogs`, 3);
 }
 // The fly stands on its six feet. It stays on a leaf while at least two feet are still on it,
 // so it walks across gaps between leaflets and along ragged edges without bobbing. It hops
@@ -902,7 +923,7 @@ function frame(now) {
     const simT = (prev.t ?? 0) + ((curr.t ?? 0) - (prev.t ?? 0)) * f;
     const dts = Math.max(0, simT - weatherT);
     weatherT = simT;
-    predators?.update(dtf, { x, y, z: z + perch.z });
+    predators?.update(dtf, { x, y, z: z + perch.z, gone: !!eaten });
     if (simT < stim.windUntil) weather.wind.copy(stim.windVec); else weather.wind.set(0, 0);
     const feet = perch.z + z;
     const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0, grooming: body.state === "grooming" },
@@ -915,6 +936,17 @@ function frame(now) {
     jolt.tilt.multiplyScalar(decay);
     jolt.dip *= decay;
     flyRoot.position.set(x, y, feet + bob - jolt.dip - fly.groundOffset);
+    if (eaten) {
+      // Stuck to the tongue tip until it's in the mouth, then gone; back after RESPAWN_S.
+      const held = predators?.heldFly();
+      if (held && !eaten.swallowed) flyRoot.position.set(held.x, held.y, held.z - 0.8);
+      else if (!eaten.swallowed) {
+        eaten.swallowed = true;
+        flyRoot.visible = false;
+        $("hint").textContent = eaten.frog.name + " ate the fly. Another appears in " + RESPAWN_S + " s.";
+      }
+      if (now - eaten.at >= RESPAWN_S * 1000) respawnAfterPredation();
+    }
     tmpN.copy(perch.n).add(jolt.tilt).normalize();
     flyRoot.quaternion.setFromUnitVectors(UP, tmpN)
       .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
@@ -1011,7 +1043,7 @@ async function boot() {
   scene.add(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
-  predators = new FrogPredators(scene, ASSETS + "frogs-original.glb", respawnAfterPredation, world.radius);
+  predators = new FrogPredators(scene, ASSETS + "frogs-original.glb", caughtByFrog, world.radius);
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");
