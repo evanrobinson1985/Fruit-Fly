@@ -62,7 +62,7 @@ camera.position.set(-9, -9, 6);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.minDistance = 3;
-controls.maxDistance = 720;
+controls.maxDistance = 1000; // the whole 90 cm arena in view
 controls.maxPolarAngle = Math.PI * 0.49;
 
 scene.add(new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.7));
@@ -166,12 +166,12 @@ function applySky() {
     skyDome.set(w, weather?.level ?? 2);
     scene.background = null;
     scene.fog.color.setHex(skyDome.horizon, THREE.LinearSRGBColorSpace);
-    [scene.fog.near, scene.fog.far] = w === "off" ? [180, 750] : [110, 520];
+    [scene.fog.near, scene.fog.far] = w === "off" ? [270, 1150] : [165, 780]; // for the 90 cm arena
   } else {
     const dark = w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22;
     scene.background = new THREE.Color(dark);
     scene.fog.color.setHex(dark);
-    [scene.fog.near, scene.fog.far] = [60, 260];
+    [scene.fog.near, scene.fog.far] = [90, 390];
   }
   sun.intensity = w === "rain" ? 1.3 : w === "snow" ? 1.5 : out ? 2.8 : 2.4;
 }
@@ -1089,4 +1089,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; }, get predators() { return predators; } }; // for debugging from the console
+window.flyApp = { world, body, smooth, stim, addFood, addOdor, terrain, controls, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; }, get predators() { return predators; } }; // for debugging from the console

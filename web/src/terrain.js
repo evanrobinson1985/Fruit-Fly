@@ -416,9 +416,23 @@ const GLEVELS = 5;            // out to 320 mm
 export const GRASS_H = 2.4;   // a clump's height near the fly (mm): a lawn at a fly's scale
 const MAX_FROGS = 2;
 
+/** Keep about `keep` of a clump's blades (its separate pieces): lighter clumps far away. */
+function thinBlades(g, keep) {
+  const idx = g.getIndex().array, nv = g.attributes.position.count, parent = new Int32Array(nv).map((_, i) => i);
+  const find = (a) => { while (parent[a] !== a) a = parent[a] = parent[parent[a]]; return a; };
+  for (let t = 0; t < idx.length; t += 3) { const a = find(idx[t]); parent[find(idx[t + 1])] = a; parent[find(idx[t + 2])] = a; }
+  const out = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const c = find(idx[t]);
+    if (((c * 2654435761) >>> 0) / 4294967296 < keep) out.push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  g.setIndex(out);
+  return g;
+}
+
 /** An instanced clump: the model's geometry (Y-up, any units) turned Z-up, 1 unit tall. */
-function clumpGeometry(src, levels) {
-  const g = src.clone();
+function clumpGeometry(src, levels, keep = 1) {
+  const g = keep < 1 ? thinBlades(src.clone(), keep) : src.clone();
   g.rotateX(Math.PI / 2);
   g.computeBoundingBox();
   const b = g.boundingBox;
@@ -592,9 +606,10 @@ export class Terrain {
    */
   useGrassModel(variants, maps) {
     const mat = clumpMaterial(this.uniforms, maps);
-    const groups = [[variants.near, [0]], [variants.mid, [1]], [variants.far, [2, 3, 4, 5]]];
-    this.clumps = groups.map(([src, levels]) => {
-      const mesh = new THREE.Mesh(clumpGeometry(src, levels), mat);
+    // Far rings are small on screen: their clumps keep about a third of their blades.
+    const groups = [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5], 0.35]];
+    this.clumps = groups.map(([src, levels, keep]) => {
+      const mesh = new THREE.Mesh(clumpGeometry(src, levels, keep), mat);
       mesh.frustumCulled = false;
       mesh.receiveShadow = true;
       this.group.add(mesh);
@@ -612,6 +627,7 @@ export class Terrain {
     for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / (2 * R) + 0.5, p.getY(i) / (2 * R) + 0.5); // as the disc's
     this.floor.geometry.dispose();
     this.floor.geometry = g;
+    Object.assign(this.floor.material, { polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
     this.uniforms.uHole.value = r;
     this.clearWeeds([{ x: 0, y: 0, r }]);
   }

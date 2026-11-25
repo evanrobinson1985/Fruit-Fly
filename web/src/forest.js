@@ -124,7 +124,9 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
       if (!/plants|lilies|cattails|rushes/i.test(m.name + name)) solids.push(m); // walkable: bed, stones, water
     });
   }
-  terrain.cutHole(POND_R);
+  // The basin's outline is whole triangles, so the hole is a little smaller and the floor
+  // draws behind the basin where they overlap: no gap at the seam.
+  terrain.cutHole(POND_R - 5);
   const free = (x, y, rad, pad = 4) => Math.hypot(x, y) + rad < R - 6 && placed.every((p) => Math.hypot(p.x - x, p.y - y) > p.r + rad + pad);
   const spot = (rad, rMin, rMax, tries = 300) => {
     for (let i = 0; i < tries; i++) {
