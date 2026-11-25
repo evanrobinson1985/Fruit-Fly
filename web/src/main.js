@@ -8,6 +8,7 @@ import { World, Body } from "./world.js";
 import { BrainMap, Chart } from "./hud.js";
 import { loadPng, openStore } from "./pngdata.js";
 import { Terrain, TURF_TOP } from "./terrain.js";
+import { loadForest } from "./forest.js";
 import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
 import { SkyDome } from "./sky.js";
 import { FlyAudio } from "./audio.js";
@@ -105,6 +106,11 @@ scene.add(rim);
 const terrain = new Terrain(scene, world.radius);
 terrain.bake(renderer);
 terrain.visible = false;
+// Forest-floor scenery on the grass floor: stones, moss, bracken, lady ferns (forest.js).
+// Kept clear: where the fly starts, and where the two frogs start.
+loadForest(terrain, renderer, ASSETS + "env/", [{ x: 0, y: 0, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }])
+  .then(() => terrain.bake(renderer)) // stones and moss become ground the fly can walk on
+  .catch((e) => console.warn("Forest scenery did not load:", e));
 function syncExclusions() {
   terrain.setExclusions([
     ...world.food.map((f) => ({ x: f.x, y: f.y, r: f.r + 0.5 })),
@@ -1044,6 +1050,7 @@ async function boot() {
   weather.attachFly(flyRoot);
   setSkin(skin);
   predators = new FrogPredators(scene, ASSETS + "frogs-original.glb", caughtByFrog, world.radius);
+  predators.groundAt = groundZ; // frogs sit on stones and moss too
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");

@@ -413,7 +413,8 @@ export class FrogPredators {
     const gather = g * k * (big ? 1.8 : 1), settle = s * k * (big ? 1.3 : 1);
     frog.mode = kind;
     frog.t = 0;
-    frog.hop = { x0: frog.x, y0: frog.y, x1: tx, y1: ty, h0: frog.heading, h1: toHeading, dist,
+    const gnd = (x, y) => (this.groundAt ? this.groundAt(x, y) : 0);
+    frog.hop = { x0: frog.x, y0: frog.y, x1: tx, y1: ty, h0: frog.heading, h1: toHeading, dist, g0: gnd(frog.x, frog.y), g1: gnd(tx, ty),
       start: gather, end: gather + air, dur: gather + air + settle };
   }
 
@@ -537,7 +538,8 @@ export class FrogPredators {
         if (!frog.caught && frog.t >= 0.07 && !fly.gone) {
           frog.caught = true;
           // where the fully extended tip is: toward the aim point, at most the reach
-          const mouth = _v2.set(frog.x + Math.cos(frog.heading) * frog.mouth.x, frog.y + Math.sin(frog.heading) * frog.mouth.x, frog.mouth.z);
+          const mouth = _v2.set(frog.x + Math.cos(frog.heading) * frog.mouth.x, frog.y + Math.sin(frog.heading) * frog.mouth.x,
+            frog.mouth.z + (this.groundAt ? this.groundAt(frog.x, frog.y) : 0));
           const aim = _v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z).sub(mouth);
           const tip = mouth.add(aim.setLength(Math.min(aim.length(), frog.reach * 1.1)));
           const touch = Math.hypot(tip.x - fly.x, tip.y - fly.y, tip.z - ((fly.z || 0) + 0.8));
@@ -586,11 +588,14 @@ export class FrogPredators {
    */
   _body(frog) {
     let z = 0, pitch = frog.sitPitch || 0;
+    let ground = this.groundAt ? this.groundAt(frog.x, frog.y) : 0;
     const L = frog.length;
     if ((frog.mode === "hop" || frog.mode === "jump") && frog.hop) {
       const h = frog.hop, t = frog.t;
       const height = clamp(h.dist * (frog.mode === "jump" ? 0.3 : 0.36), L * 0.06, L * 0.7) * (frog.hopHeight || 1);
       const base = frog.sitPitch || 0;
+      // the ground under it: where it took off, then where it lands (a stone, say)
+      ground = h.g0 + ((h.g1 ?? 0) - (h.g0 ?? 0)) * clamp((t - h.start) / (h.end - h.start), 0, 1) || 0;
       if (t < h.start) {
         pitch = base + (frog.sitPitch ? 0.08 : -0.14) * ease(t / h.start); // a sitting frog levels out to aim
       } else if (t <= h.end) {
@@ -606,7 +611,7 @@ export class FrogPredators {
     } else if (frog.mode === "strike") {
       pitch += 0.12 * Math.sin(Math.PI * clamp(frog.t / 0.3, 0, 1));
     }
-    frog.actor.position.set(frog.x, frog.y, z);
+    frog.actor.position.set(frog.x, frog.y, z + ground);
     frog.actor.rotation.set(0, pitch, frog.heading);
   }
 

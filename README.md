@@ -75,6 +75,11 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   midrib, pale sheaths and yellowing or dry tips; clover leaflets with fine side veins, a
   vein network and white clover's pale chevron; dandelion leaves with a broad pale midrib
   flushed red-purple at the base; paler undersides and raised or sunken veins on all.
+  The grass floor is also a patch of forest floor (`web/src/forest.js`, models in
+  `web/assets/env`): stones from pebbles to rocks, moss tufts around their bases, and young
+  bracken and lady ferns toward the wall. Stones and moss are solid ground: the fly walks
+  and hops up onto them, frogs sit on them, rain lands on them and grass stays beneath.
+  The stone set's texture maps were not supplied, so the stones have a procedural surface.
 - **Grooming:** touching the head bristles (a poke, a raindrop, a snowflake) drives the DNg12
   descending neurons in the connectome (to ~10 Hz; near 0 at rest), and while they fire the
   fly stops and cleans its head: front-leg sweeps over the eyes alternating with leg rubbing

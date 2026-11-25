@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.5.1"
+        versionCode = 10
+        versionName = "0.6.0"
     }
 
     // Same public sideload key as the watch app (see ../app/build.gradle.kts).
@@ -61,6 +61,9 @@ val copySite by tasks.registering(Copy::class) {
             "vendor/three/examples/jsm/utils/BufferGeometryUtils.js",
             "vendor/three/examples/jsm/utils/SkeletonUtils.js",
             "vendor/three/examples/jsm/loaders/GLTFLoader.js",
+            "vendor/three/examples/jsm/loaders/KTX2Loader.js",
+            "vendor/three/examples/jsm/libs/meshopt_decoder.module.js",
+            "vendor/three/examples/jsm/libs/basis/basis_transcoder.wasm",
         )
         requiredModules.forEach { path ->
             check(file(path).isFile) { "Required phone Three.js module is missing: phone/$path" }

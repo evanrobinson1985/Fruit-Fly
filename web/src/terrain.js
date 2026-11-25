@@ -157,7 +157,7 @@ float leafTop(vec2 p) {
   vec2 uv = (p - uLeafBox.xy) / uLeafBox.z;
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
   vec4 t = textureLod(uLeaf, uv, 0.0);
-  return (t.r * 65280.0 + t.g * 255.0) / 2500.0;
+  return (t.r * 65280.0 + t.g * 255.0) / 500.0;
 }
 ` + shader.vertexShader
       .replace("#include <color_vertex>", `
@@ -477,6 +477,20 @@ export class Terrain {
     }
   }
 
+  // Remove the weeds inside these circles ({x, y, r}: where stones sit).
+  clearWeeds(circles) {
+    const m = new THREE.Matrix4(), p = new THREE.Vector3(), zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const mesh of this.weedMeshes) {
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, m);
+        p.setFromMatrixPosition(m);
+        if (circles.some((c) => Math.hypot(c.x - p.x, c.y - p.y) < c.r + 1)) mesh.setMatrixAt(i, zero);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    this.weeds = this.weeds.filter((w) => !circles.some((c) => Math.hypot(c.x - w.x, c.y - w.y) < c.r + 1));
+  }
+
   // A random spot in the arena (not the seeded layout) clear of the other weeds' leaves.
   _luckySpot() {
     for (let tries = 0; ; tries++) {
@@ -486,8 +500,9 @@ export class Terrain {
     }
   }
 
-  // Render the weeds from straight above into a height map (top surface z, packed into
-  // two 8-bit channels at 0.4 um steps). The grass shader reads it on the GPU; rain and
+  // Render the weeds (and the stones and moss: this.solids, see forest.js) from straight
+  // above into a height map (top surface z, packed into two 8-bit channels at 2 um steps,
+  // up to 131 mm). The grass shader reads it on the GPU; rain and
   // snow read the CPU copy.
   bake(renderer) {
     const { x, y, size } = this.leafBox;
@@ -506,7 +521,7 @@ export class Terrain {
         }`,
       fragmentShader: `varying float vZ;
         void main() {
-          float v = clamp(floor(vZ * 2500.0 + 0.5), 0.0, 65535.0);
+          float v = clamp(floor(vZ * 500.0 + 0.5), 0.0, 65535.0);
           gl_FragColor = vec4(floor(v / 256.0) / 255.0, mod(v, 256.0) / 255.0, 0.0, 1.0);
         }`,
     });
@@ -514,6 +529,14 @@ export class Terrain {
     for (const w of this.weedMeshes) {
       const copy = new THREE.InstancedMesh(w.geometry, mat, w.count);
       copy.instanceMatrix = w.instanceMatrix;
+      copy.frustumCulled = false;
+      bakeScene.add(copy);
+    }
+    this.group.updateMatrixWorld(true);
+    for (const s of this.solids || []) {
+      const copy = new THREE.Mesh(s.geometry, mat);
+      copy.matrixAutoUpdate = false;
+      copy.matrix.copy(s.matrixWorld);
       copy.frustumCulled = false;
       bakeScene.add(copy);
     }
@@ -533,7 +556,7 @@ export class Terrain {
     renderer.setClearColor(prevClear, prevAlpha);
     renderer.toneMapping = prevTone;
     const hm = new Float32Array(HMAP * HMAP);
-    for (let i = 0; i < hm.length; i++) hm[i] = (buf[4 * i] * 256 + buf[4 * i + 1]) / 2500;
+    for (let i = 0; i < hm.length; i++) hm[i] = (buf[4 * i] * 256 + buf[4 * i + 1]) / 500;
     this.leafHeights = hm;
     this.uniforms.uLeaf.value = rt.texture;
     mat.dispose();

@@ -176,6 +176,12 @@ see [watch/README.md](watch/README.md). Built with Jetpack Compose for Wear OS (
 The phone app bundles three.js r169 (MIT; `watch/phone/vendor/three/LICENSE`) to run the
 website offline.
 
+## Forest-floor scenery (website, phone app)
+
+`web/assets/env`: bracken, lady fern and moss tufts (web-optimised GLBs exported from
+tevy.dev), and a stone set (StoneSets, from CGTrader; converted from FBX to `stones.glb`
+without its texture maps). Supplied by the project owner for use in the arena.
+
 ## Software and fonts
 
 - [three.js](https://threejs.org) (MIT License, © three.js authors) renders the website.

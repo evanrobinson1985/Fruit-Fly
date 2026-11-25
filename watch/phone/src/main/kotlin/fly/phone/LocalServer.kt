@@ -121,7 +121,7 @@ class LocalServer(private val assets: AssetManager) {
         private val THREE_CORE = Regex("""(from\s*)(["'])three\2""")
         private val TYPES = mapOf(
             "html" to "text/html; charset=utf-8", "js" to "text/javascript; charset=utf-8", "mjs" to "text/javascript; charset=utf-8",
-            "json" to "application/json", "png" to "image/png", "css" to "text/css", "txt" to "text/plain", "svg" to "image/svg+xml",
+            "json" to "application/json", "png" to "image/png", "wasm" to "application/wasm", "glb" to "model/gltf-binary", "ktx2" to "image/ktx2", "css" to "text/css", "txt" to "text/plain", "svg" to "image/svg+xml",
         )
     }
 }
