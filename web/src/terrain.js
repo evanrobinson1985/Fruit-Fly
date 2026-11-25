@@ -13,7 +13,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 export const TURF_TOP = 0.35; // a fly walks on the matted turf, about this high (mm)
 const C0 = 0.29;              // level-0 cell size (mm): 12 blades per mm^2 next to the fly
 const R0 = 16;                // radius of level 0; level L reaches R0 * 2^L
-const LEVELS = 5;             // out to 256 mm
+const LEVELS = 6;             // out to 512 mm, covering the full arena
 const MAX_IMPACTS = 16;       // raindrop impacts the shaders animate at once
 const MAX_EXCL = 16;
 const HMAP = 2048;            // height map resolution over the arena (~0.45 mm)
@@ -611,11 +611,13 @@ export class Terrain {
    * Cover the floor with clumps of a grass model instead of the generated blades.
    * variants: { near, mid, far } BufferGeometries; maps: { map, normalMap }.
    */
-  useGrassModel(variants, maps, cell = 1.9) {
+  useGrassModel(variants, maps, cell = 1.9, dense = false) {
     GC0 = cell;
     const mat = clumpMaterial(this.uniforms, maps);
     // Far rings are small on screen: their clumps keep about a third of their blades.
-    const groups = [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5], 0.35]];
+    const groups = dense
+      ? [[variants.near, [0], 1], [variants.mid, [1, 2, 3, 4, 5], 1]]
+      : [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5], 0.35]];
     this.clumps = groups.map(([src, levels, keep]) => {
       const mesh = new THREE.Mesh(clumpGeometry(src, levels, keep), mat);
       mesh.frustumCulled = false;
