@@ -392,7 +392,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     map.colorSpace = THREE.SRGBColorSpace;
     for (const t of [map, normalMap]) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
-    terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, high ? 1.45 : 1.9);
+    terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, high ? 1.45 : 1.9, high);
     // the grass round the fly and the light far grass show in the water
     // the grass shows in the water: all of it on a computer, only round the fly on a phone
     for (const c of high ? terrain.clumps : terrain.clumps.slice(0, 1)) reflectable(c);
