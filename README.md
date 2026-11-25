@@ -145,6 +145,13 @@ browser), it sleeps from 22:00 to 07:00, walks to the sugar you drop and drinks 
 taste neurons drive MN9 (they respond more the hungrier it is), and leaves droppings that
 sour its mood until you clean them up. **Lab** brings back the science panels.
 
+**On a Windows PC:** download the `fruit-fly-pc` artifact from the latest "Fruit Fly for
+Windows" Actions run, unzip it and double-click `Install.cmd`: it installs the game to
+`%LOCALAPPDATA%\FruitFly` and puts a Fruit Fly icon on the desktop. The icon starts a small
+local server (`pc/FruitFly.ps1`, plain PowerShell) and opens the game in its own window,
+offline, at high quality (on a computer it renders the pond's reflections and refraction at
+full resolution, with denser grass and sharper shadows; `?quality=low` lightens it).
+
 All assets are in the repository, so the site runs straight from a download or clone:
 `python -m http.server -d web 8000`, then open http://localhost:8000.
 

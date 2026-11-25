@@ -1,0 +1,39 @@
+name: Fruit Fly for Windows (PC package)
+
+# Builds a zip for Windows: Install.cmd puts the game in %LOCALAPPDATA%\FruitFly with a
+# desktop shortcut; FruitFly.ps1 serves the site locally and opens it in its own window.
+# The site's three.js is bundled (watch/phone/vendor), so it runs offline.
+
+on:
+  push:
+    branches: [claude/quirky-wozniak-5060bj]
+    paths: ["web/**", "pc/**", "watch/phone/vendor/**", ".github/workflows/pc-package.yml"]
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the package
+        run: |
+          set -e
+          P=FruitFly-PC
+          mkdir -p $P/FruitFly/site
+          cp pc/Install.cmd pc/README.txt $P/
+          cp pc/FruitFly.ps1 pc/fly.ico $P/FruitFly/
+          cp -r web/index.html web/src web/assets $P/FruitFly/site/
+          cp -r watch/phone/vendor $P/FruitFly/site/
+          # frog models the page no longer loads
+          rm -f $P/FruitFly/site/assets/frogs.glb $P/FruitFly/site/assets/frogs-animated.glb $P/FruitFly/site/assets/frogs-rigged.glb
+          # three.js from the bundled copy instead of the CDN
+          sed -i 's#https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js#/vendor/three/build/three.module.js#; s#https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/#/vendor/three/examples/jsm/#' $P/FruitFly/site/index.html
+          grep -q '/vendor/three/build/three.module.js' $P/FruitFly/site/index.html
+          test -f $P/FruitFly/site/vendor/three/examples/jsm/libs/basis/basis_transcoder.wasm
+          test -f $P/FruitFly/site/assets/frogs-original.glb
+          du -sh $P
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fruit-fly-pc
+          path: FruitFly-PC
+          if-no-files-found: error
