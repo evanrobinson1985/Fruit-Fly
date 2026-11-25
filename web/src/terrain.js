@@ -412,7 +412,7 @@ function seedlingGeometry() {
 // near the fly are the model's fuller tufts; further rings use lighter ones, spread wider.
 const GC0 = 1.9;              // level-0 cell size (mm): one clump per cell
 const GR0 = 20;               // radius of level 0; level L reaches GR0 * 2^L
-const GLEVELS = 5;            // out to 320 mm
+const GLEVELS = 7;            // out to 1280 mm
 export const GRASS_H = 2.4;   // a clump's height near the fly (mm): a lawn at a fly's scale
 const MAX_FROGS = 2;
 
@@ -464,6 +464,7 @@ function clumpMaterial(u, maps) {
     shader.vertexShader = GLSL_COMMON + `
 attribute vec3 aCell;
 varying float vH;
+varying float vWet;
 varying vec3 vTint;
 uniform vec2 uCenter;
 uniform float uArena;
@@ -483,6 +484,7 @@ float leafTop(vec2 p) {
   return v < 0.5 ? 0.0 : v / 500.0 - ${HZ0}.0;
 }
 uniform float uHole;   // no grass inside this radius (the pond)
+uniform float uWaterLine; // grass grows down the banks to just above this height
 ` + shader.vertexShader
       .replace("#include <color_vertex>", `#include <color_vertex>
   float lvl = aCell.z, cs = ${GC0} * exp2(lvl);
@@ -500,14 +502,15 @@ uniform float uHole;   // no grass inside this radius (the pond)
   alive *= 1.0 - step(uArena - 0.5 * sxy, rr);                 // grass only inside the arena
   // Down the pond's banks it follows the ground; it stops where the mud and water begin.
   float g0 = leafTop(bpos), base = 0.0;
-  if (g0 < 0.0) { base = g0; alive *= step(-1.4, g0); }
+  if (g0 < 0.0) { base = g0; alive *= step(uWaterLine + 2.5, g0); }
   alive *= step(uHole - 30.0, rr);
   for (int i = 0; i < ${MAX_EXCL}; i++) { if (i >= uNExcl) break; if (distance(bpos, uExcl[i].xy) < uExcl[i].z + 0.4 * sxy) alive = 0.0; }
   float yaw = h01(cell, L + 5u) * 6.2832;
   mat3 R = mat3(cos(yaw), sin(yaw), 0.0, -sin(yaw), cos(yaw), 0.0, 0.0, 0.0, 1.0);
   float hue = h01(cell, L + 6u);
   vTint = mix(vec3(1.0, 1.12, 0.95), vec3(1.2, 1.14, 0.85), hue) * (1.0 + 0.3 * h01(cell, L + 7u));
-  vH = position.z;`)
+  vH = position.z;
+  vWet = 1.0 - smoothstep(0.0, 6.0, base - uWaterLine);        // at the water's edge: wet and dark`)
       .replace("#include <beginnormal_vertex>", "vec3 objectNormal = R * normal;")
       .replace("#include <begin_vertex>", `
   vec3 transformed = alive > 0.5 ? R * (position * vec3(sxy, sxy, sz)) + vec3(bpos, base) : vec3(0.0);`)
@@ -550,9 +553,12 @@ uniform float uHole;   // no grass inside this radius (the pond)
   }
   vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
   gl_Position = projectionMatrix * mvPosition;`);
-    shader.fragmentShader = "varying float vH;\nvarying vec3 vTint;\n" + shader.fragmentShader
+    shader.fragmentShader = "varying float vH;\nvarying float vWet;\nvarying vec3 vTint;\n" + shader.fragmentShader
       .replace("#include <color_fragment>", `#include <color_fragment>
-  diffuseColor.rgb *= vTint * mix(0.7, 1.15, smoothstep(0.0, 0.6, vH)); // shaded low in the clump`);
+  diffuseColor.rgb *= vTint * mix(0.7, 1.15, smoothstep(0.0, 0.6, vH)); // shaded low in the clump
+  diffuseColor.rgb *= mix(1.0, 0.68, vWet * (1.0 - 0.6 * vH));             // wet at the water's edge`)
+      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
+  roughnessFactor = mix(roughnessFactor, 0.35, vWet);`);
   };
   return m;
 }
@@ -577,6 +583,7 @@ export class Terrain {
       uFrog: { value: Array.from({ length: MAX_FROGS }, () => new THREE.Vector4()) },
       uFrogZ: { value: new Array(MAX_FROGS).fill(0) },
       uHole: { value: -1 },
+      uWaterLine: { value: -1.4 },
     };
     this._ray = new THREE.Raycaster(undefined, undefined, 0, 40);
     this.group = new THREE.Group(); // toggled as a whole by the floor switch
@@ -607,7 +614,7 @@ export class Terrain {
   useGrassModel(variants, maps) {
     const mat = clumpMaterial(this.uniforms, maps);
     // Far rings are small on screen: their clumps keep about a third of their blades.
-    const groups = [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5], 0.35]];
+    const groups = [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5, 6], 0.35]];
     this.clumps = groups.map(([src, levels, keep]) => {
       const mesh = new THREE.Mesh(clumpGeometry(src, levels, keep), mat);
       mesh.frustumCulled = false;

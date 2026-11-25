@@ -9,6 +9,7 @@ import { BrainMap, Chart } from "./hud.js";
 import { loadPng, openStore } from "./pngdata.js";
 import { Terrain, TURF_TOP } from "./terrain.js";
 import { loadForest, POND_R } from "./forest.js";
+import { reflectable, underwater } from "./water.js";
 // On the grass floor the fly starts on the bank south of the pond.
 const FLY_START = { x: 0, y: -(POND_R + 60) };
 import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
@@ -56,17 +57,20 @@ scene.background = new THREE.Color(0x0d0c0a);
 scene.fog = new THREE.Fog(0x0d0c0a, 120, 650);
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.55;
-const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 2000);
+const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 6000);
 camera.up.set(0, 0, 1);
 camera.position.set(-9, -9, 6);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.minDistance = 3;
-controls.maxDistance = 1000; // the whole 90 cm arena in view
+controls.maxDistance = 2400; // the whole 2 m arena in view
 controls.maxPolarAngle = Math.PI * 0.49;
 
-scene.add(new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.7));
+const hemi = new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.7);
+hemi.layers.enableAll(); // lights the water's reflection and refraction passes too (water.js)
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0dd, 2.4);
+sun.layers.enableAll();
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 60 });
@@ -111,7 +115,8 @@ terrain.visible = false;
 // Forest-floor scenery on the grass floor: stones, moss, bracken, lady ferns (forest.js).
 // Kept clear: where the fly starts, and where the two frogs start.
 let forest = null;
-loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }])
+const ripple = { fly: 0, flyOn: false };
+loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -820, y: 330, r: 40 }, { x: 790, y: -430, r: 55 }])
   .then((f) => { forest = f; terrain.bake(renderer); }) // the pond, stones and moss become ground the fly can walk on
   .catch((e) => console.warn("Forest scenery did not load:", e));
 function syncExclusions() {
@@ -157,7 +162,9 @@ setFrogMode(frogMode);
 
 // Sky: outdoors (grass floor) a scattering sky with weather clouds and, in rain, a rainbow;
 // indoors the dark lab.
+let fogBase = [600, 2600];
 const skyDome = new SkyDome(scene);
+reflectable(skyDome.group);
 skyDome.visible = false;
 function applySky() {
   const w = weather?.mode || "off", out = terrain.visible;
@@ -166,12 +173,12 @@ function applySky() {
     skyDome.set(w, weather?.level ?? 2);
     scene.background = null;
     scene.fog.color.setHex(skyDome.horizon, THREE.LinearSRGBColorSpace);
-    [scene.fog.near, scene.fog.far] = w === "off" ? [270, 1150] : [165, 780]; // for the 90 cm arena
+    fogBase = w === "rain" ? [380, 1750] : null; // haze only in the rain (2 m arena; stretched as the camera pulls back, frame)
   } else {
     const dark = w === "off" ? 0x0d0c0a : w === "rain" ? 0x15171a : 0x1c1e22;
     scene.background = new THREE.Color(dark);
     scene.fog.color.setHex(dark);
-    [scene.fog.near, scene.fog.far] = [90, 390];
+    fogBase = w === "rain" ? [200, 860] : null;
   }
   sun.intensity = w === "rain" ? 1.3 : w === "snow" ? 1.5 : out ? 2.8 : 2.4;
 }
@@ -190,7 +197,11 @@ let weatherT = 0;
 const weather = new Weather(scene, {
   topAt: obstacleTop,
   isLeaf: (x, y, z) => terrain.visible && z > TURF_TOP + 0.3 && Math.abs(terrain.leafHeightAt(x, y) - z) < 0.05,
-  impact: (x, y, D) => { terrain.addImpact(x, y, weatherT, D); audio.drop(D, camera.position.distanceTo(tmpV.set(x, y, 0.5))); },
+  impact: (x, y, D) => {
+    terrain.addImpact(x, y, weatherT, D);
+    if (forest?.water?.contains(x, y)) forest.water.addRipple(x, y, 0.3 + 0.4 * D); // rings on the pond
+    audio.drop(D, camera.position.distanceTo(tmpV.set(x, y, 0.5)));
+  },
   arenaRadius: world.radius + 1, wallHeight: 50,
 });
 
@@ -812,7 +823,7 @@ function respawnAfterPredation() {
   if (frogs.length) { cx /= frogs.length; cy /= frogs.length; }
   let x = -cx, y = -cy, r = Math.hypot(x, y);
   if (r < 1) { x = -(eaten?.frog.x || 1); y = -(eaten?.frog.y || 0); r = Math.hypot(x, y) || 1; }
-  const R = world.radius * 0.75;
+  const R = world.radius * 0.85; // out on the land beyond the pond
   x = (x / r) * R; y = (y / r) * R;
   body.x = x; body.y = y; body.z = 0;
   body.speed = 0; body.turn = 0; body.airborne = 0;
@@ -933,6 +944,19 @@ function frame(now) {
     const dts = Math.max(0, simT - weatherT);
     weatherT = simT;
     predators?.update(dtf, { x, y, z: z + perch.z, gone: !!eaten });
+    // Ripples on the pond: the fly walking on the water, frogs landing in it or leaving it.
+    if (forest?.water && terrain.visible) {
+      const wat = forest.water, onWater = body.airborne <= 0 && wat.contains(x, y);
+      if (onWater && (Math.abs(body.speed) > 0.5 || !ripple.flyOn) && now - ripple.fly > 160) { wat.addRipple(x, y, ripple.flyOn ? 0.25 : 0.6); ripple.fly = now; }
+      ripple.flyOn = onWater;
+      for (const f of predators?.frogs || []) {
+        const air = f.mode === "hop" || f.mode === "jump";
+        const lifted = (f.lift || 0) > 0.5;
+        if (f._lifted !== undefined && lifted !== f._lifted && wat.contains(f.x, f.y)) wat.addRipple(f.x, f.y, f.length / 22);
+        else if (!air && f.mode === "sit" && wat.contains(f.x, f.y) && Math.random() < dtf * 0.4) wat.addRipple(f.x + (Math.random() - 0.5) * f.length * 0.4, f.y + (Math.random() - 0.5) * f.length * 0.4, 0.3);
+        f._lifted = lifted;
+      }
+    }
     // Frogs press the grass under them (terrain.js), except in the air.
     if (predators?.ready) terrain.setFrogs(predators.frogs.filter((f) => f.actor.visible)
       .map((f) => ({ x: f.x, y: f.y, heading: f.heading, length: f.length, lift: f.actor.position.z })));
@@ -1012,6 +1036,17 @@ function frame(now) {
   for (const c of loomGroup.children.slice()) if (!world.looms.some((lo) => lo.mesh === c)) loomGroup.remove(c);
   if (gustGroup.children.length && now > gustGroup.userData.until) gustGroup.clear();
   controls.update();
+  // Haze (in the rain only) starts beyond what the camera is looking at, however far out it is.
+  {
+    const d = camera.position.distanceTo(controls.target);
+    if (!fogBase) { scene.fog.near = 1e8; scene.fog.far = 1e8 + 1; } // clear: no haze
+    else {
+      scene.fog.near = Math.max(fogBase[0], d * 0.9 + fogBase[0] * 0.3);
+      scene.fog.far = Math.max(fogBase[1], d * 1.6 + fogBase[1] * 0.6);
+    }
+  }
+  // The pond's reflection and refraction, before the frame itself (water.js).
+  if (terrain.visible && forest?.water) forest.water.prerender(renderer, scene, camera, now / 1000, sun);
   renderer.render(scene, camera);
   if (now - lastStats > 100) {
     lastStats = now;
@@ -1056,15 +1091,19 @@ async function boot() {
   flyRoot = fly.root;
   flyRoot.traverse((o) => { if (o.isMesh) o.castShadow = o.castShadow !== false; });
   scene.add(flyRoot);
+  reflectable(flyRoot); // seen in the pond's reflection, and through the water if it's in it
+  underwater(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
   predators = new FrogPredators(scene, ASSETS + "frogs-original.glb", caughtByFrog, world.radius);
   predators.groundAt = groundZ; // frogs sit on stones and moss too
+  predators.isWater = (x, y) => !!forest?.water?.contains(x, y); // and float in the pond
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");
     $("frog-note").textContent = (count === 2 ? "Both frogs loaded: " : "Loaded one frog: ") + loaded +
       " (the detailed models, re-rigged on their " + predators.frogs[0].bones.size + " deform bones).";
+    for (const f of predators.frogs) { reflectable(f.actor); underwater(f.actor); }
     console.info("Frog rigs:", predators.frogs.map((frog) => ({ frog: frog.name, deformBones: frog.bones.size, eyes: frog.eyes.length, mouth: frog.mouth.toArray().map((v) => +v.toFixed(1)) })));
   }).catch((error) => {
     $("frog-note").textContent = "Frog loading failed: " + (error?.message || String(error));

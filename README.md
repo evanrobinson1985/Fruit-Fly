@@ -80,6 +80,16 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   bracken and lady ferns toward the wall. Stones and moss are solid ground: the fly walks
   and hops up onto them, frogs sit on them, rain lands on them and grass stays beneath.
   The stone set's texture maps were not supplied, so the stones have a procedural surface.
+  In the middle is a pond 1.4 m across (the arena is 2 m across), its basin cut from the
+  ground tile it came with and set into the floor, with its own water (`web/src/water.js`):
+  a mirrored reflection pass and a refraction pass with depth, so the surface reflects the
+  banks, sky, frogs and fly and shows the bed through it, bent by drifting ripples and by
+  rings wherever the fly walks on the water, raindrops land or frogs splash, darker and
+  greener with depth and fading into the wet bank at the shoreline, with glints of the sun.
+  The bed has silt, algae in the shallows and moving caustics; pondweed sways under the
+  water, duckweed floats near the banks, shoreline stones sit half in the water, and the
+  banks, stones and grass are wet at the waterline. Frogs float in the pond, low in the
+  water. There is haze only in the rain.
 - **Grooming:** touching the head bristles (a poke, a raindrop, a snowflake) drives the DNg12
   descending neurons in the connectome (to ~10 Hz; near 0 at rest), and while they fire the
   fly stops and cleans its head: front-leg sweeps over the eyes alternating with leg rubbing

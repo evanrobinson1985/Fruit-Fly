@@ -30,7 +30,7 @@ const FROG_DEFINITIONS = [
       fore: [[0.2, 0.2, -0.96], [0.25, 0.04, -0.97], [0.75, 0.15, -0.64], [0.8, 0.45, -0.3]], // propping up the chest
     },
     sitPitch: -0.06,       // and sits a little nose-up (the model's spine is already arched)
-    start: [-176, 128],
+    start: [-820, 330],
     heading: -0.6,
   },
   {
@@ -43,7 +43,7 @@ const FROG_DEFINITIONS = [
     hopTime: [0.2, 0.26, 0.4],
     hopHeight: 0.6,        // relative to a frog's arc
     sight: 200,
-    start: [176, -128],
+    start: [790, -430],
     heading: 2.5,
   },
 ];
@@ -611,6 +611,8 @@ export class FrogPredators {
     } else if (frog.mode === "strike") {
       pitch += 0.12 * Math.sin(Math.PI * clamp(frog.t / 0.3, 0, 1));
     }
+    // Afloat in the pond it rides low, eyes and back out of the water.
+    if (z < 0.5 && this.isWater?.(frog.x, frog.y)) ground -= frog.length * 0.16;
     frog.lift = z; // how high it is off the ground (in a hop)
     frog.actor.position.set(frog.x, frog.y, z + ground);
     frog.actor.rotation.set(0, pitch, frog.heading);
