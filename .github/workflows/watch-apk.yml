@@ -33,7 +33,7 @@ jobs:
         run: |
           APK=watch/phone/build/outputs/apk/release/phone-release.apk
           unzip -Z1 "$APK" | grep -Fx "assets/web/src/main.js"
-          unzip -Z1 "$APK" | grep -Fx "assets/web/assets/frogs.glb"
+          unzip -Z1 "$APK" | grep -Fx "assets/web/assets/frogs-animated.glb"
           unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/build/three.module.js"
           unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/examples/jsm/controls/OrbitControls.js"
           unzip -Z1 "$APK" | grep -Fx "assets/web/vendor/three/examples/jsm/utils/BufferGeometryUtils.js"
