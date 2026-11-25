@@ -664,6 +664,7 @@ export class Terrain {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color();
     for (const k of kinds) {
       const mesh = new THREE.InstancedMesh(k.geo, leafMaterial(k.color, this.uniforms), k.n);
+      mesh.frustumCulled = false;
       for (let i = 0; i < k.n; i++) {
         // Uniform in the disc, clear of the wall.
         const rad = Math.sqrt(r()) * (this.radius - 8), a = r() * 2 * Math.PI;
