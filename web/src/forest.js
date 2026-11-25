@@ -1,4 +1,5 @@
-// Forest-floor scenery for the grass arena: stones, moss tufts, bracken and lady ferns
+// Forest-floor scenery for the grass arena: a pond in the middle, the lawn (a grass model),
+// stones, moss tufts, bracken and lady ferns
 // (web/assets/env). Laid out once from a fixed seed, clear of where the fly and the frogs
 // start. Stones and moss are solid: they go into the terrain's height map, so the fly walks
 // and hops up onto them, rain lands on them, grass stays under them and frogs sit on them.
@@ -19,6 +20,12 @@ function transcoderPath() {
   try { return import.meta.resolve("three/addons/libs/basis/"); } catch { /* old browser */ }
   return "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/libs/basis/";
 }
+
+// The pond (pond.glb: its basin, cut from the ground tile it came with, plus margin stones,
+// rushes, cattails, water lilies and the water) is 21 m across as modelled; here it is
+// POND_R mm in radius, set into a matching hole in the arena floor.
+export const POND_R = 140;
+const POND_MODEL_R = 10.5; // m: where the basin meets the level ground in the model
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -76,13 +83,48 @@ function stoneMaterial(color, seed, base = 0) {
 export async function loadForest(terrain, renderer, base, keepClear = []) {
   const ktx2 = new KTX2Loader().setTranscoderPath(transcoderPath()).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
-  const [stones, moss, bracken, fern] = await Promise.all(
-    ["stones.glb", "moss-tufts.glb", "bracken.glb", "lady-fern.glb"].map((f) => loader.loadAsync(base + f)));
+  const [stones, moss, bracken, fern, pond] = await Promise.all(
+    ["stones.glb", "moss-tufts.glb", "bracken.glb", "lady-fern.glb", "pond.glb"].map((f) => loader.loadAsync(base + f)));
   const R = terrain.radius, r = rng(2024);
   const group = new THREE.Group();
   group.name = "forest";
   terrain.group.add(group);
+  keepClear = [...keepClear, { x: 0, y: 0, r: POND_R + 10 }];
   const placed = [...keepClear]; // {x, y, r}
+
+  // ---------- the pond, in the middle ----------
+  const solids = [];
+  let water = null;
+  {
+    const k = POND_R / POND_MODEL_R; // mm per model metre
+    const holder = new THREE.Group();
+    holder.rotation.x = Math.PI / 2; // Y-up -> Z-up
+    holder.scale.setScalar(k);
+    holder.add(pond.scene);
+    group.add(holder);
+    pond.scene.traverse((m) => {
+      if (!m.isMesh) return;
+      m.receiveShadow = true;
+      const name = m.material.name || "";
+      if (/water/i.test(name)) {
+        // Light water instead of the model's transmission (an extra render pass): tinted,
+        // see-through, glossy, with its ripples drifting.
+        const src = m.material;
+        const nm = src.normalMap;
+        if (nm) { nm.wrapS = nm.wrapT = THREE.RepeatWrapping; nm.repeat.set(6, 6); }
+        m.material = new THREE.MeshStandardMaterial({
+          color: 0x2e4a3a, map: src.map || null, normalMap: nm || null, normalScale: new THREE.Vector2(0.35, 0.35),
+          roughness: 0.06, metalness: 0.0, transparent: true, opacity: 0.62, depthWrite: false,
+        });
+        m.renderOrder = 2;
+        water = m;
+      } else {
+        m.castShadow = !/plants|lil|cattail|rush/i.test(m.name + name);
+      }
+      if (!/plants|lilies|cattails|rushes/i.test(m.name + name)) solids.push(m); // walkable: bed, stones, water
+    });
+  }
+  terrain.cutHole(POND_R);
   const free = (x, y, rad, pad = 4) => Math.hypot(x, y) + rad < R - 6 && placed.every((p) => Math.hypot(p.x - x, p.y - y) > p.r + rad + pad);
   const spot = (rad, rMin, rMax, tries = 300) => {
     for (let i = 0; i < tries; i++) {
@@ -112,7 +154,6 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
   const sets = { A: [], B: [], C: [] };
   stones.scene.traverse((o) => { if (o.isMesh) sets[o.name[0]]?.push(o); });
   const tones = { A: [0.09, 0.09, 0.25], B: [0.08, 0.07, 0.23], C: [0.1, 0.08, 0.21] }; // hue, saturation, lightness
-  const solids = [];
   const addStone = (src, width, rMin, rMax, sink) => {
     const at = spot(width * 0.5, rMin, rMax);
     if (!at) return;
@@ -155,8 +196,21 @@ export async function loadForest(terrain, renderer, base, keepClear = []) {
       placed.push({ x: at[0], y: at[1], r: w * 0.22 });
     }
   }
+  // ---------- grass: the lawn itself, from the grass model ----------
+  try {
+    const tl = new THREE.TextureLoader();
+    const [grass, map, normalMap] = await Promise.all([
+      loader.loadAsync(base + "grass.glb"), tl.loadAsync(base + "grass_diff.png"), tl.loadAsync(base + "grass_nor.jpg")]);
+    map.colorSpace = THREE.SRGBColorSpace;
+    for (const t of [map, normalMap]) { t.flipY = false; t.anisotropy = 4; } // glTF UVs
+    const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
+    terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap });
+  } catch (e) {
+    console.warn("Grass model did not load; keeping the generated grass:", e);
+  }
   // Weeds don't grow through stones.
   terrain.clearWeeds?.(stonesPlaced);
   terrain.solids = solids;
-  return { group, solids, stones: stonesPlaced };
+  const update = (t) => { if (water?.material.normalMap) water.material.normalMap.offset.set(t * 0.006, t * 0.004); };
+  return { group, solids, stones: stonesPlaced, update };
 }

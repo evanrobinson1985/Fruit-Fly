@@ -611,6 +611,7 @@ export class FrogPredators {
     } else if (frog.mode === "strike") {
       pitch += 0.12 * Math.sin(Math.PI * clamp(frog.t / 0.3, 0, 1));
     }
+    frog.lift = z; // how high it is off the ground (in a hop)
     frog.actor.position.set(frog.x, frog.y, z + ground);
     frog.actor.rotation.set(0, pitch, frog.heading);
   }

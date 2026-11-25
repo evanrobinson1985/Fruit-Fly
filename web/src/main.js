@@ -8,7 +8,9 @@ import { World, Body } from "./world.js";
 import { BrainMap, Chart } from "./hud.js";
 import { loadPng, openStore } from "./pngdata.js";
 import { Terrain, TURF_TOP } from "./terrain.js";
-import { loadForest } from "./forest.js";
+import { loadForest, POND_R } from "./forest.js";
+// On the grass floor the fly starts on the bank south of the pond.
+const FLY_START = { x: 0, y: -(POND_R + 60) };
 import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
 import { SkyDome } from "./sky.js";
 import { FlyAudio } from "./audio.js";
@@ -108,8 +110,9 @@ terrain.bake(renderer);
 terrain.visible = false;
 // Forest-floor scenery on the grass floor: stones, moss, bracken, lady ferns (forest.js).
 // Kept clear: where the fly starts, and where the two frogs start.
-loadForest(terrain, renderer, ASSETS + "env/", [{ x: 0, y: 0, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }])
-  .then(() => terrain.bake(renderer)) // stones and moss become ground the fly can walk on
+let forest = null;
+loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }])
+  .then((f) => { forest = f; terrain.bake(renderer); }) // the pond, stones and moss become ground the fly can walk on
   .catch((e) => console.warn("Forest scenery did not load:", e));
 function syncExclusions() {
   terrain.setExclusions([
@@ -834,7 +837,7 @@ const HOP = { step: 0.6, cool: 0.45 };
 // Feet in the body frame (mm forward, mm left): front, middle, hind pairs.
 const FEET = [[1.0, 0.75], [1.0, -0.75], [0.05, 0.95], [0.05, -0.95], [-0.9, 0.75], [-0.9, -0.75]];
 const smoothstep = (f) => f * f * (3 - 2 * f);
-const groundZ = (x, y) => (terrain.visible ? Math.max(TURF_TOP, terrain.leafHeightAt(x, y)) : 0);
+const groundZ = (x, y) => terrain.groundAt(x, y); // turf, leaves, stones, or down in the pond
 function feetHeights(x, y, hDeg) {
   const a = (hDeg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
   return FEET.map(([f, l]) => groundZ(x + f * c - l * s, y + f * s + l * c));
@@ -930,6 +933,9 @@ function frame(now) {
     const dts = Math.max(0, simT - weatherT);
     weatherT = simT;
     predators?.update(dtf, { x, y, z: z + perch.z, gone: !!eaten });
+    // Frogs press the grass under them (terrain.js), except in the air.
+    if (predators?.ready) terrain.setFrogs(predators.frogs.filter((f) => f.actor.visible)
+      .map((f) => ({ x: f.x, y: f.y, heading: f.heading, length: f.length, lift: f.actor.position.z })));
     if (simT < stim.windUntil) weather.wind.copy(stim.windVec); else weather.wind.set(0, 0);
     const feet = perch.z + z;
     const hits = weather.update(dts, simT, { x, y, feetZ: feet, heading: h, flying: body.airborne > 0, grooming: body.state === "grooming" },
@@ -965,6 +971,7 @@ function frame(now) {
       controls.target.set(x, y, 0.8 + z + perch.z + followFrameOffset);
     }
     terrain.update(x, y, now / 1000, feet, h, simT, camera);
+    forest?.update(now / 1000);
     if (skyDome.visible) sun.position.set(x, y, 0).addScaledVector(skyDome.sunDir, 30); // the sky's sun
     else sun.position.set(x + 8, y - 6, 20);                                               // the lab lamp
     sun.target.position.set(x, y, 0);
@@ -1036,11 +1043,13 @@ async function boot() {
     addFood(35, 40, 5);
     addFood(-25, 18, 4);
   }
-  body.reset(0, 0, 60);
-  Object.assign(curr, { x: 0, y: 0, z: 0, heading: 60, phase: 0, t: 0 });
+  const start = terrain.visible ? FLY_START : { x: 0, y: 0 };
+  body.reset(start.x, start.y, 60);
+  Object.assign(curr, { x: start.x, y: start.y, z: 0, heading: 60, phase: 0, t: 0 });
   Object.assign(prev, curr);
-  controls.target.set(0, 0, 0.8);
+  controls.target.set(start.x, start.y, 0.8);
   if (window.innerWidth <= 760) camera.position.multiplyScalar(1.6);
+  camera.position.x += start.x; camera.position.y += start.y;
   requestAnimationFrame(frame);
   $("load-stage").textContent = "Loading the FlyBody model (272k triangles)";
   fly = await loadFly(ASSETS);

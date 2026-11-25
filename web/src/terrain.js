@@ -16,7 +16,8 @@ const R0 = 16;                // radius of level 0; level L reaches R0 * 2^L
 const LEVELS = 5;             // out to 256 mm
 const MAX_IMPACTS = 16;       // raindrop impacts the shaders animate at once
 const MAX_EXCL = 16;
-const HMAP = 1024;            // leaf height map resolution over the arena
+const HMAP = 2048;            // height map resolution over the arena (~0.45 mm)
+const HZ0 = 40;               // height map offset (mm): it holds -40 .. +91 mm (the pond is below ground)
 
 // Seeded RNG for weed placement.
 function rng(seed) {
@@ -157,7 +158,8 @@ float leafTop(vec2 p) {
   vec2 uv = (p - uLeafBox.xy) / uLeafBox.z;
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
   vec4 t = textureLod(uLeaf, uv, 0.0);
-  return (t.r * 65280.0 + t.g * 255.0) / 500.0;
+  float v = t.r * 65280.0 + t.g * 255.0;
+  return v < 0.5 ? 0.0 : v / 500.0 - ${HZ0}.0;
 }
 ` + shader.vertexShader
       .replace("#include <color_vertex>", `
@@ -405,6 +407,142 @@ function seedlingGeometry() {
   ].map((g) => g.toNonIndexed()));
 }
 
+// ---------- grass from a model (web/assets/env/grass.glb: Poly Haven grass_medium_01) ----------
+// The same ring placement as the blades, one clump per cell instead of one blade. Clumps
+// near the fly are the model's fuller tufts; further rings use lighter ones, spread wider.
+const GC0 = 1.9;              // level-0 cell size (mm): one clump per cell
+const GR0 = 20;               // radius of level 0; level L reaches GR0 * 2^L
+const GLEVELS = 5;            // out to 320 mm
+export const GRASS_H = 2.4;   // a clump's height near the fly (mm): a lawn at a fly's scale
+const MAX_FROGS = 2;
+
+/** An instanced clump: the model's geometry (Y-up, any units) turned Z-up, 1 unit tall. */
+function clumpGeometry(src, levels) {
+  const g = src.clone();
+  g.rotateX(Math.PI / 2);
+  g.computeBoundingBox();
+  const b = g.boundingBox;
+  g.translate(-(b.min.x + b.max.x) / 2, -(b.min.y + b.max.y) / 2, -b.min.z);
+  g.scale(1 / (b.max.z - b.min.z), 1 / (b.max.z - b.min.z), 1 / (b.max.z - b.min.z));
+  const geo = new THREE.InstancedBufferGeometry();
+  for (const k of ["position", "normal", "uv"]) geo.setAttribute(k, g.getAttribute(k));
+  geo.setIndex(g.getIndex());
+  const cells = [];
+  for (const L of levels) {
+    const c = GC0 * 2 ** L, rOut = GR0 * 2 ** L + 2 * c, rIn = L ? Math.max(0, 0.8 * GR0 * 2 ** (L - 1) - 2 * c) : -1;
+    const n = Math.ceil(rOut / c);
+    for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
+      const d = Math.hypot(i, j) * c;
+      if (d <= rOut && d >= rIn) cells.push(i, j, L);
+    }
+  }
+  geo.setAttribute("aCell", new THREE.InstancedBufferAttribute(new Float32Array(cells), 3));
+  geo.instanceCount = cells.length / 3;
+  return geo;
+}
+
+function clumpMaterial(u, maps) {
+  const m = new THREE.MeshStandardMaterial({
+    map: maps.map, normalMap: maps.normalMap, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.78, metalness: 0,
+  });
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = GLSL_COMMON + `
+attribute vec3 aCell;
+varying float vH;
+varying vec3 vTint;
+uniform vec2 uCenter;
+uniform float uArena;
+uniform vec3 uExcl[${MAX_EXCL}];
+uniform int uNExcl;
+uniform sampler2D uLeaf;
+uniform vec3 uLeafBox;
+uniform vec4 uFrog[${MAX_FROGS}];   // frogs: x, y, heading, length (0: none)
+uniform float uFrogZ[${MAX_FROGS}]; // height of each frog's belly (world z)
+uint pcg(uint v) { uint s = v * 747796405u + 2891336453u; uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u; return (w >> 22u) ^ w; }
+float h01(ivec2 c, uint k) { return float(pcg(uint(c.x) * 73856093u ^ pcg(uint(c.y) * 19349663u ^ k))) / 4294967295.0; }
+float leafTop(vec2 p) {
+  vec2 uv = (p - uLeafBox.xy) / uLeafBox.z;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
+  vec4 t = textureLod(uLeaf, uv, 0.0);
+  float v = t.r * 65280.0 + t.g * 255.0;
+  return v < 0.5 ? 0.0 : v / 500.0 - ${HZ0}.0;
+}
+uniform float uHole;   // no grass inside this radius (the pond)
+` + shader.vertexShader
+      .replace("#include <color_vertex>", `#include <color_vertex>
+  float lvl = aCell.z, cs = ${GC0} * exp2(lvl);
+  ivec2 cell = ivec2(floor(uCenter / cs) + aCell.xy);
+  uint L = uint(lvl) * 16u + 3u;
+  vec2 bpos = (vec2(cell) + vec2(h01(cell, L + 1u), h01(cell, L + 2u))) * cs;
+  float d = length(bpos - uCenter);
+  float rOut = ${GR0}.0 * exp2(lvl), rIn = ${GR0}.0 * exp2(lvl - 1.0);
+  float keep = (1.0 - smoothstep(0.8 * rOut, rOut, d)) * (lvl < 0.5 ? 1.0 : smoothstep(0.8 * rIn, rIn, d));
+  float alive = step(h01(cell, L + 3u), keep);
+  float jit = 0.75 + 0.5 * h01(cell, L + 4u);
+  float sz = ${GRASS_H} * jit * (1.0 + 0.25 * lvl);           // taller rings further out read as a meadow
+  float sxy = 1.5 * ${GRASS_H} * jit * exp2(0.85 * lvl);       // spread wide, and wider still further out, to stay covered
+  float rr = length(bpos);
+  alive *= 1.0 - step(uArena - 0.5 * sxy, rr);                 // grass only inside the arena
+  // Down the pond's banks it follows the ground; it stops where the mud and water begin.
+  float g0 = leafTop(bpos), base = 0.0;
+  if (g0 < 0.0) { base = g0; alive *= step(-1.4, g0); }
+  alive *= step(uHole - 30.0, rr);
+  for (int i = 0; i < ${MAX_EXCL}; i++) { if (i >= uNExcl) break; if (distance(bpos, uExcl[i].xy) < uExcl[i].z + 0.4 * sxy) alive = 0.0; }
+  float yaw = h01(cell, L + 5u) * 6.2832;
+  mat3 R = mat3(cos(yaw), sin(yaw), 0.0, -sin(yaw), cos(yaw), 0.0, 0.0, 0.0, 1.0);
+  float hue = h01(cell, L + 6u);
+  vTint = mix(vec3(1.0, 1.12, 0.95), vec3(1.2, 1.14, 0.85), hue) * (1.0 + 0.3 * h01(cell, L + 7u));
+  vH = position.z;`)
+      .replace("#include <beginnormal_vertex>", "vec3 objectNormal = R * normal;")
+      .replace("#include <begin_vertex>", `
+  vec3 transformed = alive > 0.5 ? R * (position * vec3(sxy, sxy, sz)) + vec3(bpos, base) : vec3(0.0);`)
+      .replace("#include <project_vertex>", `
+  if (alive > 0.5) {
+    float h = transformed.z;
+    // Pressed where the fly's body and legs are: an ellipse around it, capped just under its belly.
+    vec2 o = transformed.xy - uFly.xy;
+    float a = dot(o, uFlyDir), b = dot(o, vec2(-uFlyDir.y, uFlyDir.x));
+    float e = a * a / 2.1 + b * b / 1.3;
+    float cap = uFly.z + 0.22 + max(0.0, e - 0.7) * 8.0;
+    if (transformed.z > cap) { float ex = transformed.z - cap; transformed.z = cap; transformed.xy += normalize(o + 1e-4) * ex * 0.7; }
+    // And under each frog: its body and folded legs flatten the grass, which leans out around it.
+    for (int k = 0; k < ${MAX_FROGS}; k++) {
+      vec4 F = uFrog[k];
+      if (F.w <= 0.0) continue;
+      vec2 q = transformed.xy - F.xy, fd = vec2(cos(F.z), sin(F.z));
+      float fa = dot(q, fd) / (0.62 * F.w), fb = dot(q, vec2(-fd.y, fd.x)) / (0.5 * F.w);
+      float fe = fa * fa + fb * fb;
+      float fcap = uFrogZ[k] + 0.12 + max(0.0, fe - 0.8) * F.w * 0.9;
+      if (transformed.z > fcap) { float ex = transformed.z - fcap; transformed.z = fcap; transformed.xy += normalize(q + 1e-4) * ex * 0.65; }
+    }
+    // A leaf or a stone is solid: grass stays underneath it.
+    float lz = leafTop(transformed.xy);
+    if (lz > 0.01 && transformed.z > lz - 0.06) transformed.z = max(0.01, lz - 0.06);
+    float sw = vH * vH;
+    transformed.x += sin(uTime * 1.7 + transformed.y * 0.35) * 0.2 * sw;
+    transformed.y += cos(uTime * 1.3 + transformed.x * 0.3) * 0.14 * sw;
+    // Raindrops flatten the blades they hit, which then spring back.
+    for (int i = 0; i < ${MAX_IMPACTS}; i++) {
+      float age = uSimT - uImp[i].z;
+      if (age < 0.0 || age > 0.8 || uImp[i].w <= 0.0) continue;
+      vec2 q = transformed.xy - uImp[i].xy;
+      float Rr = 0.5 * uImp[i].w + 0.35;
+      float f = exp(-dot(q, q) / (Rr * Rr)) * exp(-age / 0.15) * cos(age * 35.0);
+      float hz = transformed.z;
+      transformed.z -= hz * 0.85 * clamp(f, -0.3, 1.0);
+      transformed.xy += normalize(q + 1e-4) * hz * 0.6 * max(f, 0.0);
+    }
+  }
+  vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+  gl_Position = projectionMatrix * mvPosition;`);
+    shader.fragmentShader = "varying float vH;\nvarying vec3 vTint;\n" + shader.fragmentShader
+      .replace("#include <color_fragment>", `#include <color_fragment>
+  diffuseColor.rgb *= vTint * mix(0.7, 1.15, smoothstep(0.0, 0.6, vH)); // shaded low in the clump`);
+  };
+  return m;
+}
+
 export class Terrain {
   constructor(scene, radius) {
     this.radius = radius;
@@ -422,6 +560,9 @@ export class Terrain {
       uCenter: { value: new THREE.Vector2() }, uArena: { value: radius + 1 },
       uExcl: { value: Array.from({ length: MAX_EXCL }, () => new THREE.Vector3()) }, uNExcl: { value: 0 },
       uLeaf: { value: null }, uLeafBox: { value: new THREE.Vector3(-box, -box, 2 * box) },
+      uFrog: { value: Array.from({ length: MAX_FROGS }, () => new THREE.Vector4()) },
+      uFrogZ: { value: new Array(MAX_FROGS).fill(0) },
+      uHole: { value: -1 },
     };
     this._ray = new THREE.Raycaster(undefined, undefined, 0, 40);
     this.group = new THREE.Group(); // toggled as a whole by the floor switch
@@ -443,6 +584,46 @@ export class Terrain {
 
   get bladeCount() {
     return this.blades.geometry.instanceCount;
+  }
+
+  /**
+   * Cover the floor with clumps of a grass model instead of the generated blades.
+   * variants: { near, mid, far } BufferGeometries; maps: { map, normalMap }.
+   */
+  useGrassModel(variants, maps) {
+    const mat = clumpMaterial(this.uniforms, maps);
+    const groups = [[variants.near, [0]], [variants.mid, [1]], [variants.far, [2, 3, 4, 5]]];
+    this.clumps = groups.map(([src, levels]) => {
+      const mesh = new THREE.Mesh(clumpGeometry(src, levels), mat);
+      mesh.frustumCulled = false;
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+      return mesh;
+    });
+    this.group.remove(this.blades);
+  }
+
+  /** A round hole in the floor (for the pond's basin), with no grass or weeds inside it. */
+  cutHole(r) {
+    const R = this.radius, shape = new THREE.Shape().absarc(0, 0, R, 0, Math.PI * 2, false);
+    shape.holes.push(new THREE.Path().absarc(0, 0, r, 0, Math.PI * 2, true));
+    const g = new THREE.ShapeGeometry(shape, 96);
+    const p = g.attributes.position, uv = g.attributes.uv;
+    for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / (2 * R) + 0.5, p.getY(i) / (2 * R) + 0.5); // as the disc's
+    this.floor.geometry.dispose();
+    this.floor.geometry = g;
+    this.uniforms.uHole.value = r;
+    this.clearWeeds([{ x: 0, y: 0, r }]);
+  }
+
+  /** Frogs pressing the grass: [{x, y, heading (rad), length, lift (belly above ground)}]. */
+  setFrogs(list) {
+    for (let i = 0; i < MAX_FROGS; i++) {
+      const f = list[i];
+      if (f) this.uniforms.uFrog.value[i].set(f.x, f.y, f.heading, f.length);
+      else this.uniforms.uFrog.value[i].set(0, 0, 0, 0);
+      this.uniforms.uFrogZ.value[i] = f ? f.lift : 0;
+    }
   }
 
   _addWeeds(scene) {
@@ -521,7 +702,7 @@ export class Terrain {
         }`,
       fragmentShader: `varying float vZ;
         void main() {
-          float v = clamp(floor(vZ * 500.0 + 0.5), 0.0, 65535.0);
+          float v = clamp(floor((vZ + ${HZ0}.0) * 500.0 + 0.5), 1.0, 65535.0); // 0 = nothing there
           gl_FragColor = vec4(floor(v / 256.0) / 255.0, mod(v, 256.0) / 255.0, 0.0, 1.0);
         }`,
     });
@@ -556,7 +737,7 @@ export class Terrain {
     renderer.setClearColor(prevClear, prevAlpha);
     renderer.toneMapping = prevTone;
     const hm = new Float32Array(HMAP * HMAP);
-    for (let i = 0; i < hm.length; i++) hm[i] = (buf[4 * i] * 256 + buf[4 * i + 1]) / 500;
+    for (let i = 0; i < hm.length; i++) { const v = buf[4 * i] * 256 + buf[4 * i + 1]; hm[i] = v ? v / 500 - HZ0 : 0; }
     this.leafHeights = hm;
     this.uniforms.uLeaf.value = rt.texture;
     mat.dispose();
@@ -571,10 +752,19 @@ export class Terrain {
     return this.leafHeights[j * HMAP + i];
   }
 
-  // Top of everything at (x, y) that rain or snow can land on: leaves, or the turf.
+  // Top of everything at (x, y) that rain or snow can land on: leaves, stones, the pond's
+  // water, or the turf.
   topAt(x, y) {
     if (!this.group.visible || x * x + y * y > this.radius * this.radius) return 0;
-    return Math.max(TURF_TOP + 0.2, this.leafHeightAt(x, y));
+    const h = this.leafHeightAt(x, y);
+    return h < 0 ? h : Math.max(TURF_TOP + 0.2, h);
+  }
+
+  // Where feet rest at (x, y): the turf, or anything on it, or down in the pond.
+  groundAt(x, y) {
+    if (!this.group.visible) return 0;
+    const h = this.leafHeightAt(x, y);
+    return h < 0 ? h : Math.max(TURF_TOP, h);
   }
 
   // A raindrop landed: the grass and leaves there react (see the shaders).

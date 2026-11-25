@@ -61,7 +61,7 @@ export const BODY = {
 
 export class World {
   constructor() {
-    this.radius = 300; // twice the previous diameter, giving the frogs and fly more room
+    this.radius = 450; // 90 cm across: room for the pond in the middle and the frogs around it
     this.odors = [];   // {x, y, strength, sigma, kind}
     this.food = [];    // {x, y, r}
     this.looms = [];   // {t0, azimuth, radius, speed, d0, onsetHeading, x0, y0}
