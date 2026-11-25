@@ -1011,23 +1011,13 @@ async function boot() {
   scene.add(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
-  predators = new FrogPredators(scene, ASSETS + "frogs-animated.glb", respawnAfterPredation, world.radius);
+  predators = new FrogPredators(scene, ASSETS + "frogs-original.glb", respawnAfterPredation, world.radius);
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");
-    const clipSummary = predators.frogs.map((frog) => {
-      const names = [...frog.animationActions.keys()];
-      return frog.name + ": " + (names.length ? names.join(", ") : "no authored animation clips");
-    }).join(" | ");
-    $("frog-note").textContent = (count === 2
-      ? "Both frogs loaded: " + loaded + ". "
-      : "Loaded one frog: " + loaded + ". ") + clipSummary;
-    console.info("Frog rig animation diagnostics:", predators.frogs.map((frog) => ({
-      frog: frog.name,
-      bones: frog.bones.size,
-      clips: [...frog.animationActions.keys()],
-      matched: Object.entries(frog.animationSet).filter(([, action]) => action).map(([state]) => state),
-    })));
+    $("frog-note").textContent = (count === 2 ? "Both frogs loaded: " : "Loaded one frog: ") + loaded +
+      " (the detailed models, re-rigged on their " + predators.frogs[0].bones.size + " deform bones).";
+    console.info("Frog rigs:", predators.frogs.map((frog) => ({ frog: frog.name, deformBones: frog.bones.size, eyes: frog.eyes.length, mouth: frog.mouth.toArray().map((v) => +v.toFixed(1)) })));
   }).catch((error) => {
     $("frog-note").textContent = "Frog loading failed: " + (error?.message || String(error));
     console.error("Frog predator models did not load:", error);

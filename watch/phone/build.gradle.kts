@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.4.2"
+        versionCode = 8
+        versionName = "0.5.0"
     }
 
     // Same public sideload key as the watch app (see ../app/build.gradle.kts).
@@ -50,8 +50,8 @@ val copySite by tasks.registering(Copy::class) {
     from("../../web") {
         include("index.html", "src/**", "assets/**")
         exclude("assets/NOTICE.md")
-        // Only frogs-animated.glb is loaded; the archived frog models stay in the repo, not the APK.
-        exclude("assets/frogs.glb", "assets/frogs-original.glb", "assets/frogs-rigged.glb", "assets/*.md")
+        // Only frogs-original.glb (the detailed models, re-rigged at load) is used; the other frog files stay in the repo.
+        exclude("assets/frogs.glb", "assets/frogs-animated.glb", "assets/frogs-rigged.glb", "assets/*.md")
     }
     from("vendor") { into("vendor") }
     doLast { // Fail the build if any Three.js module required by the phone page is missing.

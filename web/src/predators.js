@@ -2,19 +2,34 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
+// Two frogs from web/assets/frogs-original.glb, the most detailed version of the models:
+// the full meshes with their eyes and textures, each skinned by its author to a Rigify rig
+// (96 deform bones: spine, pelvis, belly, chest, shoulders, both pairs of legs down to each
+// toe). Rigify's deform bones follow control bones through Blender constraints, which a GLB
+// doesn't carry, so the frogs are re-rigged here when they load: each deform bone is
+// re-parented to its anatomical parent (legs to the hips, arms to the chest, toes to the
+// feet) without moving it, which keeps the author's skin weights exactly. The eyes are
+// attached to the head. Everything the frogs do is then posed on that skeleton: breathing,
+// croaking, hops and big jumps with the hind legs pushing off and trailing and the forelegs
+// reaching to land, and a tongue that shoots out to the fly.
 const FROG_DEFINITIONS = [
   {
     id: "small",
     name: "Montane Brown Frog",
     rootName: "rig",
     meshName: "Montane Brown Frog (F).lower",
-    targetLength: 42,
-    hopBodyLengths: 1.3,   // a frog: long hops
-    hopTimeScale: 1,
+    length: 42,            // mm, snout to vent
+    hopBodyLengths: 1.4,   // a frog: long, quick hops
+    hopTime: [0.12, 0.3, 0.26], // gather, flight, settle (s)
     sight: 170,            // mm at which it notices the fly
-    // Turn that points the model's head along the actor's +X (the direction it moves and
-    // strikes). In the GLB this frog's head is along +Y after the Y-up -> Z-up turn.
-    yaw: -Math.PI / 2,
+    // Its model is posed mid-stride with the hind legs stretched out; a sitting frog folds
+    // them in a Z beside its body: thigh forward, shin back, foot forward again.
+    sit: {
+      // tucked in close along the flanks, not splayed
+      hind: [[0.62, 0.5, -0.3], [-0.95, 0.12, -0.28], [0.97, 0.15, -0.08], [0.92, 0.35, -0.08]],
+      fore: [[0.2, 0.2, -0.96], [0.25, 0.04, -0.97], [0.75, 0.15, -0.64], [0.8, 0.45, -0.3]], // propping up the chest
+    },
+    sitPitch: -0.06,       // and sits a little nose-up (the model's spine is already arched)
     start: [-176, 128],
     heading: -0.6,
   },
@@ -23,12 +38,11 @@ const FROG_DEFINITIONS = [
     name: "Japanese Toad",
     rootName: "rig.Big.Frog",
     meshName: "Japanese Toad (M).lower",
-    targetLength: 66,
-    hopBodyLengths: 0.7,   // a toad: short, slower, low hops
-    hopTimeScale: 0.75,
-    clipLift: { Hop: 0.4, Big_Jump: 0.55 },
+    length: 70,
+    hopBodyLengths: 0.55,  // a toad: short, low, slower hops
+    hopTime: [0.2, 0.26, 0.4],
+    hopHeight: 0.6,        // relative to a frog's arc
     sight: 200,
-    yaw: Math.PI / 2,      // this one's head is along -Y in the GLB
     start: [176, -128],
     heading: 2.5,
   },
@@ -36,7 +50,21 @@ const FROG_DEFINITIONS = [
 
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 const normalizeNodeName = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+// three.js drops dots and other reserved characters from node names when it loads a GLB
+// ("DEF-spine.001" -> "DEF-spine001"); look names up the same way.
+const N = (name) => THREE.PropertyBinding.sanitizeNodeName(name);
+
+// Limb chains: each segment is aimed from its own head toward the next bone's head.
+// The last bone is the middle toe's second joint: the toes are aimed as one more segment.
+const HIND = ["thigh", "shin", "foot", "r_toe", "r_middle.002"];
+const FORE = ["upper_arm", "forearm", "hand", "f_toe", "f_middle.002"];
+const SPINE = ["DEF-spine", "DEF-spine.001", "DEF-spine.002", "DEF-spine.003", "DEF-spine.004", "DEF-spine.005", "DEF-spine.006"];
+
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _q4 = new THREE.Quaternion();
+const IDENTITY = new THREE.Quaternion();
 
 export class FrogPredators {
   constructor(scene, url, onCatch = () => {}, arenaRadius = 100) {
@@ -49,8 +77,6 @@ export class FrogPredators {
     this.mode = "both";
     this.ready = false;
     this.catchLock = 0;
-    this.axis = new THREE.Vector3(1, 0, 0);
-    this.delta = new THREE.Quaternion();
   }
 
   async load() {
@@ -61,149 +87,172 @@ export class FrogPredators {
       throw new Error("Could not fetch or parse " + this.url + ": " + (error?.message || String(error)));
     }
     gltf.scene.updateMatrixWorld(true);
-    const skinnedMeshes = [];
-    gltf.scene.traverse((object) => { if (object.isSkinnedMesh) skinnedMeshes.push(object); });
-    const availableMeshes = skinnedMeshes.map((mesh) => mesh.name || "(unnamed mesh)");
     const errors = [];
-
     for (const def of FROG_DEFINITIONS) {
       try {
-        // Blender/GLB exports may replace spaces and punctuation with underscores.
-        // Compare normalized names so "(F).lower" and "_(F)lower" resolve identically.
-        const expectedMeshName = normalizeNodeName(def.meshName);
-        const exactMesh = gltf.scene.getObjectByName(def.meshName);
-        const meshSource = (exactMesh?.isSkinnedMesh ? exactMesh : null) ||
-          skinnedMeshes.find((mesh) => normalizeNodeName(mesh.name) === expectedMeshName);
-        if (!meshSource) {
-          throw new Error("Could not find skinned mesh '" + def.meshName +
-            "'. Available skinned meshes: " + (availableMeshes.join(", ") || "none"));
-        }
-
-        let source = gltf.scene.getObjectByName(def.rootName);
-        if (!source) {
-          source = meshSource;
-          while (source.parent && source.parent !== gltf.scene) source = source.parent;
-        }
-        const rig = cloneSkinned(source);
-        const mesh = rig.getObjectByName(meshSource.name);
-        if (!mesh || !mesh.isSkinnedMesh) {
-          throw new Error("Cloned rig did not contain skinned mesh '" + meshSource.name + "'.");
-        }
-        // The AFK export has two frog meshes bound to the same 31-joint rig.
-        // Each predator gets its own cloned rig and only its own visible mesh.
-        rig.traverse((object) => {
-          if (object.isSkinnedMesh) object.visible = object.name === mesh.name;
-        });
-
-        const rawBounds = new THREE.Box3().setFromObject(mesh);
-        const rawLength = Math.max(0.001, rawBounds.max.x - rawBounds.min.x);
-        const scale = def.targetLength / rawLength;
-        const model = new THREE.Group();
-        model.add(rig);
-        // glTF models use +Y as up; the lab world uses +Z. Rotate +90° about X.
-        model.rotation.x = Math.PI / 2;
-        model.scale.setScalar(scale);
-        model.updateMatrixWorld(true);
-
-        const bounds = new THREE.Box3().setFromObject(mesh);
-        model.position.x -= (bounds.min.x + bounds.max.x) / 2;
-        model.position.y -= (bounds.min.y + bounds.max.y) / 2;
-        model.position.z -= bounds.min.z;
-
-        const bones = new Map();
-        rig.traverse((object) => {
-          if (object.isMesh || object.isSkinnedMesh) {
-            object.castShadow = true;
-            object.receiveShadow = true;
-            if (object.material) {
-              const materials = Array.isArray(object.material) ? object.material : [object.material];
-              for (const material of materials) {
-                if ("roughness" in material) material.roughness = Math.max(0.32, material.roughness);
-              }
-            }
-          }
-          if (object.isBone) bones.set(object.name, { bone: object, rest: object.quaternion.clone(), normalized: normalizeNodeName(object.name) });
-        });
-
-        // Use the GLB's authored animation tracks instead of guessing bone roles
-        // and rotating unrelated joints around one global axis.
-        const mixer = new THREE.AnimationMixer(rig);
-        const animationActions = new Map();
-        for (const source of gltf.animations || []) {
-          // The clips raise the hips a long way (the Hop by ~28 mm at the toad's size, the big
-          // jump by ~60 mm). Scale that lift per frog so a toad's hop stays low.
-          const clip = source.clone();
-          const lift = def.clipLift?.[clip.name] ?? 1;
-          if (lift !== 1) {
-            for (const track of clip.tracks) {
-              if (!/hips\.position$/.test(track.name)) continue;
-              const v = track.values, base = [v[0], v[1], v[2]];
-              for (let i = 0; i < v.length; i++) v[i] = base[i % 3] + (v[i] - base[i % 3]) * lift;
-            }
-          }
-          const action = mixer.clipAction(clip, rig);
-          action.enabled = true;
-          action.setLoop(THREE.LoopRepeat, Infinity);
-          animationActions.set(clip.name || ("animation-" + (animationActions.size + 1)), action);
-        }
-        const findAction = (pattern) => {
-          for (const [name, action] of animationActions) if (pattern.test(name)) return action;
-          return null;
-        };
-        const animationSet = {
-          idle: findAction(/idle|rest|breath/i),
-          walk: findAction(/hop|walk|locomotion|run|move/i),
-          stalk: findAction(/stalk|crouch|sneak/i),
-          lunge: findAction(/big.?jump|lunge|jump|leap|attack/i),
-          catch: findAction(/catch|bite|eat|tongue/i),
-          croak: findAction(/croak|call/i),
-        };
-        if (!animationSet.walk && animationActions.size === 1) {
-          animationSet.walk = animationActions.values().next().value;
-        }
-
-        // Point the head along +X: the movement, the mouth position and the strike all use it.
-        const orient = new THREE.Group();
-        orient.rotation.z = def.yaw || 0;
-        orient.add(model);
-        // A mesh skinned only to the root bone can't use the leg clips: it hops as a whole body.
-        const si = mesh.geometry.attributes.skinIndex, sw = mesh.geometry.attributes.skinWeight;
-        const used = new Set();
-        if (si && sw) for (let i = 0; i < si.count; i += 7) for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > 0.05) used.add(si.getComponent(i, k));
-        const rigid = used.size <= 1;
-        const actor = new THREE.Group();
-        actor.name = "predator-" + def.id;
-        actor.rotation.order = "ZYX"; // heading, then pitch about the frog's own side axis
-        actor.add(orient);
-        actor.position.set(def.start[0], def.start[1], 0);
-        actor.rotation.z = def.heading;
-        this.scene.add(actor);
-
-        this.frogs.push({
-          ...def, actor, model, bones, rigid, mixer, animationActions, animationSet,
-          activeAction: null, activeAnimationState: null,
-          x: def.start[0], y: def.start[1], heading: def.heading,
-          phase: Math.random() * Math.PI * 2, speed: 0,
-          length: def.targetLength, catchCooldown: 0, state: "waiting",
-          stateTimer: 0, croakCooldown: 7 + Math.random() * 9,
-          // Movement: sitting, hopping, big jumps, croaks and tongue strikes (see update()).
-          mode: "sit", t: 0, sitLeft: 1 + Math.random() * 3, hop: null, boutLeft: 0, hunting: 0, wander: null,
-          hopLength: def.targetLength * def.hopBodyLengths, hopTimeScale: def.hopTimeScale,
-          reach: def.targetLength * 0.55, sight: def.sight,
-        });
+        this.frogs.push(this._build(gltf, def));
       } catch (error) {
         errors.push(def.name + ": " + (error?.message || String(error)));
         console.warn("Could not prepare frog model " + def.name, error);
       }
     }
-
-    if (!this.frogs.length) {
-      throw new Error("The GLB opened, but neither frog rig could be prepared. " + errors.join(" | "));
-    }
+    if (!this.frogs.length) throw new Error("The GLB opened, but neither frog could be prepared. " + errors.join(" | "));
     if (errors.length) console.warn("Some frog models were skipped:", errors.join(" | "));
     this.ready = true;
     this.setMode(this.mode);
     return this.frogs.length;
+  }
+
+  // ---------- re-rigging ----------
+
+  _build(gltf, def) {
+    const source = gltf.scene.getObjectByName(N(def.rootName)) || gltf.scene.getObjectByName(def.rootName);
+    if (!source) throw new Error("No rig '" + def.rootName + "' in the GLB");
+    const rig = cloneSkinned(source);
+    let mesh = null;
+    const eyes = [];
+    rig.traverse((o) => {
+      if (o.isSkinnedMesh && normalizeNodeName(o.name) === normalizeNodeName(def.meshName)) mesh = o;
+      else if (o.isMesh && /^eye/i.test(o.name)) eyes.push(o);
+    });
+    if (!mesh) throw new Error("No skinned mesh '" + def.meshName + "' under '" + def.rootName + "'");
+
+    // glTF is Y-up; the arena is Z-up.
+    const model = new THREE.Group();
+    model.rotation.x = Math.PI / 2;
+    model.add(rig);
+    const orient = new THREE.Group();
+    orient.add(model);
+    const actor = new THREE.Group();
+    actor.name = "predator-" + def.id;
+    actor.rotation.order = "ZYX"; // heading, then pitch about the frog's own side axis
+    actor.add(orient);
+    actor.updateMatrixWorld(true);
+
+    // Clean skeleton: every deform bone under its anatomical parent, kept where it is.
+    const bones = new Map();
+    // (the second rig's bone names carry a "_1" suffix: three.js keeps node names unique)
+    const base = (name) => name.replace(/_\d+$/, "");
+    rig.traverse((o) => { if (o.isBone) bones.set(base(o.name), o); });
+    const def_ = (n) => bones.get(N(n));
+    const logicalParent = (bone) => {
+      for (let p = bone.parent; p; p = p.parent) {
+        const m = /^ORG-spine(\d*)$/.exec(base(p.name));
+        if (m && bones.get("DEF-spine" + m[1])) return bones.get("DEF-spine" + m[1]);
+        if (p.name.startsWith("DEF-")) return p;
+        if (p === rig) break;
+      }
+      return def_("root") || rig;
+    };
+    const deform = [...bones.entries()].filter(([n]) => n.startsWith("DEF-")).map(([, b]) => b);
+    const depth = (b) => { let d = 0; for (let p = b; p; p = p.parent) d++; return d; };
+    for (const b of deform.sort((a, c) => depth(a) - depth(c))) {
+      const parent = logicalParent(b);
+      if (parent !== b.parent) parent.attach(b);
+    }
+    // The eyes follow the head.
+    const head = def_("DEF-spine.006") || def_("DEF-spine.005");
+    for (const e of eyes) head.attach(e);
+
+    // Face +X: the snout is ahead of the hips.
+    actor.updateMatrixWorld(true);
+    const hips = def_("DEF-spine").getWorldPosition(new THREE.Vector3());
+    const snout = head.getWorldPosition(new THREE.Vector3());
+    orient.rotation.z = -Math.atan2(snout.y - hips.y, snout.x - hips.x);
+    actor.updateMatrixWorld(true);
+
+    // Scale to its snout-vent length and set it on the ground (from the skinned rest pose).
+    const box = this._skinnedBounds(mesh, actor);
+    const scale = def.length / Math.max(1e-6, box.max.x - box.min.x);
+    model.scale.setScalar(scale);
+    actor.updateMatrixWorld(true);
+    const b2 = this._skinnedBounds(mesh, actor);
+    orient.position.set(-(b2.min.x + b2.max.x) / 2, -(b2.min.y + b2.max.y) / 2, -b2.min.z);
+    actor.updateMatrixWorld(true);
+
+    rig.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        o.frustumCulled = false; // posed limbs reach outside the bind-pose bounds
+      }
+    });
+
+    // Chains of deform bones, and their rest pose.
+    const side = (s) => ({
+      hind: HIND.map((n) => def_(`DEF-${n}.${s}`)),
+      fore: FORE.map((n) => def_(`DEF-${n}.${s}`)),
+      sign: Math.sign(def_(`DEF-thigh.${s}`).getWorldPosition(_v1).y) || (s === "L" ? 1 : -1),
+    });
+    const limbs = { L: side("L"), R: side("R") };
+    const rest = new Map(deform.map((b) => [b, { q: b.quaternion.clone(), s: b.scale.clone(), p: b.position.clone() }]));
+    // "Down" for the throat, in the chest bone's parent space: the throat puffs out downward.
+    const chest = def_("DEF-Breast.C");
+    let throatDown = null;
+    if (chest) {
+      const at = chest.getWorldPosition(new THREE.Vector3());
+      const below = at.clone().add(new THREE.Vector3(0, 0, -1).transformDirection(actor.matrixWorld));
+      throatDown = chest.parent.worldToLocal(below).sub(chest.parent.worldToLocal(at.clone()));
+    }
+
+    // A tongue: frogs catch prey by flipping out a sticky tongue from the front of the mouth.
+    const tongueMat = new THREE.MeshStandardMaterial({ color: 0xd9727a, roughness: 0.35 });
+    const tongue = new THREE.Group();
+    const r = def.length * 0.025;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.2, 1, 10, 1).rotateZ(-Math.PI / 2).translate(0.5, 0, 0), tongueMat);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(r * 2.2, 12, 8).scale(1, 1, 0.7), tongueMat);
+    tongue.add(shaft, tip);
+    tongue.visible = false;
+    actor.add(tongue);
+
+    const L = def.length;
+    const frog = {
+      ...def, actor, model, mesh, eyes, rest, limbs, tongue, tongueTip: tip, tongueShaft: shaft,
+      spine: SPINE.map(def_).filter(Boolean), chest, throatDown, belly: def_("DEF-belly.C"),
+      // the snout: the front of the body, at mouth height
+      mouth: new THREE.Vector3(),
+      x: def.start[0], y: def.start[1], heading: def.heading, phase: Math.random() * Math.PI * 2,
+      speed: 0, catchCooldown: 0, state: "sitting", croakCooldown: 7 + Math.random() * 9,
+      mode: "sit", t: 0, sitLeft: 1 + Math.random() * 3, hop: null, boutLeft: 0, hunting: 0, wander: null,
+      hopLength: L * def.hopBodyLengths, reach: L * 0.75, sight: def.sight,
+      // kept for the lab panel's diagnostics
+      bones: new Map(deform.map((b) => [b.name, b])),
+      animationActions: new Map([["re-rigged: " + deform.length + " deform bones", null]]),
+    };
+    // Sit it on the ground in its sitting pose.
+    this._body(frog);
+    this._pose(frog);
+    const seated = this._skinnedBounds(mesh, actor, true);
+    orient.position.z -= seated.min.z;
+    // The snout: the front-most point well off the ground (the forefeet reach further).
+    {
+      const v = new THREE.Vector3(), inv = new THREE.Matrix4().copy(actor.matrixWorld).invert();
+      const top = seated.max.z - seated.min.z, n = mesh.geometry.attributes.position.count;
+      let best = -Infinity, bz = top * 0.4;
+      for (let i = 0; i < n; i++) {
+        mesh.getVertexPosition(i, v);
+        v.applyMatrix4(mesh.matrixWorld).applyMatrix4(inv);
+        if (v.z > top * 0.38 && v.x > best) { best = v.x; bz = v.z; }
+      }
+      frog.mouth.set(best - L * 0.04, 0, bz - L * 0.03);
+    }
+    actor.position.set(def.start[0], def.start[1], 0);
+    actor.rotation.z = def.heading;
+    this.scene.add(actor);
+    return frog;
+  }
+
+  /** Bounds of the skinned (posed) mesh in the actor's frame. */
+  _skinnedBounds(mesh, actor, precise = false) {
+    const box = new THREE.Box3(), v = new THREE.Vector3(), inv = new THREE.Matrix4().copy(actor.matrixWorld).invert();
+    mesh.skeleton.update();
+    const n = mesh.geometry.attributes.position.count, step = precise ? 1 : Math.max(1, Math.floor(n / 6000));
+    for (let i = 0; i < n; i += step) {
+      mesh.getVertexPosition(i, v);
+      v.applyMatrix4(mesh.matrixWorld).applyMatrix4(inv);
+      box.expandByPoint(v);
+    }
+    return box;
   }
 
   setMode(mode) {
@@ -214,149 +263,132 @@ export class FrogPredators {
     }
   }
 
-  _proceduralPose(frog, dt, state) {
-    const bones = frog.bones;
-    const t = frog.stateTimer;
-    const wave = Math.sin(t * (state === "stalking" ? 3.2 : 5.5) + frog.phase);
-    const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
-    const rotations = {
-      hips: [0, 0, 0],
-      spine_1: [0, 0, 0],
-      spine_2: [0, 0, 0],
-      head: [0, 0, 0],
-      jaw: [0, 0, 0],
-      throat: [0, 0, 0],
-      upperarm_l: [0, 0, 0],
-      forearm_l: [0, 0, 0],
-      hand_l: [0, 0, 0],
-      upperarm_r: [0, 0, 0],
-      forearm_r: [0, 0, 0],
-      hand_r: [0, 0, 0],
-      thigh_l: [0, 0, 0],
-      shin_l: [0, 0, 0],
-      ankle_l: [0, 0, 0],
-      foot_l: [0, 0, 0],
-      thigh_r: [0, 0, 0],
-      shin_r: [0, 0, 0],
-      ankle_r: [0, 0, 0],
-      foot_r: [0, 0, 0],
-    };
-    const set = (name, x, y = 0, z = 0) => { if (rotations[name]) rotations[name] = [x, y, z]; };
+  // ---------- posing ----------
 
-    if (state === "idle" || state === "waiting") {
-      set("spine_1", 0.018 * wave);
-      set("spine_2", -0.014 * wave);
-      set("head", -0.025 + 0.018 * Math.sin(t * 1.4));
-      set("throat", 0.035 + 0.025 * Math.sin(t * 2.1));
-      set("upperarm_l", 0.025); set("upperarm_r", 0.025);
-    } else if (state === "stalking") {
-      const crouch = 1;
-      const stealthStep = Math.sin(t * 5.2 + frog.phase);
-      set("hips", -0.10 * crouch + 0.018 * stealthStep);
-      set("spine_1", 0.12 * crouch);
-      set("spine_2", 0.08 * crouch);
-      set("head", -0.16 + 0.025 * wave);
-      set("thigh_l", -0.48 * crouch + 0.13 * stealthStep); set("thigh_r", -0.48 * crouch - 0.13 * stealthStep);
-      set("shin_l", 0.72 * crouch + 0.16 * Math.max(0, stealthStep)); set("shin_r", 0.72 * crouch + 0.16 * Math.max(0, -stealthStep));
-      set("ankle_l", -0.22 * crouch - 0.08 * stealthStep); set("ankle_r", -0.22 * crouch + 0.08 * stealthStep);
-      set("foot_l", 0.16 * crouch + 0.05 * stealthStep); set("foot_r", 0.16 * crouch - 0.05 * stealthStep);
-      set("upperarm_l", -0.18 + 0.06 * stealthStep); set("upperarm_r", -0.18 - 0.06 * stealthStep);
-      set("forearm_l", 0.22 - 0.05 * stealthStep); set("forearm_r", 0.22 + 0.05 * stealthStep);
-      set("head", -0.18 + 0.02 * wave);
-    } else if (state === "landing") {
-      const impact = 1 - ease(t / 0.34);
-      set("hips", 0.18 * impact);
-      set("spine_1", -0.12 * impact);
-      set("spine_2", -0.08 * impact);
-      set("thigh_l", 0.38 * impact); set("thigh_r", 0.38 * impact);
-      set("shin_l", -0.58 * impact); set("shin_r", -0.58 * impact);
-      set("ankle_l", 0.24 * impact); set("ankle_r", 0.24 * impact);
-      set("upperarm_l", 0.16 * impact); set("upperarm_r", 0.16 * impact);
-      set("forearm_l", -0.24 * impact); set("forearm_r", -0.24 * impact);
-      set("head", 0.10 * impact);
-    } else if (state === "catching") {
-      const strike = ease(t / 0.075) * (1 - ease((t - 0.13) / 0.20));
-      set("jaw", -0.24 * strike);
-      set("head", -0.12 * strike);
-      set("throat", 0.16 * strike);
-      set("spine_2", 0.07 * strike);
-      set("upperarm_l", -0.08); set("upperarm_r", -0.08);
+  /**
+   * Turn a chain segment (bone -> next bone's head) toward a direction given in the frog's
+   * own frame (+X forward, +Y to its left, +Z up), by `w` (0 = rest, 1 = all the way).
+   */
+  _aim(frog, bone, next, dir, w) {
+    if (!bone || !next || w <= 0) return;
+    const from = next.getWorldPosition(_v1).sub(bone.getWorldPosition(_v2)).normalize();
+    const to = _v3.copy(dir).normalize().transformDirection(frog.actor.matrixWorld);
+    _q1.setFromUnitVectors(from, to);
+    if (w < 1) _q1.copy(_q4.copy(IDENTITY).slerp(_q1, w));
+    // world rotation -> bone-local: P^-1 * q * P * local
+    bone.parent.getWorldQuaternion(_q2);
+    _q3.copy(_q2).invert().multiply(_q1).multiply(_q2);
+    bone.quaternion.premultiply(_q3);
+    bone.updateMatrixWorld(true);
+  }
+
+  /** Aim a whole limb: dirs[i] for segment i (mirrored to the frog's right for R). */
+  _limb(frog, chain, sign, dirs, w) {
+    if (w <= 0) return;
+    for (let i = 0; i < chain.length - 1 && i < dirs.length; i++) {
+      const d = dirs[i];
+      this._aim(frog, chain[i], chain[i + 1], _dir.set(d[0], d[1] * sign, d[2]), w);
     }
+  }
 
-    // Restore the authored rest pose before applying our small, local joint offsets.
-    // This prevents procedural angles accumulating or fighting the GLB animation mixer.
-    for (const [name, entry] of bones) entry.bone.quaternion.copy(entry.rest);
-    for (const [name, angles] of Object.entries(rotations)) {
-      const entry = bones.get(name);
-      if (!entry) continue;
-      const offset = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(angles[0], angles[1], angles[2], "XYZ")
-      );
-      entry.bone.quaternion.copy(entry.rest).multiply(offset);
-    }
-
-    // The tongue is a three-segment chain. Extend its bones along their own
-    // bind directions for a quick strike, then retract them without changing
-    // the underlying skin weights.
-    for (const name of ["tongue_1", "tongue_2", "tongue_tip"]) {
-      const entry = bones.get(name);
-      if (!entry) continue;
-      if (!entry.positionRest) entry.positionRest = entry.bone.position.clone();
-      entry.bone.position.copy(entry.positionRest);
-      if (state === "catching") {
-        const strike = ease(t / 0.075) * (1 - ease((t - 0.13) / 0.20));
-        const direction = entry.positionRest.clone();
-        const segmentLength = direction.length();
-        if (segmentLength < 1e-4) direction.set(0, 1, 0);
-        entry.bone.position.add(direction.normalize().multiplyScalar(Math.max(segmentLength, 0.08) * strike * 0.85));
+  /** Pose the skeleton for this frame from the frog's mode and timers. */
+  _pose(frog) {
+    for (const [b, r] of frog.rest) { b.quaternion.copy(r.q); b.scale.copy(r.s); b.position.copy(r.p); }
+    frog.actor.updateMatrixWorld(true);
+    const t = frog.t;
+    if (frog.sit) {
+      for (const s of ["L", "R"]) {
+        const { hind, fore, sign } = frog.limbs[s];
+        if (frog.sit.hind) this._limb(frog, hind, sign, frog.sit.hind, 1);
+        if (frog.sit.fore) this._limb(frog, fore, sign, frog.sit.fore, 1);
       }
     }
+    let push = 0, trail = 0, tuck = 0, reach = 0, gather = 0;
+    if ((frog.mode === "hop" || frog.mode === "jump") && frog.hop) {
+      const h = frog.hop;
+      const big = frog.mode === "jump" ? 1 : Math.min(1, h.dist / (frog.length * 0.8));
+      if (t < h.start) gather = ease(t / h.start);
+      else if (t <= h.end) {
+        const u = (t - h.start) / (h.end - h.start);
+        push = (1 - ease(u / 0.45)) * big;             // legs straighten as it leaves the ground
+        trail = ease(u / 0.3) * (1 - ease((u - 0.55) / 0.45)) * big; // then trail behind
+        tuck = ease(u / 0.25) * (1 - ease((u - 0.35) / 0.3)) * big;  // forelegs back along the body
+        reach = ease((u - 0.4) / 0.45) * big;           // then forward to land on
+      } else {
+        const k = 1 - ease((t - h.end) / Math.max(0.05, h.dur - h.end));
+        reach = k * big; // the forelegs take the landing, the hind legs fold back under
+        gather = 0.4 * k;
+      }
+    }
+    for (const s of ["L", "R"]) {
+      const { hind, fore, sign } = frog.limbs[s];
+      // Hind legs: straight back-and-down at push-off, trailing straight back in flight.
+      this._limb(frog, hind, sign, [[-0.78, 0.2, -0.6], [-0.8, 0.16, -0.58], [-0.82, 0.12, -0.56], [-0.75, 0.12, -0.65]], push);
+      this._limb(frog, hind, sign, [[-0.95, 0.24, -0.18], [-0.97, 0.18, -0.15], [-0.98, 0.1, -0.12], [-0.98, 0.15, -0.1]], trail * (1 - push));
+      // Forelegs: pressed back in flight, then reaching forward and down for the landing.
+      this._limb(frog, fore, sign, [[-0.7, 0.45, -0.55], [-0.75, 0.3, -0.6], [-0.6, 0.2, -0.75]], tuck);
+      this._limb(frog, fore, sign, [[0.55, 0.45, -0.7], [0.5, 0.25, -0.83], [0.35, 0.2, -0.9]], reach * (1 - tuck));
+      // Gathering for a jump: forelegs straighten a little, lifting the chest.
+      this._limb(frog, fore, sign, [[0.15, 0.35, -0.92], [0.1, 0.2, -0.97]], gather * 0.6 * (1 - reach));
+    }
+    // Throat and flanks: breathing at rest, a big pulse of the throat when croaking.
+    let throat = 0, flank = 0.5 + 0.5 * Math.sin(t * 2.6 + frog.phase);
+    if (frog.mode === "sit") throat = 0.5 + 0.5 * Math.sin(t * 7 + frog.phase);
+    if (frog.mode === "croak") throat = 2.2 * Math.max(0, Math.sin(Math.PI * (t % 0.5) / 0.5)) * (t < 1.8 ? 1 : 0);
+    if (frog.chest && frog.throatDown) {
+      // the throat swells down: gently with each breath, a lot with each call
+      const k = (frog.mode === "croak" ? 0.07 : 0.012) * throat * frog.length;
+      frog.chest.position.addScaledVector(frog.throatDown, k); // throatDown is one world mm
+      frog.chest.scale.multiplyScalar(1 + (frog.mode === "croak" ? 0.06 : 0.01) * throat);
+    }
+    if (frog.belly) frog.belly.scale.multiplyScalar(1 + 0.012 * flank);
+  }
+
+  /** The tongue, out toward the fly during a strike. */
+  _tongue(frog, fly) {
+    const tg = frog.tongue;
+    if (frog.mode !== "strike") { tg.visible = false; return; }
+    const t = frog.t;
+    const out = t < 0.07 ? ease(t / 0.07) : 1 - ease((t - 0.11) / 0.16);
+    if (out <= 0.001) { tg.visible = false; return; }
+    tg.visible = true;
+    tg.position.copy(frog.mouth);
+    // toward where the fly was when the strike started, at most the reach
+    const target = frog.actor.worldToLocal(_v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z + 0.5));
+    const dir = target.sub(frog.mouth);
+    const len = Math.min(dir.length(), frog.reach * 1.1) * out;
+    dir.normalize();
+    tg.quaternion.setFromUnitVectors(_v2.set(1, 0, 0), dir);
+    frog.tongueShaft.scale.set(Math.max(1e-3, len), 1, 1);
+    frog.tongueTip.position.set(len, 0, 0);
   }
 
   // ---------- natural movement ----------
   // Frogs are sit-and-wait hunters. They sit still most of the time (breathing, an
   // occasional croak), turn by small pivot hops, cover ground in discrete hops with pauses
   // between them, and catch prey with the tongue when it moves within reach in front of
-  // them; a big jump closes the last body length or two. The GLB clips are in place (the
-  // hips rise and fall, nothing moves forward), so the body is carried forward only while
-  // the clip has the frog in the air: the feet stay planted at take-off and landing.
+  // them; a big jump closes the last body length or two. The body moves forward only while
+  // it is in the air: the feet stay planted at take-off and landing.
 
   /** Start one hop (or the big jump) from where the frog sits to (tx, ty), facing `toHeading`. */
   _startHop(frog, kind, tx, ty, toHeading) {
     const big = kind === "jump";
-    const action = big ? frog.animationSet.lunge : frog.animationSet.walk;
-    const clip = action?.getClip();
-    // Airborne part of each clip, from the hips' height track (Hop 0.67 s, Big_Jump 1.87 s).
-    // A frog that hops as a whole body (no leg rig) gets its own gather, flight and settle.
-    const clipDur = frog.rigid ? (big ? 1.2 : 0.62) : clip ? clip.duration : (big ? 1.87 : 0.67);
-    const air = frog.rigid ? (big ? [0.3, 0.95] : [0.13, 0.47]) : big ? [0.36, 1.32] : [0.05, 0.56];
-    const timeScale = big ? 1 : frog.hopTimeScale * (0.9 + Math.random() * 0.2);
-    // Keep the landing inside the arena.
     const maxR = Math.max(20, this.arenaRadius - frog.length * 0.62 - 5);
     const r = Math.hypot(tx, ty);
     if (r > maxR) { tx *= maxR / r; ty *= maxR / r; }
+    const dist = Math.hypot(tx - frog.x, ty - frog.y);
+    const [g, a, s] = frog.hopTime;
+    const k = 0.9 + Math.random() * 0.2;
+    // longer leaps take a little longer in the air
+    const air = a * k * (big ? 1.6 : 1) * (0.7 + 0.3 * Math.min(1.6, dist / Math.max(1, frog.hopLength)));
+    const gather = g * k * (big ? 1.8 : 1), settle = s * k * (big ? 1.3 : 1);
     frog.mode = kind;
     frog.t = 0;
-    frog.hop = { x0: frog.x, y0: frog.y, x1: tx, y1: ty, h0: frog.heading, h1: toHeading,
-      start: air[0] / timeScale, end: air[1] / timeScale, dur: clipDur / timeScale };
-    this._play(frog, action, timeScale);
-  }
-
-  _play(frog, action, timeScale = 1) {
-    if (frog.rigid) action = null; // the clips don't move a root-only mesh: hops are body-level
-    if (frog.activeAction && frog.activeAction !== action) frog.activeAction.stop();
-    frog.activeAction = action || null;
-    if (!action) return;
-    action.reset();
-    action.setLoop(THREE.LoopOnce, 1);
-    action.clampWhenFinished = true;
-    action.setEffectiveTimeScale(timeScale);
-    action.setEffectiveWeight(1);
-    action.play();
+    frog.hop = { x0: frog.x, y0: frog.y, x1: tx, y1: ty, h0: frog.heading, h1: toHeading, dist,
+      start: gather, end: gather + air, dur: gather + air + settle };
   }
 
   _sit(frog, seconds) {
-    if (frog.activeAction) { frog.activeAction.stop(); frog.activeAction = null; }
     frog.mode = "sit";
     frog.t = 0;
     frog.sitLeft = seconds;
@@ -369,7 +401,7 @@ export class FrogPredators {
     const bearing = Math.atan2(dy, dx);
     const err = wrapAngle(bearing - frog.heading);
     const L = frog.length;
-    const mouth = L * 0.34, reach = frog.reach;
+    const mouth = frog.mouth.x, reach = frog.reach;
     const noticed = frog.catchCooldown <= 0 && dist < frog.sight && (flyMoving || dist < frog.sight * 0.6 || frog.hunting > 0);
     if (noticed) frog.hunting = 12; // keeps hunting for a while after losing sight of movement
     if (frog.hunting > 0 && fly.z < 12) {
@@ -382,7 +414,7 @@ export class FrogPredators {
       }
       const gap = dist - mouth; // from the mouth to the fly
       if (gap < reach) return this._sit(frog, 0.4 + Math.random() * 0.6); // in reach: wait for it to move
-      if (gap < reach + L * 2.2 && frog.animationSet.lunge && Math.random() < 0.6) {
+      if (gap < reach + L * 2.2 && Math.random() < 0.6) {
         // A big jump that lands with the fly just inside tongue reach.
         const d = gap - reach * 0.5;
         return this._startHop(frog, "jump", frog.x + Math.cos(bearing) * d, frog.y + Math.sin(bearing) * d, bearing);
@@ -395,11 +427,11 @@ export class FrogPredators {
     }
     // Nothing to hunt: mostly sit; sometimes croak or move to a new spot.
     const roll = Math.random();
-    if (roll < 0.15 && frog.animationSet.croak && !frog.rigid && frog.croakCooldown <= 0) {
+    if (roll < 0.15 && frog.croakCooldown <= 0) {
       frog.croakCooldown = 15 + Math.random() * 20;
       frog.mode = "croak";
       frog.t = 0;
-      return this._play(frog, frog.animationSet.croak);
+      return;
     }
     if (roll < 0.45) {
       if (!frog.wander || Math.hypot(frog.wander[0] - frog.x, frog.wander[1] - frog.y) < frog.hopLength) {
@@ -416,14 +448,14 @@ export class FrogPredators {
     this._sit(frog, 2.5 + Math.random() * 6);
   }
 
-  _strike(frog) {
+  _strike(frog, fly) {
     frog.mode = "strike";
     frog.t = 0;
     frog.caught = false;
     frog.catchCooldown = 1.8;
     frog.ate = false;
+    frog.strikeAt = { x: fly.x, y: fly.y, z: fly.z || 0 };
     this.catchLock = 0.8;
-    if (frog.activeAction) { frog.activeAction.stop(); frog.activeAction = null; }
   }
 
   update(dt, fly) {
@@ -441,37 +473,33 @@ export class FrogPredators {
       frog.croakCooldown = Math.max(0, frog.croakCooldown - dt);
       frog.hunting = Math.max(0, frog.hunting - dt);
       frog.t += dt;
-      frog.stateTimer = frog.t;
-      const L = frog.length;
-      const mouthX = frog.x + Math.cos(frog.heading) * L * 0.34;
-      const mouthY = frog.y + Math.sin(frog.heading) * L * 0.34;
+      const mouthX = frog.x + Math.cos(frog.heading) * frog.mouth.x;
+      const mouthY = frog.y + Math.sin(frog.heading) * frog.mouth.x;
       const gap = Math.hypot(fly.x - mouthX, fly.y - mouthY);
       const err = Math.abs(wrapAngle(Math.atan2(fly.y - frog.y, fly.x - frog.x) - frog.heading));
       const inReach = fly.z < 12 && gap < frog.reach && err < 0.6;
 
       if (frog.mode === "hop" || frog.mode === "jump") {
-        const h = frog.hop;
-        const a = frog.activeAction;
-        const t = a ? a.time / Math.max(1e-6, a.getEffectiveTimeScale()) : frog.t;
+        const h = frog.hop, t = frog.t;
         // Ballistic: constant horizontal speed while airborne, none on the ground.
         const p = clamp((t - h.start) / (h.end - h.start), 0, 1);
         frog.x = h.x0 + (h.x1 - h.x0) * p;
         frog.y = h.y0 + (h.y1 - h.y0) * p;
         // The body turns during the push-off and the first part of the flight.
         const turnP = clamp(t / (h.start + (h.end - h.start) * 0.5), 0, 1);
-        frog.heading = h.h0 + wrapAngle(h.h1 - h.h0) * (turnP * turnP * (3 - 2 * turnP));
-        if (frog.t >= h.dur) {
+        frog.heading = h.h0 + wrapAngle(h.h1 - h.h0) * ease(turnP);
+        if (t >= h.dur) {
           frog.heading = wrapAngle(h.h1);
           // Right after landing a hunting frog strikes if the fly is in reach.
-          if (inReach && frog.catchCooldown <= 0 && this.catchLock <= 0) this._strike(frog);
+          if (inReach && frog.catchCooldown <= 0 && this.catchLock <= 0) this._strike(frog, fly);
           else if (frog.boutLeft > 0 && frog.mode === "hop") this._sit(frog, 0.15 + Math.random() * 0.45);
           else this._sit(frog, frog.hunting > 0 ? 0.5 + Math.random() * 1.2 : 2 + Math.random() * 5);
         }
       } else if (frog.mode === "croak") {
-        if (!frog.activeAction || frog.t >= frog.activeAction.getClip().duration) this._sit(frog, 3 + Math.random() * 5);
+        if (frog.t >= 2) this._sit(frog, 3 + Math.random() * 5);
       } else if (frog.mode === "strike") {
-        // The tongue is out at ~0.08 s; the fly is caught then if it's still there.
-        if (!frog.caught && frog.t >= 0.08) {
+        // The tongue reaches the fly at ~0.07 s; it's caught then if it's still there.
+        if (!frog.caught && frog.t >= 0.07) {
           frog.caught = true;
           // Not every strike lands (about a third miss, as in real frogs).
           frog.ate = gap < frog.reach * 1.15 && fly.z < 12 && Math.random() < 0.65;
@@ -490,66 +518,54 @@ export class FrogPredators {
         // there a while), otherwise decide what to do when the pause is over.
         frog.sitLeft -= dt;
         frog.waitedInReach = inReach ? (frog.waitedInReach || 0) + dt : 0;
-        if (inReach && frog.catchCooldown <= 0 && this.catchLock <= 0 && (flyMoving || frog.waitedInReach > 4)) this._strike(frog);
+        if (inReach && frog.catchCooldown <= 0 && this.catchLock <= 0 && (flyMoving || frog.waitedInReach > 4)) this._strike(frog, fly);
         else if (frog.sitLeft <= 0) this._decide(frog, fly, flyMoving);
         else if (flyMoving && frog.catchCooldown <= 0 && Math.hypot(fly.x - frog.x, fly.y - frog.y) < frog.sight * 0.5 && frog.hunting <= 0) {
           frog.hunting = 12; // a fly moving nearby gets its attention: react sooner
           frog.sitLeft = Math.min(frog.sitLeft, 0.3 + Math.random() * 0.5);
         }
       }
-
-      frog.mixer.update(dt);
-      const pose = frog.mode === "strike" ? "catching" : frog.mode === "sit" ? "idle" : null;
-      if (pose) this._proceduralPose(frog, dt, pose);
       frog.state = frog.mode === "sit" ? (frog.hunting > 0 ? "watching" : "sitting") : frog.mode;
       this._body(frog);
+      this._pose(frog);
+      this._tongue(frog, fly);
     }
   }
 
   /**
-   * Whole-body motion: position and heading, plus, for a frog without a working leg rig, the
-   * hop itself: a crouch before take-off, a ballistic arc pitched nose-up then nose-down,
-   * a squash on landing, and a forward head dip when it strikes. (A rigged frog gets these
-   * from its clips and procedural pose.)
+   * Whole-body motion: position, heading, and the body's arc and pitch: a crouch with the
+   * nose lifting before take-off, a ballistic arc pitched nose-up then nose-down, a
+   * settle on landing, and a forward dip of the head as the tongue goes out.
    */
   _body(frog) {
-    let z = 0, pitch = 0, squash = 1;
-    if (frog.rigid) {
-      const L = frog.length;
-      if ((frog.mode === "hop" || frog.mode === "jump") && frog.hop) {
-        const h = frog.hop, t = frog.t;
-        const dist = Math.hypot(h.x1 - h.x0, h.y1 - h.y0);
-        const height = clamp(dist * (frog.mode === "jump" ? 0.32 : 0.38), L * 0.08, L * 0.7);
-        const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
-        if (t < h.start) { // gathering: crouch, nose lifts
-          const c = ease(t / h.start);
-          squash = 1 - 0.14 * c; pitch = -0.12 * c;
-        } else if (t <= h.end) { // in the air
-          const u = (t - h.start) / (h.end - h.start);
-          z = height * 4 * u * (1 - u);
-          pitch = -0.38 * Math.cos(Math.PI * u) * (dist > L * 0.2 ? 1 : 0.4);
-          squash = 1 + 0.08 * Math.sin(Math.PI * u); // stretched out mid-leap
-        } else { // landing: absorb and settle
-          const k = 1 - ease((t - h.end) / Math.max(0.05, h.dur - h.end));
-          squash = 1 - 0.16 * k; pitch = 0.1 * k;
-        }
-      } else if (frog.mode === "strike") {
-        const t = frog.t;
-        const dip = Math.sin(Math.PI * clamp(t / 0.3, 0, 1));
-        pitch = 0.22 * dip; squash = 1 - 0.05 * dip;
-      } else if (frog.mode === "sit") {
-        squash = 1 + 0.012 * Math.sin(frog.t * 4.2 + frog.phase); // throat breathing
+    let z = 0, pitch = frog.sitPitch || 0;
+    const L = frog.length;
+    if ((frog.mode === "hop" || frog.mode === "jump") && frog.hop) {
+      const h = frog.hop, t = frog.t;
+      const height = clamp(h.dist * (frog.mode === "jump" ? 0.3 : 0.36), L * 0.06, L * 0.7) * (frog.hopHeight || 1);
+      const base = frog.sitPitch || 0;
+      if (t < h.start) {
+        pitch = base + (frog.sitPitch ? 0.08 : -0.14) * ease(t / h.start); // a sitting frog levels out to aim
+      } else if (t <= h.end) {
+        const u = (t - h.start) / (h.end - h.start);
+        z = height * 4 * u * (1 - u);
+        // level out in flight: nose up leaving, nose down arriving
+        const arc = -0.28 * Math.cos(Math.PI * u) * Math.min(1, h.dist / (L * 0.6)) * (frog.hopHeight || 1);
+        pitch = base * (1 - Math.sin(Math.PI * u)) + arc;
+      } else {
+        const k = 1 - ease((t - h.end) / Math.max(0.05, h.dur - h.end));
+        pitch = base * (1 - k) + 0.1 * k;
       }
+    } else if (frog.mode === "strike") {
+      pitch += 0.12 * Math.sin(Math.PI * clamp(frog.t / 0.3, 0, 1));
     }
     frog.actor.position.set(frog.x, frog.y, z);
     frog.actor.rotation.set(0, pitch, frog.heading);
-    frog.actor.scale.set(1, 1, squash);
   }
 
   dispose() {
     for (const frog of this.frogs) {
       this.scene.remove(frog.actor);
-      frog.mixer?.stopAllAction();
       frog.actor.traverse((o) => {
         if (o.isMesh) {
           o.geometry?.dispose();
@@ -562,3 +578,5 @@ export class FrogPredators {
     this.ready = false;
   }
 }
+
+const _dir = new THREE.Vector3();
