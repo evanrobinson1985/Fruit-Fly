@@ -31,7 +31,7 @@ $window = $null
 if ($edge) {
   $profileDir = Join-Path $env:LOCALAPPDATA 'FruitFly\browser'
   $window = Start-Process -FilePath $edge -PassThru -ArgumentList @(
-    "--app=$url", "--user-data-dir=`"$profileDir`"", '--no-first-run', '--start-maximized',
+    "--app=$url", "--user-data-dir=`"$profileDir`"", '--no-first-run', '--start-maximized', '--force_high_performance_gpu',
     '--autoplay-policy=no-user-gesture-required')
 } else {
   Start-Process $url

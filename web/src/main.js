@@ -54,7 +54,8 @@ function setFrogMode(mode) {
 
 // ---------- renderer & scene (Z up, mm) ----------
 const canvas = $("stage");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// On a computer, ask for the fast graphics card (e.g. NVIDIA rather than integrated graphics).
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: HIGH ? "high-performance" : "default" });
 renderer.setPixelRatio(Math.min(HIGH ? 3 : 2, window.devicePixelRatio));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
