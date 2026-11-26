@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only for the in-app web server on 127.0.0.1; the game never goes online. -->
+    <!-- The in-app web server on 127.0.0.1, and checking GitHub for updates (Updater.kt). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets the app hand a downloaded update to Android's installer (you confirm it). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -13,6 +15,16 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
 
         <activity
             android:name=".MainActivity"

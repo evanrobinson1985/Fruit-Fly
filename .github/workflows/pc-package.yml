@@ -10,6 +10,9 @@ on:
     paths: ["web/**", "pc/**", "watch/phone/vendor/**", ".github/workflows/pc-package.yml"]
   workflow_dispatch:
 
+permissions:
+  contents: write   # publish the pc-latest release (the PC app updates itself from it)
+
 jobs:
   package:
     runs-on: ubuntu-latest
@@ -31,9 +34,25 @@ jobs:
           grep -q '/vendor/three/build/three.module.js' $P/FruitFly/site/index.html
           test -f $P/FruitFly/site/vendor/three/examples/jsm/libs/basis/basis_transcoder.wasm
           test -f $P/FruitFly/site/assets/frogs-original.glb
+          echo "${{ github.run_number }}" > $P/FruitFly/version.txt
           du -sh $P
       - uses: actions/upload-artifact@v4
         with:
           name: fruit-fly-pc
           path: FruitFly-PC
           if-no-files-found: error
+      # The desktop app updates itself from this release (pc/FruitFly.ps1): it compares
+      # pc-version.txt with its own version.txt and installs FruitFly-PC.zip if newer.
+      - name: Publish to the pc-latest release
+        if: github.ref_name == 'claude/quirky-wozniak-5060bj'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip -q -r FruitFly-PC.zip FruitFly-PC
+          echo "${{ github.run_number }}" > pc-version.txt
+          git tag -f pc-latest
+          git push -f origin pc-latest
+          gh release view pc-latest >/dev/null 2>&1 || gh release create pc-latest --prerelease \
+            --title "Fruit Fly for Windows (latest)" \
+            --notes "Updated by every build. Unzip and run Install.cmd; after that the desktop app updates itself from here."
+          gh release upload pc-latest FruitFly-PC.zip pc-version.txt --clobber

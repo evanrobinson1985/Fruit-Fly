@@ -13,6 +13,9 @@ on:
       - ".github/workflows/watch-apk.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write   # publish the phone-latest release (in-app updates)
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -57,3 +60,17 @@ jobs:
           name: feed-the-fly-phone-apk
           path: out/feed-the-fly-phone.apk
           if-no-files-found: error
+      # The phone app updates itself from this release (watch/phone/.../Updater.kt): it reads
+      # phone-version.txt (this build's versionCode, 100 + run number) and downloads the APK.
+      - name: Publish to the phone-latest release
+        if: github.event_name != 'pull_request' && github.ref_name == 'claude/quirky-wozniak-5060bj'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo $(( 100 + ${{ github.run_number }} )) > out/phone-version.txt
+          git tag -f phone-latest
+          git push -f origin phone-latest
+          gh release view phone-latest >/dev/null 2>&1 || gh release create phone-latest --prerelease \
+            --title "Feed the Fly for Android (latest)" \
+            --notes "Updated by every build. The phone app checks here for updates. Watch APK included."
+          gh release upload phone-latest out/feed-the-fly-phone.apk out/feed-the-fly-watch.apk out/phone-version.txt --clobber

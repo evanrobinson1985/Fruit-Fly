@@ -2,7 +2,60 @@
 # in its own window (Microsoft Edge in app mode; your default browser if Edge isn't there).
 # Everything is local: the 3D fly, its 165,122-neuron brain, the frogs, the pond, three.js.
 # Closing the Edge window stops the server. Started by the "Fruit Fly" desktop shortcut.
-param([int]$Port = 47812)
+# At each start it checks GitHub for a newer build and installs it first (offline: skipped).
+param([int]$Port = 47812, [switch]$NoUpdate)
+
+# ---------- updates: from the pc-latest release (.github/workflows/pc-package.yml) ----------
+$release = 'https://github.com/evanrobinson1985/Fruit-Fly/releases/download/pc-latest'
+function Get-Text($u) {
+  $c = (Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 6).Content
+  if ($c -is [byte[]]) { $c = [Text.Encoding]::UTF8.GetString($c) }
+  return "$c".Trim()
+}
+function Install-Update {
+  Add-Type -AssemblyName System.Windows.Forms
+  $form = New-Object Windows.Forms.Form
+  $form.Text = 'Fruit Fly'; $form.Width = 380; $form.Height = 130; $form.StartPosition = 'CenterScreen'
+  $form.FormBorderStyle = 'FixedDialog'; $form.ControlBox = $false; $form.TopMost = $true
+  $label = New-Object Windows.Forms.Label
+  $label.Text = 'Downloading the latest Fruit Fly...'; $label.AutoSize = $true; $label.Left = 20; $label.Top = 18
+  $bar = New-Object Windows.Forms.ProgressBar
+  $bar.Left = 20; $bar.Top = 48; $bar.Width = 325; $bar.Style = 'Marquee'
+  $form.Controls.AddRange(@($label, $bar))
+  $form.Show(); [Windows.Forms.Application]::DoEvents()
+  try {
+    $tmp = Join-Path $env:TEMP 'FruitFly-update'
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item $tmp -ItemType Directory -Force | Out-Null
+    $zip = Join-Path $tmp 'FruitFly-PC.zip'
+    $wc = New-Object Net.WebClient
+    $task = $wc.DownloadFileTaskAsync("$release/FruitFly-PC.zip", $zip)
+    while (-not $task.IsCompleted) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 100 }
+    if ($task.IsFaulted) { throw $task.Exception }
+    $label.Text = 'Installing...'; [Windows.Forms.Application]::DoEvents()
+    Expand-Archive -Path $zip -DestinationPath $tmp -Force
+    $src = Join-Path $tmp 'FruitFly-PC\FruitFly'
+    if (-not (Test-Path (Join-Path $src 'FruitFly.ps1'))) { throw 'The update package is incomplete.' }
+    robocopy $src $PSScriptRoot /MIR /XD browser /NFL /NDL /NJH /NJS /NP | Out-Null
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    $form.Close()
+    # Start the new version (without checking again).
+    Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$(Join-Path $PSScriptRoot 'FruitFly.ps1')`"", '-NoUpdate')
+    exit
+  } catch {
+    $form.Close()
+    # Couldn't update: carry on with the installed version.
+  }
+}
+if (-not $NoUpdate) {
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $local = (Get-Content (Join-Path $PSScriptRoot 'version.txt') -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $latest = Get-Text "$release/pc-version.txt"
+    if ($latest -match '^\d+$' -and "$latest" -ne "$local") { Install-Update }
+  } catch { }  # offline, or GitHub unreachable: start the installed version
+}
 
 $root = Join-Path $PSScriptRoot 'site'
 $url = "http://localhost:$Port/index.html"

@@ -14,8 +14,10 @@ android {
         applicationId = "io.github.evanrobinson1985.feedthefly.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.8.1"
+        // Every CI build is a newer version (the in-app updater compares these): the run number.
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+        versionCode = if (run != null) 100 + run else 14
+        versionName = if (run != null) "0.9.$run" else "0.9-dev"
     }
 
     // Same public sideload key as the watch app (see ../app/build.gradle.kts).

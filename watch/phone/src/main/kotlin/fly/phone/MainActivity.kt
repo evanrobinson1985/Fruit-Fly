@@ -68,6 +68,7 @@ class MainActivity : Activity() {
         // resurrect a stale URL (for example http://127.0.0.1/ without the server port),
         // which fails even though the embedded server is running correctly.
         web.loadUrl("http://127.0.0.1:$port/index.html?game")
+        Updater(this).check() // a newer build on GitHub? offer it
     }
 
     private fun immersive() {

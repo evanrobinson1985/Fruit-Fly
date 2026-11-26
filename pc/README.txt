@@ -14,6 +14,10 @@ pond. It renders at high quality on a computer; add ?quality=low to the address
 for a lighter version, or open http://localhost:47812/index.html?game for the
 pet game.
 
+Updates: each time you start it, it checks for a newer version and, if there is
+one, downloads and installs it first (a small "Updating" window shows). Offline,
+it just starts the version you have.
+
 If Windows SmartScreen warns about Install.cmd, choose "More info" then "Run
 anyway" (the file isn't signed). To uninstall, delete the desktop icon and the
 folder %LOCALAPPDATA%\FruitFly.
