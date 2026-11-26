@@ -258,7 +258,6 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     const frond = new THREE.CircleGeometry(1, 7);
     const mat = new THREE.MeshStandardMaterial({ color: 0x6aa83a, roughness: 0.45 });
     const n = 2600, duck = new THREE.InstancedMesh(frond, mat, n), mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
-    duck.frustumCulled = false;
     let placed = 0;
     for (let c = 0; c < 9 && placed < n; c++) {
       // a raft of fronds drifted against the bank
@@ -308,7 +307,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     holder.rotation.set(Math.PI / 2, yaw, 0, "XYZ"); // Y-up -> Z-up, then turned about the vertical
     holder.scale.setScalar(s);
     holder.position.set(x, y, -sink * size.y * s);
-    holder.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
+    holder.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
     group.add(holder);
     return { holder, height: size.y * s };
   };
