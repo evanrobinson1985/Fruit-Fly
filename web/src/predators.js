@@ -30,6 +30,8 @@ const FROG_DEFINITIONS = [
       fore: [[0.2, 0.2, -0.96], [0.25, 0.04, -0.97], [0.75, 0.15, -0.64], [0.8, 0.45, -0.3]], // propping up the chest
     },
     sitPitch: -0.06,       // and sits a little nose-up (the model's spine is already arched)
+    gape: 0.48,            // rad: how wide the mouth opens to strike
+    swims: true,           // a frog: at home in the pond, swims and hunts there
     start: [-176, 128],
     heading: -0.6,
   },
@@ -42,6 +44,8 @@ const FROG_DEFINITIONS = [
     hopBodyLengths: 0.55,  // a toad: short, low, slower hops
     hopTime: [0.2, 0.26, 0.4],
     hopHeight: 0.6,        // relative to a frog's arc
+    gape: 0.42,
+    swims: false,          // a toad: keeps out of the water
     sight: 200,
     start: [176, -128],
     heading: 2.5,
@@ -196,19 +200,21 @@ export class FrogPredators {
       throatDown = chest.parent.worldToLocal(below).sub(chest.parent.worldToLocal(at.clone()));
     }
 
-    // A tongue: frogs catch prey by flipping out a sticky tongue from the front of the mouth.
-    const tongueMat = new THREE.MeshStandardMaterial({ color: 0xd9727a, roughness: 0.35 });
-    const tongue = new THREE.Group();
-    const r = def.length * 0.025;
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.2, 1, 10, 1).rotateZ(-Math.PI / 2).translate(0.5, 0, 0), tongueMat);
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(r * 2.2, 12, 8).scale(1, 1, 0.7), tongueMat);
-    tongue.add(shaft, tip);
+    // A tongue: frogs catch prey by flipping out a sticky tongue that is rooted at the front
+    // of the lower jaw: it lies folded back in the mouth and flips forward, over, onto the prey.
+    // A broad, flat, wet pad, wider toward its tip; its shape is rebuilt every frame (_tongue).
+    const tongueMat = new THREE.MeshPhysicalMaterial({ color: 0xd8707c, roughness: 0.3, clearcoat: 0.9, clearcoatRoughness: 0.15, side: THREE.DoubleSide });
+    const tongue = new THREE.Mesh(tongueGeometry(), tongueMat);
+    tongue.castShadow = true;
+    tongue.frustumCulled = false;
     tongue.visible = false;
+    const tip = new THREE.Object3D(); // where the sticky pad is: a caught fly sits here
+    tongue.add(tip);
     actor.add(tongue);
 
     const L = def.length;
     const frog = {
-      ...def, actor, model, mesh, eyes, rest, limbs, tongue, tongueTip: tip, tongueShaft: shaft,
+      ...def, actor, model, mesh, eyes, rest, limbs, tongue, tongueTip: tip, jaw: null, jawOpen: 0,
       eyeRest: eyes.map((e) => e.position.clone()), eyeDown: null, holding: false, gulp: 0,
       spine: SPINE.map(def_).filter(Boolean), chest, throatDown, belly: def_("DEF-belly.C"),
       // the snout: the front of the body, at mouth height
@@ -243,11 +249,178 @@ export class FrogPredators {
         if (v.z > top * 0.38 && v.x > best) { best = v.x; bz = v.z; }
       }
       frog.mouth.set(best - L * 0.04, 0, bz - L * 0.03);
+      frog.snout = new THREE.Vector2(best, bz);
     }
+    try { this._buildJaw(frog, head); } catch (e) { console.warn("No jaw for " + def.name + ":", e); }
     actor.position.set(def.start[0], def.start[1], 0);
     actor.rotation.z = def.heading;
     this.scene.add(actor);
     return frog;
+  }
+
+  /**
+   * A lower jaw. The models have none (the mouth is shut in the skin), so one is made: a jaw
+   * bone hinged on the head behind the eyes, and the skin of the lower lip, chin and the
+   * front of the throat moved onto it (the share of each vertex the head carried). Opening
+   * it parts the skin along the lip line, where the triangles that join upper and lower lip
+   * are hidden while it is open, and shows a mouth: palate, floor and inner cheeks.
+   */
+  _buildJaw(frog, head) {
+    const { mesh, actor } = frog, L = frog.length;
+    actor.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(actor.matrixWorld).invert();
+    const geo = (mesh.geometry = mesh.geometry.clone());
+    const pos = geo.attributes.position, n = pos.count;
+    // The skin as it sits, in the frog's frame (+X forward, +Z up).
+    const P = new Float32Array(n * 3), v = new THREE.Vector3();
+    mesh.skeleton.update();
+    for (let i = 0; i < n; i++) { mesh.getVertexPosition(i, v); v.applyMatrix4(mesh.matrixWorld).applyMatrix4(inv); v.toArray(P, i * 3); }
+    // The lip line: from just under the snout tip back to the angle of the jaw, below and
+    // behind the eye (under the eardrum).
+    const eye = new THREE.Vector3(), eyeR = L * 0.055;
+    if (frog.eyes.length) {
+      for (const e of frog.eyes) eye.add(e.getWorldPosition(v).applyMatrix4(inv));
+      eye.multiplyScalar(1 / frog.eyes.length);
+    } else eye.set(frog.snout.x - L * 0.2, 0, frog.snout.y);
+    const xs = frog.snout.x, zs = frog.snout.y - L * 0.035;
+    const xh = eye.x - eyeR * 1.9, zh = eye.z - eyeR * 2.1;
+    const lipZ = (x) => zh + (zs - zh) * clamp((x - xh) / (xs - xh), 0, 1.2);
+    // The head's bones (whichever trunk bones the author weighted the snout to): their share
+    // of each vertex below the lip line goes to the jaw.
+    const bones = mesh.skeleton.bones, si0 = geo.attributes.skinIndex, sw0 = geo.attributes.skinWeight;
+    const tally = new Map();
+    for (let i = 0; i < n; i++) {
+      if (P[i * 3] < xh || Math.abs(P[i * 3 + 2] - lipZ(P[i * 3])) > L * 0.1) continue;
+      for (let k = 0; k < 4; k++) {
+        const b = si0.getComponent(i, k), w = sw0.getComponent(i, k);
+        if (w > 0 && /spine|breast|belly|head|neck|jaw/i.test(bones[b].name)) tally.set(b, (tally.get(b) || 0) + w);
+      }
+    }
+    const total = [...tally.values()].reduce((a, b) => a + b, 0);
+    // (the chin and throat skin carry the chest's and neck's weights too: all trunk bones)
+    const headSet = new Set(bones.map((b, i) => (/spine|breast|belly|head|neck/i.test(b.name) ? i : -1)).filter((i) => i >= 0));
+    const mainHead = [...tally].sort((a, b) => b[1] - a[1])[0];
+    if (mainHead) head = bones[mainHead[0]]; // the jaw hangs from the bone the head moves with
+    const sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+    const share = new Float32Array(n), below = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = P[i * 3], z = P[i * 3 + 2], d = lipZ(x) - z;
+      if (d <= 0 || x < xh - L * 0.04) continue;
+      below[i] = 1;
+      share[i] = sm(xh - L * 0.04, xh + L * 0.1, x) * (1 - sm(L * 0.2, L * 0.34, d));
+    }
+    // Skin weights: move the head's share onto the jaw (a 5th bone index, maybe > 255).
+    const jawIndex = bones.length;
+    let si = geo.attributes.skinIndex;
+    if (jawIndex > 255 && !(si.array instanceof Uint16Array || si.array instanceof Uint32Array)) {
+      si = new THREE.BufferAttribute(new Uint16Array(si.array), 4);
+      geo.setAttribute("skinIndex", si);
+    }
+    const sw = geo.attributes.skinWeight;
+    for (let i = 0; i < n; i++) {
+      const m = share[i];
+      if (m <= 0) continue;
+      let moved = 0, free = -1, least = 0;
+      for (let k = 0; k < 4; k++) {
+        const b = si.getComponent(i, k), w = sw.getComponent(i, k);
+        if (headSet.has(b) && w > 0) { sw.setComponent(i, k, w * (1 - m)); moved += w * m; }
+        if (w <= 0 && free < 0) free = k;
+        if (sw.getComponent(i, k) < sw.getComponent(i, least)) least = k;
+      }
+      if (moved <= 0) continue;
+      const k = free >= 0 ? free : least;
+      if (free < 0) moved += sw.getComponent(i, k); // the smallest influence gives way
+      si.setComponent(i, k, jawIndex);
+      sw.setComponent(i, k, Math.min(1, moved));
+    }
+    si.needsUpdate = sw.needsUpdate = true;
+    // The jaw bone: on the head, at the hinge, turned about the frog's side-to-side axis.
+    const jaw = new THREE.Bone();
+    jaw.name = "jaw";
+    head.add(jaw);
+    jaw.position.copy(head.worldToLocal(actor.localToWorld(new THREE.Vector3(xh, 0, zh))));
+    jaw.updateMatrixWorld(true);
+    const sk = mesh.skeleton, hi = bones.indexOf(head);
+    const jawInverse = jaw.matrix.clone().invert().multiply(sk.boneInverses[hi]); // closed: moves exactly as the head
+    mesh.bind(new THREE.Skeleton([...bones, jaw], [...sk.boneInverses, jawInverse]), mesh.bindMatrix);
+    const headQ = head.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const axis = new THREE.Vector3(0, 1, 0).transformDirection(actor.matrixWorld).applyQuaternion(headQ).normalize();
+    // While open, the triangles across the lip line are hidden (made empty, keeping the order).
+    const closed = geo.index;
+    const open = closed.clone();
+    for (let t = 0; t < open.count; t += 3) {
+      const a = open.getX(t), b = open.getX(t + 1), c = open.getX(t + 2);
+      const jawSide = (i) => below[i] && share[i] > 0.5;
+      const lips = [a, b, c].some(jawSide) && [a, b, c].some((i) => !jawSide(i)) && Math.min(P[a * 3], P[b * 3], P[c * 3]) > xh + L * 0.02;
+      if (lips) { open.setX(t + 1, a); open.setX(t + 2, a); }
+    }
+    // The inside of the mouth, in the head's space; its lower half follows the jaw (_pose).
+    const st = 9, ring = [];
+    for (let k = 0; k <= st; k++) {
+      const x = xh + (xs - xh) * (k / st) * 0.97, zl = lipZ(x);
+      let w = 0;
+      for (let i = 0; i < n; i++) {
+        // the lower jaw's width (narrower than the cheeks above it): the mouth fits inside it
+        if (Math.abs(P[i * 3] - x) < L * 0.025 && P[i * 3 + 2] < zl && P[i * 3 + 2] > zl - L * 0.035) w = Math.max(w, Math.abs(P[i * 3 + 1]));
+      }
+      ring.push([x, w * 0.8 * (1 - 0.6 * (k / st) ** 4), zl]);
+    }
+    const loop = [...ring.map(([x, w, z]) => [x, w, z]), ...ring.slice().reverse().map(([x, w, z]) => [x, -w, z])];
+    const toHead = (x, y, z) => head.worldToLocal(actor.localToWorld(new THREE.Vector3(x, y, z)));
+    const mid = ring[Math.floor(st * 0.45)];
+    const upper = loop.map(([x, y, z]) => toHead(x, y, z)), lower = upper.map((p) => p.clone());
+    const cu = toHead(mid[0], 0, mid[2] + L * 0.045), cl = toHead(mid[0], 0, mid[2] - L * 0.035);
+    // vertices: palate rim, floor rim, cheek rims (upper, lower), the palate's and floor's middles
+    const nl = loop.length, nv = nl * 4 + 2, mp = new Float32Array(nv * 3), col = new Float32Array(nv * 3), idx = [];
+    for (let i = 0; i < nl; i++) {
+      const j = (i + 1) % nl;
+      idx.push(4 * nl, j, i);                 // palate
+      idx.push(4 * nl + 1, nl + i, nl + j);   // floor of the mouth
+      idx.push(2 * nl + i, 2 * nl + j, 3 * nl + i, 2 * nl + j, 3 * nl + j, 3 * nl + i); // inner cheeks and the throat: in shadow
+    }
+    // pink at the lips, darkening into the throat
+    const front = loop.map(([x]) => clamp((x - xh) / (xs - xh), 0, 1));
+    const tint = (from, back, fore) => front.forEach((f, i) => col.set(back.map((b, c) => b + (fore[c] - b) * f), (from + i) * 3));
+    tint(0, [0.2, 0.07, 0.08], [0.6, 0.3, 0.31]); tint(nl, [0.24, 0.08, 0.09], [0.72, 0.38, 0.4]);
+    tint(2 * nl, [0.08, 0.025, 0.03], [0.3, 0.1, 0.11]); tint(3 * nl, [0.08, 0.025, 0.03], [0.34, 0.12, 0.13]);
+    col.set([0.22, 0.07, 0.08], 4 * nl * 3); col.set([0.3, 0.11, 0.12], (4 * nl + 1) * 3);
+    const mg = new THREE.BufferGeometry();
+    mg.setAttribute("position", new THREE.BufferAttribute(mp, 3));
+    mg.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    mg.setIndex(idx);
+    const mouthMesh = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, side: THREE.DoubleSide }));
+    mouthMesh.frustumCulled = false;
+    mouthMesh.visible = false;
+    head.add(mouthMesh);
+    const hinge = jaw.position.clone();
+    frog.jaw = { bone: jaw, axis, closed, open, mouthMesh, upper, lower, cu, cl, hinge, max: frog.gape || 0.6,
+      root: jaw.worldToLocal(actor.localToWorld(new THREE.Vector3(xs - L * 0.07, 0, lipZ(xs - L * 0.07) - L * 0.015))) };
+  }
+
+  /** Open the jaw by `k` (0 shut, 1 the full gape). */
+  _openJaw(frog, k) {
+    const J = frog.jaw;
+    if (!J) return;
+    const a = k * J.max;
+    J.bone.quaternion.setFromAxisAngle(J.axis, a);
+    const isOpen = k > 0.02;
+    if (frog.mesh.geometry.index !== (isOpen ? J.open : J.closed)) frog.mesh.geometry.setIndex(isOpen ? J.open : J.closed);
+    J.mouthMesh.visible = isOpen;
+    if (!isOpen) return;
+    const p = J.mouthMesh.geometry.attributes.position, nl = J.upper.length;
+    _q1.setFromAxisAngle(J.axis, a);
+    for (let i = 0; i < nl; i++) {
+      p.setXYZ(i, J.upper[i].x, J.upper[i].y, J.upper[i].z);
+      p.setXYZ(2 * nl + i, J.upper[i].x, J.upper[i].y, J.upper[i].z);
+      _v1.copy(J.lower[i]).sub(J.hinge).applyQuaternion(_q1).add(J.hinge);
+      p.setXYZ(nl + i, _v1.x, _v1.y, _v1.z);
+      p.setXYZ(3 * nl + i, _v1.x, _v1.y, _v1.z);
+    }
+    p.setXYZ(4 * nl, J.cu.x, J.cu.y, J.cu.z);
+    _v1.copy(J.cl).sub(J.hinge).applyQuaternion(_q1).add(J.hinge);
+    p.setXYZ(4 * nl + 1, _v1.x, _v1.y, _v1.z);
+    p.needsUpdate = true;
+    J.mouthMesh.geometry.computeVertexNormals();
   }
 
   /** Bounds of the skinned (posed) mesh in the actor's frame. */
@@ -339,6 +512,22 @@ export class FrogPredators {
       // Gathering for a jump: forelegs straighten a little, lifting the chest.
       this._limb(frog, fore, sign, [[0.15, 0.35, -0.92], [0.1, 0.2, -0.97]], gather * 0.6 * (1 - reach));
     }
+    // Swimming: hind legs kick back and trail, forelegs lie back along the body; floating,
+    // all four hang spread out.
+    const inWater = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam);
+    if (inWater) {
+      const k = frog.mode === "swim" ? frog.kick || 0 : 0, fl = frog.floatW ?? 1;
+      for (const s of ["L", "R"]) {
+        const { hind, fore, sign } = frog.limbs[s];
+        this._limb(frog, hind, sign, [[-0.5, 0.75, -0.42], [-0.72, 0.5, -0.48], [-0.62, 0.45, -0.64], [-0.5, 0.55, -0.66]], fl * (1 - k));
+        this._limb(frog, hind, sign, [[-0.93, 0.3, -0.18], [-0.97, 0.18, -0.12], [-0.98, 0.12, -0.12], [-0.96, 0.18, -0.16]], k);
+        this._limb(frog, fore, sign, [[-0.75, 0.5, -0.4], [-0.85, 0.35, -0.38], [-0.7, 0.3, -0.62]], (1 - fl) * 0.9);
+        this._limb(frog, fore, sign, [[0.3, 0.78, -0.55], [0.45, 0.6, -0.65], [0.35, 0.6, -0.72]], fl * 0.8);
+      }
+    }
+    // The mouth: open to strike; shut otherwise.
+    frog.jawOpen = frog.mode === "strike" ? this._strikeTimes(frog).jaw : 0;
+    this._openJaw(frog, frog.jawOpen);
     // Swallowing: the eyes sink into the head twice.
     frog.eyes.forEach((e, i) => {
       e.position.copy(frog.eyeRest[i]);
@@ -360,25 +549,47 @@ export class FrogPredators {
     if (frog.belly) frog.belly.scale.multiplyScalar(1 + 0.012 * flank);
   }
 
+  /**
+   * The strike, as filmed (slowed down here so it reads): the mouth gapes, the tongue flips
+   * out over the lower jaw, tip first, onto the prey; back in, with the prey stuck to it,
+   * and only then does the mouth shut (a swallow follows, the eyes pressing down).
+   *   0-0.05 s jaw opens · 0.03-0.11 s tongue flips out (fully out: 0.11 s, the catch) ·
+   *   from 0.13 s (0.15 s holding prey) back in · the jaw shuts once it is in.
+   */
+  _strikeTimes(frog) {
+    const t = frog.t, back = frog.holding ? [0.15, 0.32] : [0.13, 0.15];
+    let out, flip;
+    if (t < 0.11) { out = ease((t - 0.03) / 0.08); flip = ease((t - 0.03) / 0.06); }
+    else { out = 1 - ease((t - back[0]) / back[1]); flip = Math.min(1, out * 1.8); }
+    const shut = back[0] + back[1];
+    const jaw = t < 0.05 ? ease(t / 0.05) : t < shut ? 1 : 1 - ease((t - shut) / 0.09);
+    return { out, flip, jaw };
+  }
+
   /** The tongue, out toward the fly during a strike. */
-  _tongue(frog, fly) {
+  _tongue(frog) {
     const tg = frog.tongue;
-    if (frog.mode !== "strike") { tg.visible = false; return; }
-    const t = frog.t;
-    // Out in 0.07 s; back in 0.16 s, or more slowly with the fly stuck to it.
-    const out = t < 0.07 ? ease(t / 0.07) : frog.holding ? 1 - ease((t - 0.1) / 0.32) : 1 - ease((t - 0.11) / 0.16);
+    if (frog.mode !== "strike") { tg.visible = false; frog.tongueOut = 0; return; }
+    const { out, flip } = this._strikeTimes(frog);
     frog.tongueOut = out;
-    if (out <= 0.001) { tg.visible = false; return; }
+    if (out <= 0.001 || !frog.strikeAt) { tg.visible = false; return; }
     tg.visible = true;
-    tg.position.copy(frog.mouth);
+    // Its root, on the floor of the mouth at the front of the jaw (or under the snout).
+    const root = frog.jaw ? frog.actor.worldToLocal(frog.jaw.bone.localToWorld(_v4.copy(frog.jaw.root))) : _v4.copy(frog.mouth);
     // toward where it aimed (where the fly was as it struck), at most the reach
-    const target = frog.actor.worldToLocal(_v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z));
-    const dir = target.sub(frog.mouth);
-    const len = Math.min(dir.length(), frog.reach * 1.1) * out;
-    dir.normalize();
-    tg.quaternion.setFromUnitVectors(_v2.set(1, 0, 0), dir);
-    frog.tongueShaft.scale.set(Math.max(1e-3, len), 1, 1);
-    frog.tongueTip.position.set(len, 0, 0);
+    const aim = frog.actor.worldToLocal(_v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z)).sub(root);
+    const len = Math.max(frog.length * 0.06, Math.min(aim.length(), frog.reach * 1.1) * out);
+    aim.normalize();
+    // Flipping over: folded back (pointing into the mouth) to pointing at the prey, rolling
+    // forward over the top: a turn about the axis across its path.
+    const axis = _v2.crossVectors(aim, _up).normalize();
+    if (axis.lengthSq() < 1e-6) axis.set(0, 1, 0);
+    const phi = (1 - flip) * Math.PI * 0.95;
+    const dirTip = _v3.copy(aim).applyAxisAngle(axis, phi);
+    const tip = _t0.copy(root).addScaledVector(dirTip, len);
+    const ctrl = _t1.copy(root).addScaledVector(_t2.copy(aim).applyAxisAngle(axis, phi * 0.55), len * 0.55).addScaledVector(_up, len * 0.12 * Math.sin(phi));
+    buildTongue(tg.geometry, root, ctrl, tip, frog.length, Math.min(1, 0.45 + out));
+    frog.tongueTip.position.copy(tip);
   }
 
   /** Where a fly stuck to a tongue is (world), or null. */
@@ -405,6 +616,13 @@ export class FrogPredators {
     const maxR = Math.max(20, this.arenaRadius - frog.length * 0.62 - 5);
     const r = Math.hypot(tx, ty);
     if (r > maxR) { tx *= maxR / r; ty *= maxR / r; }
+    // A toad doesn't hop into the pond: it stops at the edge.
+    if (!frog.swims && this.isWater?.(tx, ty)) {
+      const x0 = frog.x, y0 = frog.y;
+      let k = 0;
+      while (k < 1 && this.isWater(x0 + (tx - x0) * (1 - k), y0 + (ty - y0) * (1 - k))) k += 0.1;
+      tx = x0 + (tx - x0) * (1 - k); ty = y0 + (ty - y0) * (1 - k);
+    }
     const dist = Math.hypot(tx - frog.x, ty - frog.y);
     const [g, a, s] = frog.hopTime;
     const k = 0.9 + Math.random() * 0.2;
@@ -422,6 +640,24 @@ export class FrogPredators {
     frog.mode = "sit";
     frog.t = 0;
     frog.sitLeft = seconds;
+    // In the pond a frog doesn't sit: it floats, and swims from there.
+    if (frog.swims && this.isWater?.(frog.x, frog.y)) {
+      frog.mode = "swim";
+      frog.swimGoal = null;
+      frog.vel = frog.vel || 0;
+    }
+  }
+
+  /** A random spot in the arena: in the pond (`water` true) or out of it. */
+  _spot(water, near = null, within = Infinity) {
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = near ? Math.sqrt(Math.random()) * Math.min(within, this.arenaRadius) : Math.sqrt(Math.random()) * (this.arenaRadius - 30);
+      const x = (near ? near.x : 0) + rr * Math.cos(a), y = (near ? near.y : 0) + rr * Math.sin(a);
+      if (Math.hypot(x, y) > this.arenaRadius - 30) continue;
+      if (!!this.isWater?.(x, y) === water) return [x, y];
+    }
+    return null;
   }
 
   /** What to do next, after sitting for a while. */
@@ -434,6 +670,9 @@ export class FrogPredators {
     const mouth = frog.mouth.x, reach = frog.reach;
     const noticed = frog.catchCooldown <= 0 && dist < frog.sight && (flyMoving || dist < frog.sight * 0.6 || frog.hunting > 0);
     if (noticed) frog.hunting = 12; // keeps hunting for a while after losing sight of movement
+    // a toad watches a fly out on the water, but doesn't go in after it
+    const outOfBounds = !frog.swims && this.isWater?.(fly.x, fly.y);
+    if (outOfBounds && frog.hunting > 0) return this._sit(frog, 1 + Math.random() * 2);
     if (frog.hunting > 0 && fly.z < 12) {
       // Turn to face it first: a short pivot hop, turning up to ~70 degrees.
       if (Math.abs(err) > 0.4) {
@@ -465,8 +704,8 @@ export class FrogPredators {
     }
     if (roll < 0.45) {
       if (!frog.wander || Math.hypot(frog.wander[0] - frog.x, frog.wander[1] - frog.y) < frog.hopLength) {
-        const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * (this.arenaRadius - frog.length * 1.5);
-        frog.wander = [rr * Math.cos(a), rr * Math.sin(a)];
+        // a frog heads for the pond now and then; a toad keeps to dry ground
+        frog.wander = (frog.swims && Math.random() < 0.4 && this._spot(true)) || this._spot(false) || [0, 0];
       }
       const wb = Math.atan2(frog.wander[1] - frog.y, frog.wander[0] - frog.x);
       const we = wrapAngle(wb - frog.heading);
@@ -478,7 +717,73 @@ export class FrogPredators {
     this._sit(frog, 2.5 + Math.random() * 6);
   }
 
+  // ---------- in the pond ----------
+  // A frog swims with its hind legs: both kick back together (a frog kick), it glides with
+  // them trailing straight behind, draws them up again and kicks again; the forelegs lie
+  // back along its sides. At rest it floats at the surface, eyes and back out, legs hanging
+  // spread. It hunts from the water: flies on the surface or the bank in front of it.
+
+  _swim(frog, fly, dt, flyMoving, inReach) {
+    const L = frog.length;
+    frog.swimT = (frog.swimT ?? 9) + dt;
+    frog.sitLeft -= dt;
+    if (!this.isWater?.(frog.x, frog.y)) { frog.vel = 0; frog.mode = "sit"; frog.sitLeft = 0.5; return; } // drifted ashore
+    const dx = fly.x - frog.x, dy = fly.y - frog.y, dist = Math.hypot(dx, dy);
+    if (!fly.gone && frog.catchCooldown <= 0 && fly.z < 12 && dist < frog.sight && (flyMoving || dist < frog.sight * 0.6)) frog.hunting = 12;
+    // In reach: strike (from a glide too).
+    frog.waitedInReach = inReach ? (frog.waitedInReach || 0) + dt : 0;
+    if (inReach && frog.catchCooldown <= 0 && this.catchLock <= 0 && (flyMoving || frog.waitedInReach > 1.5)) { frog.vel = 0; return this._strike(frog, fly); }
+    // Where to: the fly when hunting, else a goal of its own (or none: floating).
+    let goal = frog.swimGoal;
+    if (frog.hunting > 0 && !fly.gone && fly.z < 12) goal = { x: fly.x, y: fly.y, prey: true };
+    else if (frog.swimGoal?.prey) goal = frog.swimGoal = null;
+    if (!goal && frog.sitLeft <= 0) {
+      const roll = Math.random();
+      const there = roll < 0.45 ? this._spot(true, frog, 160) : roll < 0.75 ? this._spot(false, frog, 220) : null;
+      if (there) goal = frog.swimGoal = { x: there[0], y: there[1], land: !this.isWater(there[0], there[1]) };
+      else frog.sitLeft = 3 + Math.random() * 6;
+    }
+    if (goal) {
+      const bearing = Math.atan2(goal.y - frog.y, goal.x - frog.x), err = wrapAngle(bearing - frog.heading);
+      const gd = Math.hypot(goal.x - frog.x, goal.y - frog.y) - (goal.prey ? frog.mouth.x : 0);
+      // close enough: prey within reach (wait for the strike), or there
+      if (goal.prey ? gd < frog.reach * 0.75 : gd < L * 0.5) {
+        if (!goal.prey) { frog.swimGoal = null; frog.sitLeft = 2 + Math.random() * 5; }
+        else frog.heading = wrapAngle(frog.heading + clamp(err, -1, 1) * 2 * dt); // paddling round to face it
+      } else {
+        // steer: briskly during a kick, slowly in the glide
+        const kicking = frog.swimT < 0.2;
+        frog.heading = wrapAngle(frog.heading + clamp(err, -1, 1) * (kicking ? 6 : 1.6) * dt);
+        // out onto the bank: the shore is just ahead, the goal beyond it
+        const ax = frog.x + Math.cos(frog.heading) * L * 0.8, ay = frog.y + Math.sin(frog.heading) * L * 0.8;
+        if ((goal.land || goal.prey) && !this.isWater(ax, ay) && Math.abs(err) < 0.6) {
+          const d = goal.prey ? Math.min(frog.hopLength, gd - frog.reach * 0.6) : Math.min(frog.hopLength, gd);
+          frog.vel = 0;
+          frog.swimGoal = null;
+          this.onRipple?.(frog.x, frog.y, L / 18);
+          return this._startHop(frog, "hop", frog.x + Math.cos(bearing) * Math.max(L * 0.6, d), frog.y + Math.sin(bearing) * Math.max(L * 0.6, d), bearing);
+        }
+        // the next kick, once drawn up again (and roughly facing the way)
+        if (frog.swimT > (goal.prey && gd < L * 2 ? 0.55 : 0.75) && Math.abs(err) < 1.1) {
+          frog.swimT = 0;
+          this.onRipple?.(frog.x - Math.cos(frog.heading) * L * 0.7, frog.y - Math.sin(frog.heading) * L * 0.7, L / 20);
+        }
+      }
+    }
+    // the kick drives it forward; the water slows it in the glide
+    if (frog.swimT < 0.16) frog.vel += (L * 2.4 / 0.16) * dt;
+    frog.vel *= Math.exp(-2.6 * dt);
+    if (frog.vel < 0.02 * L) frog.vel = 0;
+    const nx = frog.x + Math.cos(frog.heading) * frog.vel * dt, ny = frog.y + Math.sin(frog.heading) * frog.vel * dt;
+    if (this.isWater(nx, ny) && Math.hypot(nx, ny) < this.arenaRadius - 20) { frog.x = nx; frog.y = ny; } else frog.vel = 0;
+    // legs: extended through the kick and the glide, then drawn up; floating when still
+    frog.kick = frog.swimT < 0.13 ? ease(frog.swimT / 0.13) : frog.swimT < 0.42 ? 1 : 1 - ease((frog.swimT - 0.42) / 0.3);
+    const still = frog.vel < L * 0.25 && frog.swimT > 0.75;
+    frog.floatW = clamp((frog.floatW || 0) + (still ? 1.5 : -4) * dt, 0, 1);
+  }
+
   _strike(frog, fly) {
+    frog.lastSwam = frog.mode === "swim";
     frog.mode = "strike";
     frog.t = 0;
     frog.caught = false;
@@ -530,12 +835,14 @@ export class FrogPredators {
           else if (frog.boutLeft > 0 && frog.mode === "hop") this._sit(frog, 0.15 + Math.random() * 0.45);
           else this._sit(frog, frog.hunting > 0 ? 0.5 + Math.random() * 1.2 : 2 + Math.random() * 5);
         }
+      } else if (frog.mode === "swim") {
+        this._swim(frog, fly, dt, flyMoving, inReach);
       } else if (frog.mode === "croak") {
         if (frog.t >= 2) this._sit(frog, 3 + Math.random() * 5);
       } else if (frog.mode === "strike") {
-        // The tongue is fully out at 0.07 s: if its sticky tip touches the fly, the fly sticks
+        // The tongue is fully out at 0.11 s: if its sticky tip touches the fly, the fly sticks
         // to it and is reeled in. If the fly moved, or the aim was off, it misses.
-        if (!frog.caught && frog.t >= 0.07 && !fly.gone) {
+        if (!frog.caught && frog.t >= 0.11 && !fly.gone) {
           frog.caught = true;
           // where the fully extended tip is: toward the aim point, at most the reach
           const mouth = _v2.set(frog.x + Math.cos(frog.heading) * frog.mouth.x, frog.y + Math.sin(frog.heading) * frog.mouth.x,
@@ -549,11 +856,11 @@ export class FrogPredators {
             this.onCatch({ id: frog.id, name: frog.name, x: frog.x, y: frog.y });
           }
         }
-        if (frog.holding && frog.t > 0.12 && frog.tongueOut <= 0.02) {
+        if (frog.holding && frog.t > 0.2 && frog.tongueOut <= 0.02) {
           frog.holding = false; // in the mouth: swallow
           frog.gulp = 1.4;
         }
-        if (frog.t >= (frog.ate ? 0.5 : 0.42)) {
+        if (frog.t >= (frog.ate ? 0.6 : 0.42)) {
           if (frog.ate) {
             // Swallowing, then a while before it hunts again.
             frog.holding = false;
@@ -574,10 +881,11 @@ export class FrogPredators {
           frog.sitLeft = Math.min(frog.sitLeft, 0.3 + Math.random() * 0.5);
         }
       }
-      frog.state = frog.mode === "sit" ? (frog.hunting > 0 ? "watching" : "sitting") : frog.mode;
+      frog.state = frog.mode === "sit" ? (frog.hunting > 0 ? "watching" : "sitting") : frog.mode === "swim" ? (frog.vel > frog.length * 0.3 ? "swimming" : "floating") : frog.mode;
+      frog.lastMode = frog.mode;
       this._body(frog);
       this._pose(frog);
-      this._tongue(frog, fly);
+      this._tongue(frog);
     }
   }
 
@@ -608,13 +916,27 @@ export class FrogPredators {
         const k = 1 - ease((t - h.end) / Math.max(0.05, h.dur - h.end));
         pitch = base * (1 - k) + 0.1 * k;
       }
-    } else if (frog.mode === "strike") {
-      pitch += 0.12 * Math.sin(Math.PI * clamp(frog.t / 0.3, 0, 1));
     }
-    // Afloat in the pond it rides low, eyes and back out of the water.
-    if (z < 0.5 && this.isWater?.(frog.x, frog.y)) ground -= frog.length * 0.16;
+    let lunge = 0;
+    if (frog.mode === "strike") {
+      // the head dips and the body lunges a little toward the prey as the tongue goes out
+      const k = Math.sin(Math.PI * clamp(frog.t / 0.32, 0, 1));
+      pitch += 0.12 * k;
+      lunge = L * 0.07 * k;
+    }
+    // Afloat in the pond it rides low, eyes and back out of the water, level and bobbing.
+    if (this.isWater?.(frog.x, frog.y)) {
+      // swimming, low in the water (only the eyes and the top of the back out); a frog that
+      // sits in the shallows or a toad at the edge, less so
+      const sunk = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam) ? 0.3 : 0.17;
+      ground -= L * sunk * (1 - clamp(z / (L * 0.3), 0, 1));
+      if (frog.mode === "swim") {
+        pitch = -0.03 + 0.05 * (frog.kick || 0);
+        ground += Math.sin(frog.phase + performance.now() * 0.002) * L * 0.006;
+      }
+    }
     frog.lift = z; // how high it is off the ground (in a hop)
-    frog.actor.position.set(frog.x, frog.y, z + ground);
+    frog.actor.position.set(frog.x + Math.cos(frog.heading) * lunge, frog.y + Math.sin(frog.heading) * lunge, z + ground);
     frog.actor.rotation.set(0, pitch, frog.heading);
   }
 
@@ -634,4 +956,44 @@ export class FrogPredators {
   }
 }
 
-const _dir = new THREE.Vector3();
+const _dir = new THREE.Vector3(), _up = new THREE.Vector3(0, 0, 1), _v4 = new THREE.Vector3();
+const _t0 = new THREE.Vector3(), _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3();
+
+// The tongue: a flattened tube along a curve, TS segments long and TR round.
+const TS = 18, TR = 10;
+function tongueGeometry() {
+  const g = new THREE.BufferGeometry(), idx = [];
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array((TS + 1) * TR * 3), 3));
+  for (let i = 0; i < TS; i++) for (let j = 0; j < TR; j++) {
+    const a = i * TR + j, b = i * TR + ((j + 1) % TR), c = a + TR, d = b + TR;
+    idx.push(a, c, b, b, c, d);
+  }
+  g.setIndex(idx);
+  return g;
+}
+const _p = new THREE.Vector3(), _tan = new THREE.Vector3(), _nrm = new THREE.Vector3(), _bin = new THREE.Vector3(), _side = new THREE.Vector3(0, 1, 0);
+/** Lay the tongue along the curve root -> ctrl -> tip: narrow at the root, a broad pad at the tip. */
+function buildTongue(g, root, ctrl, tip, L, fat) {
+  const p = g.attributes.position;
+  for (let i = 0; i <= TS; i++) {
+    const s = i / TS, u = 1 - s;
+    _p.set(0, 0, 0).addScaledVector(root, u * u).addScaledVector(ctrl, 2 * u * s).addScaledVector(tip, s * s);
+    _tan.set(0, 0, 0).addScaledVector(ctrl.clone().sub(root), 2 * u).addScaledVector(_t2.copy(tip).sub(ctrl), 2 * s).normalize();
+    // flat across the frog (its width side to side), thin in the plane it flips in
+    _nrm.crossVectors(_side, _tan);
+    if (_nrm.lengthSq() < 1e-6) _nrm.set(0, 0, 1);
+    _nrm.normalize();
+    _bin.crossVectors(_tan, _nrm).normalize();
+    const pad = clamp((s - 0.5) / 0.32, 0, 1);
+    let w = L * (0.02 + 0.014 * s + 0.05 * pad * pad * (3 - 2 * pad)) * fat; // a slender stalk, then the sticky pad
+    if (s > 0.84) w *= Math.sqrt(Math.max(0, 1 - ((s - 0.84) / 0.16) ** 2)); // its rounded end
+    const th = w * 0.5;
+    for (let j = 0; j < TR; j++) {
+      const a = (j / TR) * Math.PI * 2;
+      p.setXYZ(i * TR + j, _p.x + _bin.x * w * Math.cos(a) + _nrm.x * th * Math.sin(a), _p.y + _bin.y * w * Math.cos(a) + _nrm.y * th * Math.sin(a),
+        _p.z + _bin.z * w * Math.cos(a) + _nrm.z * th * Math.sin(a));
+    }
+  }
+  p.needsUpdate = true;
+  g.computeVertexNormals();
+}

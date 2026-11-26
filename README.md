@@ -88,8 +88,22 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   greener with depth and fading into the wet bank at the shoreline, with glints of the sun.
   The bed has silt, algae in the shallows and moving caustics; pondweed sways under the
   water, duckweed floats near the banks, shoreline stones sit half in the water, and the
-  banks, stones and grass are wet at the waterline. Frogs float in the pond, low in the
-  water. There is haze only in the rain.
+  banks, stones and grass are wet at the waterline. There is haze only in the rain.
+  On a computer the scenery uses its models at full resolution: the pond with its original
+  2048-pixel textures (`web/assets/env/hd`), the lawn mixed from all 17 clumps of the grass
+  model with its 2048-pixel colour, normal and roughness maps, and every stone of the stone
+  set; a phone gets 1024-pixel textures and three of the grass clumps.
+- **Frogs in the pond:** the Montane Brown Frog swims: frog kicks with both hind legs, a
+  glide with them trailing, forelegs back along its sides, low in the water with only its
+  eyes and back out, and it floats with its legs hanging spread when it stops. It goes into
+  the pond now and then, hunts flies on the water or on the bank from there, and leaps out
+  onto the bank. The Japanese Toad keeps out of the water and stops at the edge.
+- **Mouths and tongues:** the frog models have no jaw, so one is rigged when they load: a
+  jaw bone hinged behind the eyes carries the lower lip, chin and throat skin, and opening
+  it parts the lips and shows the inside of the mouth. To strike, the mouth gapes, the
+  broad, wet tongue (rooted at the front of the lower jaw) flips up and over onto the fly,
+  comes back with it stuck to its pad, and only then does the mouth shut and the frog
+  swallow, its eyes pressing down.
 - **Grooming:** touching the head bristles (a poke, a raindrop, a snowflake) drives the DNg12
   descending neurons in the connectome (to ~10 Hz; near 0 at rest), and while they fire the
   fly stops and cleans its head: front-leg sweeps over the eyes alternating with leg rubbing

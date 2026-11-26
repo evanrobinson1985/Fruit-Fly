@@ -167,8 +167,10 @@ function stoneMaterial(color, seed, base = 0) {
 export async function loadForest(terrain, renderer, base, keepClear = [], { high = false } = {}) {
   const ktx2 = new KTX2Loader().setTranscoderPath(transcoderPath()).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+  // On a computer the pond comes with its original 2048-pixel textures (env/hd/); a phone
+  // gets the copy with them at 1024. The plants' and stones' files are the originals.
   const [stones, moss, bracken, fern, pond] = await Promise.all(
-    ["stones.glb", "moss-tufts.glb", "bracken.glb", "lady-fern.glb", "pond.glb"].map((f) => loader.loadAsync(base + f)));
+    ["stones.glb", "moss-tufts.glb", "bracken.glb", "lady-fern.glb", high ? "hd/pond.glb" : "pond.glb"].map((f) => loader.loadAsync(base + f)));
   const R = terrain.radius, r = rng(2024);
   const group = new THREE.Group();
   group.name = "forest";
@@ -327,10 +329,11 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     reflectable(holder);
     placed.push({ x: at[0], y: at[1], r: width * 0.5 });
   };
-  // A few larger rocks toward the wall, then pebbles and small stones all over.
-  const big = [...sets.A, ...sets.C];
-  for (let i = 0; i < 3 && big.length; i++) addStone(big[Math.floor(r() * big.length)], 75 + r() * 45, R * 0.5, R * 0.9, 0.15);
-  for (let i = 0; i < 13 && sets.B.length; i++) addStone(sets.B[i % sets.B.length], 16 + r() * 30, 20, R * 0.93, 0.12);
+  // Every stone of the set: the A and C stones as rocks, the larger ones toward the wall,
+  // and the B stones as pebbles and small stones all over (the rest go round the pond).
+  const big = [...sets.A, ...sets.C].sort(() => r() - 0.5);
+  big.forEach((src, i) => addStone(src, i < 4 ? 75 + r() * 45 : 32 + r() * 38, i < 4 ? R * 0.5 : R * 0.42, R * 0.9, 0.15));
+  for (let i = 0; i < Math.max(13, sets.B.length) && sets.B.length; i++) addStone(sets.B[i % sets.B.length], 16 + r() * 30, 20, R * 0.93, 0.12);
 
   // ---------- shoreline stones: half in the water, all round the edge ----------
   // With the pond's own photographed stone texture, wet and slimy at the waterline.
@@ -385,13 +388,30 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   }
   // ---------- grass: the lawn itself, from the grass model ----------
   try {
-    const tl = new THREE.TextureLoader();
-    const [grass, map, normalMap] = await Promise.all([
-      loader.loadAsync(base + "grass.glb"), tl.loadAsync(base + "grass_diff.png"), tl.loadAsync(base + "grass_nor.jpg")]);
+    // On a computer: the model's full 2048-pixel colour, normal and roughness maps (env/hd/)
+    // and all 17 of its clumps; on a phone: 1024-pixel maps and three of the clumps.
+    const tl = new THREE.TextureLoader(), tx = high ? "hd/" : "";
+    const [grass, map, normalMap, roughnessMap] = await Promise.all([
+      loader.loadAsync(base + "grass.glb"), tl.loadAsync(base + tx + "grass_diff.png"), tl.loadAsync(base + tx + "grass_nor.jpg"),
+      high ? tl.loadAsync(base + "hd/grass_rough.jpg") : null]);
     map.colorSpace = THREE.SRGBColorSpace;
-    for (const t of [map, normalMap]) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
+    for (const t of [map, normalMap, roughnessMap]) if (t) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
-    terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, high ? 1.45 : 1.9);
+    if (high) {
+      // Mixed through the lawn by size: mid-sized clumps mostly, some big and tall ones,
+      // tiny sprigs between them; further out, the lighter clumps.
+      const g = (n) => geo(n);
+      const near = [["mid_a", 3], ["mid_b", 3], ["mid_c", 3], ["small_a", 2], ["small_b", 2], ["large_a", 0.7], ["large_b", 0.7], ["large_c", 0.7],
+        ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.4], ["tiny_b", 0.4], ["tiny_c", 0.4], ["tiny_d", 0.4], ["tiny_e", 0.4], ["tiny_f", 0.4]];
+      const mid = [["mid_b", 2], ["mid_c", 2], ["small_a", 3], ["small_b", 3], ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.6], ["tiny_e", 0.6]];
+      const far = [["small_a", 1], ["small_b", 1], ["tall_b", 0.4], ["tall_c", 0.4]];
+      const mix = (list) => list.map(([n, w]) => [g(n), w]).filter(([x]) => x);
+      // sizes relative to mid_b, the clump a phone's lawn is made of
+      const ref = g("mid_b"); ref.computeBoundingBox();
+      const refH = ref.boundingBox.max.y - ref.boundingBox.min.y;
+      terrain.useGrassModel({ refH, mix: [{ levels: [0], mix: mix(near) }, { levels: [1], mix: mix(mid) }, { levels: [2], mix: mix(far) },
+        { levels: [3, 4, 5], keep: 0.35, mix: mix(far) }] }, { map, normalMap, roughnessMap }, 1.45);
+    } else terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, 1.9);
     // the grass round the fly and the light far grass show in the water
     // the grass shows in the water: all of it on a computer, only round the fly on a phone
     for (const c of high ? terrain.clumps : terrain.clumps.slice(0, 1)) reflectable(c);

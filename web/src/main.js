@@ -962,7 +962,12 @@ function frame(now) {
         const air = f.mode === "hop" || f.mode === "jump";
         const lifted = (f.lift || 0) > 0.5;
         if (f._lifted !== undefined && lifted !== f._lifted && wat.contains(f.x, f.y)) wat.addRipple(f.x, f.y, f.length / 22);
-        else if (!air && f.mode === "sit" && wat.contains(f.x, f.y) && Math.random() < dtf * 0.4) wat.addRipple(f.x + (Math.random() - 0.5) * f.length * 0.4, f.y + (Math.random() - 0.5) * f.length * 0.4, 0.3);
+        else if (!air && (f.mode === "sit" || f.mode === "swim") && wat.contains(f.x, f.y) && Math.random() < dtf * 0.4) wat.addRipple(f.x + (Math.random() - 0.5) * f.length * 0.4, f.y + (Math.random() - 0.5) * f.length * 0.4, 0.3);
+        // a swimming frog's bow wave
+        if (f.mode === "swim" && f.vel > f.length * 0.4 && now - (f._wake || 0) > 220) {
+          wat.addRipple(f.x + Math.cos(f.heading) * f.mouth.x, f.y + Math.sin(f.heading) * f.mouth.x, f.length / 30);
+          f._wake = now;
+        }
         f._lifted = lifted;
       }
     }
@@ -1107,6 +1112,7 @@ async function boot() {
   predators = new FrogPredators(scene, ASSETS + "frogs-original.glb", caughtByFrog, world.radius);
   predators.groundAt = groundZ; // frogs sit on stones and moss too
   predators.isWater = (x, y) => !!forest?.water?.contains(x, y); // and float in the pond
+  predators.onRipple = (x, y, size) => forest?.water?.addRipple(x, y, size); // kicks as they swim
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");

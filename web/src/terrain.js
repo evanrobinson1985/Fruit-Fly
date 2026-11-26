@@ -430,24 +430,36 @@ function thinBlades(g, keep) {
   return g;
 }
 
-/** An instanced clump: the model's geometry (Y-up, any units) turned Z-up, 1 unit tall. */
-function clumpGeometry(src, levels, keep = 1) {
+// With several clump models mixed (on a computer), each takes its share of an 8 x 8 tiling
+// of the cells, the tiling fixed to the ground: a cell keeps its clump as the rings move.
+const SLOTS = 8;
+
+/**
+ * An instanced clump: the model's geometry (Y-up, any units) turned Z-up, 1 unit tall, or
+ * scaled by `refH` (the model's units per unit) to keep its size among the other clumps.
+ * `slots`: the cells of the 8 x 8 tiling it grows in (all cells if not given).
+ */
+function clumpGeometry(src, levels, keep = 1, slots = null, refH = 0) {
   const g = keep < 1 ? thinBlades(src.clone(), keep) : src.clone();
   g.rotateX(Math.PI / 2);
   g.computeBoundingBox();
   const b = g.boundingBox;
   g.translate(-(b.min.x + b.max.x) / 2, -(b.min.y + b.max.y) / 2, -b.min.z);
-  g.scale(1 / (b.max.z - b.min.z), 1 / (b.max.z - b.min.z), 1 / (b.max.z - b.min.z));
+  const k = 1 / (refH || b.max.z - b.min.z);
+  g.scale(k, k, k);
   const geo = new THREE.InstancedBufferGeometry();
   for (const k of ["position", "normal", "uv"]) geo.setAttribute(k, g.getAttribute(k));
   geo.setIndex(g.getIndex());
   const cells = [];
   for (const L of levels) {
-    const c = GC0 * 2 ** L, rOut = GR0 * 2 ** L + 2 * c, rIn = L ? Math.max(0, 0.8 * GR0 * 2 ** (L - 1) - 2 * c) : -1;
+    // (snapped to the tiling, the rings' centre is up to 8 cells off: a wider margin)
+    const c = GC0 * 2 ** L, m = (slots ? SLOTS : 0) * c;
+    const rOut = GR0 * 2 ** L + 2 * c + m, rIn = L ? Math.max(0, 0.8 * GR0 * 2 ** (L - 1) - 2 * c - m) : -1;
     const n = Math.ceil(rOut / c);
     for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
       const d = Math.hypot(i, j) * c;
-      if (d <= rOut && d >= rIn) cells.push(i, j, L);
+      const slot = (((i % SLOTS) + SLOTS) % SLOTS) * SLOTS + (((j % SLOTS) + SLOTS) % SLOTS);
+      if (d <= rOut && d >= rIn && (!slots || slots.has(slot))) cells.push(i, j, L);
     }
   }
   geo.setAttribute("aCell", new THREE.InstancedBufferAttribute(new Float32Array(cells), 3));
@@ -455,10 +467,12 @@ function clumpGeometry(src, levels, keep = 1) {
   return geo;
 }
 
-function clumpMaterial(u, maps) {
+function clumpMaterial(u, maps, tiled = false) {
   const m = new THREE.MeshStandardMaterial({
     map: maps.map, normalMap: maps.normalMap, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.78, metalness: 0,
   });
+  // the model's roughness map (green channel, as glTF packs it)
+  if (maps.roughnessMap) Object.assign(m, { roughnessMap: maps.roughnessMap, roughness: 1 });
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = GLSL_COMMON + `
@@ -488,7 +502,7 @@ uniform float uWaterLine; // grass grows down the banks to just above this heigh
 ` + shader.vertexShader
       .replace("#include <color_vertex>", `#include <color_vertex>
   float lvl = aCell.z, cs = ${GC0} * exp2(lvl);
-  ivec2 cell = ivec2(floor(uCenter / cs) + aCell.xy);
+  ivec2 cell = ivec2(${tiled ? `floor(uCenter / (cs * ${SLOTS}.0)) * ${SLOTS}.0` : "floor(uCenter / cs)"} + aCell.xy);
   uint L = uint(lvl) * 16u + 3u;
   vec2 bpos = (vec2(cell) + vec2(h01(cell, L + 1u), h01(cell, L + 2u))) * cs;
   float d = length(bpos - uCenter);
@@ -611,13 +625,38 @@ export class Terrain {
    * Cover the floor with clumps of a grass model instead of the generated blades.
    * variants: { near, mid, far } BufferGeometries; maps: { map, normalMap }.
    */
+  /**
+   * The lawn from a grass model. `variants`: {near, mid, far} clump geometries, one per ring
+   * (a phone); or {mix: [{levels, keep, mix: [[geometry, weight], ...]}, ...], refH} to mix
+   * all the model's clumps through each ring, each at its own size (a computer).
+   */
   useGrassModel(variants, maps, cell = 1.9) {
     GC0 = cell;
-    const mat = clumpMaterial(this.uniforms, maps);
+    const tiled = !!variants.mix;
+    const mat = clumpMaterial(this.uniforms, maps, tiled);
     // Far rings are small on screen: their clumps keep about a third of their blades.
-    const groups = [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5], 0.35]];
-    this.clumps = groups.map(([src, levels, keep]) => {
-      const mesh = new THREE.Mesh(clumpGeometry(src, levels, keep), mat);
+    const parts = [];
+    if (!tiled) {
+      for (const [src, levels, keep] of [[variants.near, [0], 1], [variants.mid, [1], 1], [variants.far, [2], 1], [variants.far, [3, 4, 5], 0.35]])
+        parts.push(clumpGeometry(src, levels, keep));
+    } else {
+      let seed = 99;
+      const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+      for (const group of variants.mix) {
+        // share the 64 cells of the tiling out by weight, in a shuffled order
+        const order = [...Array(SLOTS * SLOTS).keys()].sort(() => rand() - 0.5);
+        const total = group.mix.reduce((a, [, w]) => a + w, 0);
+        let at = 0;
+        group.mix.forEach(([src, w], i) => {
+          const n = i === group.mix.length - 1 ? SLOTS * SLOTS - at : Math.max(1, Math.round((w / total) * SLOTS * SLOTS));
+          const slots = new Set(order.slice(at, at + n));
+          at += n;
+          if (slots.size && src) parts.push(clumpGeometry(src, group.levels, group.keep ?? 1, slots, variants.refH));
+        });
+      }
+    }
+    this.clumps = parts.map((geo) => {
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.frustumCulled = false;
       mesh.receiveShadow = true;
       this.group.add(mesh);

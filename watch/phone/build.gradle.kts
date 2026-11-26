@@ -54,6 +54,8 @@ val copySite by tasks.registering(Copy::class) {
         exclude("assets/NOTICE.md")
         // Only frogs-original.glb (the detailed models, re-rigged at load) is used; the other frog files stay in the repo.
         exclude("assets/frogs.glb", "assets/frogs-animated.glb", "assets/frogs-rigged.glb", "assets/*.md")
+        // The full-resolution scenery (env/hd: the pond's and the grass's original textures) is for computers.
+        exclude("assets/env/hd/**")
     }
     from("vendor") { into("vendor") }
     doLast { // Fail the build if any Three.js module required by the phone page is missing.

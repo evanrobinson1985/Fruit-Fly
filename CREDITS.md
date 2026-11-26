@@ -180,7 +180,10 @@ website offline.
 
 `web/assets/env`: bracken, lady fern and moss tufts (web-optimised GLBs exported from
 tevy.dev), and a stone set (StoneSets, from CGTrader; converted from FBX to `stones.glb`
-without its texture maps). Supplied by the project owner for use in the arena.
+without its texture maps), a grass clump set (`grass.glb`, its 17 clumps; the colour,
+normal and roughness maps as `grass_*`, at full size in `env/hd`) and a pond (`pond.glb`,
+cut from its ground tile; `env/hd/pond.glb` keeps its original textures). Supplied by the
+project owner for use in the arena.
 
 ## Software and fonts
 
