@@ -34,6 +34,7 @@ const CSS = `
     background: rgba(32, 26, 20, 0.85); font-size: 15px; transition: opacity 0.3s; pointer-events: none; }
   #game .g-sleep { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); color: var(--muted); font-size: 14px; pointer-events: none; }
   #game .g-title b { cursor: pointer; }
+  #game .g-title .g-cam { margin-left: auto; height: 34px; padding: 0 12px; font-size: 13px; border-radius: 12px; flex: 0 0 auto; }
 `;
 
 export function startGame(api) {
@@ -45,7 +46,8 @@ export function startGame(api) {
   root.id = "game";
   root.innerHTML = `
     <div class="g-top">
-      <div class="g-title"><b id="g-name" role="button" title="Rename"></b><span id="g-info"></span></div>
+      <div class="g-title"><b id="g-name" role="button" title="Rename"></b><span id="g-info"></span>
+        <button id="g-cam" class="g-cam" title="What the camera follows">Camera: Fly</button></div>
       <div class="g-bars">
         <div class="g-bar" style="--c:var(--cuticle)">Food <span id="g-food"></span><i id="g-food-bar"></i></div>
         <div class="g-bar" style="--c:#7fb6e8">Energy <span id="g-energy"></span><i id="g-energy-bar"></i></div>
@@ -63,6 +65,8 @@ export function startGame(api) {
   document.body.append(root);
   document.body.classList.add("game-lab-hidden");
   const $ = (id) => document.getElementById(id);
+  // The camera follows the fly, the frog or the toad (each tap: the next one).
+  $("g-cam").onclick = () => { $("g-cam").textContent = "Camera: " + (api.cycleCamera?.() || "Fly"); };
   const showName = () => {
     $("g-name").textContent = pet.name;
     $("g-sleep").textContent = `Night: ${pet.name} is asleep until 7:00`;

@@ -104,6 +104,9 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   broad, wet tongue (rooted at the front of the lower jaw) flips up and over onto the fly,
   comes back with it stuck to its pad, and only then does the mouth shut and the frog
   swallow, its eyes pressing down.
+- **Camera on a frog:** the camera can follow the fly, the frog or the toad (Simulation:
+  "Camera on"; in the phone game, the Camera button at the top cycles through them). It
+  moves with the frog as it hops and swims; choosing a hidden frog shows it.
 - **Grooming:** touching the head bristles (a poke, a raindrop, a snowflake) drives the DNg12
   descending neurons in the connectome (to ~10 Hz; near 0 at rest), and while they fire the
   fly stops and cleans its head: front-leg sweeps over the eyes alternating with leg rubbing

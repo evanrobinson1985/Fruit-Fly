@@ -627,11 +627,38 @@ $("floor-lab").onclick = () => setFloor(false);
 $("floor-grass").onclick = () => setFloor(true);
 let closeUp = true;
 let followFly = true;
+const followLabel = () => "Follow " + (camSubject === "fly" ? "fly" : camSubject === "small" ? "frog" : "toad");
 $("camera-follow").onclick = () => {
   followFly = !followFly;
-  $("camera-follow").textContent = followFly ? "Unlock camera" : "Follow fly";
+  camLast = null;
+  $("camera-follow").textContent = followFly ? "Unlock camera" : followLabel();
   $("camera-follow").setAttribute("aria-pressed", String(followFly));
 };
+// What the camera follows: the fly, or one of the frogs ("small": the frog, "big": the toad).
+let camSubject = "fly", camLast = null;
+const camFrog = () => (camSubject === "fly" ? null : predators?.frogs.find((f) => f.id === camSubject && f.actor.visible) || null);
+/** Where the camera looks when following a frog: just above its back. */
+const frogTarget = (f, out) => out.set(f.actor.position.x, f.actor.position.y, f.actor.position.z + f.length * 0.3);
+function setCamSubject(subject) {
+  if (subject !== "fly" && !predators?.frogs.some((f) => f.id === subject)) return; // not loaded yet
+  camSubject = subject;
+  camLast = null;
+  // Show that frog if it was hidden.
+  if (subject !== "fly" && frogMode !== "both" && frogMode !== subject) setFrogMode(frogMode === "none" ? subject : "both");
+  const f = camFrog();
+  // Carry the view over to the new subject, a little further out for a frog.
+  const to = f ? frogTarget(f, new THREE.Vector3()) : new THREE.Vector3(flyRoot.position.x, flyRoot.position.y, flyRoot.position.z + 0.8);
+  camera.position.add(to.clone().sub(controls.target));
+  controls.target.copy(to);
+  const want = f ? Math.max(f.length * 3.2, camera.position.distanceTo(to)) : camera.position.distanceTo(to);
+  const dir = camera.position.clone().sub(to).normalize();
+  camera.position.copy(to).addScaledVector(dir, want);
+  controls.update();
+  if (!followFly) $("camera-follow").click();
+  document.querySelectorAll("[data-cam-subject]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.camSubject === subject)));
+  return subject;
+}
+document.querySelectorAll("[data-cam-subject]").forEach((b) => { b.onclick = () => setCamSubject(b.dataset.camSubject); });
 $("cam").onclick = () => {
   closeUp = !closeUp;
   $("cam").textContent = closeUp ? "Close-up" : "Arena view";
@@ -1000,7 +1027,15 @@ function frame(now) {
     tmpN.copy(perch.n).add(jolt.tilt).normalize();
     flyRoot.quaternion.setFromUnitVectors(UP, tmpN)
       .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
-    if (followFly) {
+    const frogCam = followFly && camFrog();
+    if (frogCam) {
+      // Following a frog: the view moves with it as it hops and swims.
+      const at = frogTarget(frogCam, new THREE.Vector3());
+      if (camLast) camera.position.add(at.clone().sub(camLast));
+      camLast = at;
+      controls.target.copy(at);
+    } else if (followFly) {
+      if (camSubject !== "fly") setCamSubject("fly"); // its frog was hidden
       camera.position.add(delta);
       // Aim slightly above the fly so its body sits at the visual center of the screen.
       // The offset scales with camera distance, keeping the framing consistent while zooming.
@@ -1127,6 +1162,15 @@ async function boot() {
   if (GAME) {
     const { startGame } = await import("./game.js");
     game = startGame({
+      // the camera button: fly -> frog -> toad -> fly
+      cycleCamera: () => {
+        const order = ["fly", "small", "big"];
+        for (let i = 1; i <= 3; i++) {
+          const next = order[(order.indexOf(camSubject) + i) % 3];
+          if (setCamSubject(next)) return next === "fly" ? "Fly" : next === "small" ? "Frog" : "Toad";
+        }
+        return "Fly";
+      },
       body, world, canvas, addFood, removeFood, addDeposit, clearDeposits, groundZ,
       touchHead: () => {
         stim.touch = { zone: "head", side: Math.random() < 0.5 ? "L" : "R", hz: 120 };
