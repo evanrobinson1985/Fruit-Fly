@@ -759,6 +759,7 @@ export class Terrain {
     ];
     this.weeds = [];
     this.weedMeshes = [];
+    this.lucky = null; // the four-leaf clovers: {mesh, items: [{x, y, s, i}]} (lucky.js)
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color();
     for (const k of kinds) {
       const mesh = new THREE.InstancedMesh(k.geo, leafMaterial(k.color, this.uniforms), k.n);
@@ -772,6 +773,7 @@ export class Terrain {
         mesh.setMatrixAt(i, m);
         mesh.setColorAt(i, c.setHSL(k.hue[0] + r() * (k.hue[1] - k.hue[0]), 0.3 + r() * 0.2, 0.6 + r() * 0.2));
         this.weeds.push({ x, y, r: 3 * s });
+        if (k.lucky) (this.lucky ||= { mesh, items: [] }).items.push({ x, y, s, i });
       }
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -783,7 +785,16 @@ export class Terrain {
   // Remove the weeds inside these circles ({x, y, r}: where stones sit).
   clearWeeds(circles) {
     const m = new THREE.Matrix4(), p = new THREE.Vector3(), zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    this.cleared = [...(this.cleared || []), ...circles];
+    // a four-leaf clover there grows somewhere clear instead
+    for (const c of this.lucky?.items || []) {
+      if (!circles.some((k) => Math.hypot(k.x - c.x, k.y - c.y) < k.r + 1)) continue;
+      [c.x, c.y] = this._luckySpot();
+      this.lucky.mesh.setMatrixAt(c.i, m.compose(new THREE.Vector3(c.x, c.y, 0), new THREE.Quaternion(), new THREE.Vector3(c.s, c.s, c.s)));
+    }
+    if (this.lucky) this.lucky.mesh.instanceMatrix.needsUpdate = true;
     for (const mesh of this.weedMeshes) {
+      if (mesh === this.lucky?.mesh) continue;
       for (let i = 0; i < mesh.count; i++) {
         mesh.getMatrixAt(i, m);
         p.setFromMatrixPosition(m);
@@ -799,7 +810,10 @@ export class Terrain {
     for (let tries = 0; ; tries++) {
       const rad = Math.sqrt(Math.random()) * (this.radius - 8), a = Math.random() * 2 * Math.PI;
       const x = rad * Math.cos(a), y = rad * Math.sin(a);
-      if (tries > 200 || this.weeds.every((w) => Math.hypot(w.x - x, w.y - y) > w.r + 3)) return [x, y];
+      // clear of the other weeds' leaves, the pond and the stones (cleared circles)
+      if (tries > 400) return [x, y];
+      if ((this.cleared || []).some((c) => Math.hypot(c.x - x, c.y - y) < c.r + 4)) continue;
+      if (this.weeds.every((w) => Math.hypot(w.x - x, w.y - y) > w.r + 3)) return [x, y];
     }
   }
 

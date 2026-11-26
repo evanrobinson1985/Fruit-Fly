@@ -16,6 +16,7 @@ import { Weather, RAIN_LEVELS, SNOW_LEVELS } from "./weather.js";
 import { SkyDome } from "./sky.js";
 import { FlyAudio } from "./audio.js";
 import { FrogPredators } from "./predators.js";
+import { LuckyClovers } from "./lucky.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
@@ -138,6 +139,15 @@ scene.add(rim);
 const terrain = new Terrain(scene, world.radius);
 terrain.bake(renderer);
 terrain.visible = false;
+// Find a four-leaf clover in the grass and tap it: something lucky happens (lucky.js).
+const lucky = new LuckyClovers(terrain.group, camera, terrain, {
+  groundAt: (x, y) => terrain.groundAt(x, y),
+  onFound: (n) => {
+    const msg = `A four-leaf clover! ${n === 1 ? "Your first one" : `${n} found so far`}. Luck all round.`;
+    if (game) game.lucky(msg);
+    else $("hint").textContent = msg;
+  },
+});
 // Forest-floor scenery on the grass floor: stones, moss, bracken, lady ferns (forest.js).
 // Kept clear: where the fly starts, and where the two frogs start.
 let forest = null;
@@ -562,6 +572,7 @@ let downAt = null;
 canvas.addEventListener("pointerdown", (e) => (downAt = [e.clientX, e.clientY]));
 canvas.addEventListener("pointerup", (e) => {
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  if (terrain.visible && lucky.tryPick(e.clientX, e.clientY, canvas)) return; // a four-leaf clover!
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
@@ -1067,6 +1078,7 @@ function frame(now) {
     }
     terrain.update(x, y, now / 1000, feet, h, simT, camera, controls.target);
     forest?.update(now / 1000);
+    lucky.update(dtf, { x, y, z: z + perch.z });
     if (skyDome.visible) sun.position.set(x, y, 0).addScaledVector(skyDome.sunDir, 30); // the sky's sun
     else sun.position.set(x + 8, y - 6, 20);                                               // the lab lamp
     sun.target.position.set(x, y, 0);

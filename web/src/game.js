@@ -240,6 +240,15 @@ export function startGame(api) {
     onDeposit: () => { toast("Plop!", 1.2); save(); },
     /** A message for the player (e.g. a frog ate the fly). */
     notify: (text, s = 3) => toast(text, s),
+    /** A four-leaf clover was found: the pet feels lucky (fed, rested, happy). */
+    lucky: (text) => {
+      pet.mood = 100;
+      pet.energy = 100;
+      pet.satiety = Math.min(100, pet.satiety + 30);
+      wake();
+      toast(text, 4);
+      save();
+    },
     pet,
   };
 }
