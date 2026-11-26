@@ -97,10 +97,11 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   On a computer the scenery uses its models at full resolution: the pond with its original
   2048-pixel textures (`web/assets/env/hd`), the lawn mixed from all 17 clumps of the grass
   model with its 2048-pixel colour, normal and roughness maps, and every stone of the stone
-  set; a phone gets 1024-pixel textures and three of the grass clumps.
+  set; a phone gets 1024-pixel textures and the same lawn without its biggest clumps,
+  each clump with fewer blades (fewest on Low).
   A Graphics setting (Low, Medium, High: the Graphics button in the phone game, or
   Simulation: Graphics) changes this on any device and is remembered there. Low is a
-  phone's default; Medium adds the mixed lawn with about half its blades, sharper water
+  phone's default; Medium keeps more of the lawn's blades and adds sharper water
   (a reflection every frame at 0.6 resolution) and 4096-pixel shadows; High is the
   computer's full scene (on a phone at up to 2.5x pixel density, with the standard pond).
 - **Frogs in the pond:** the Montane Brown Frog swims: frog kicks with both hind legs, a

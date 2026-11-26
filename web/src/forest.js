@@ -426,9 +426,11 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     }
   }
   // ---------- grass: the lawn itself, from the grass model ----------
+  terrain.blades.visible = false; // (not the generated blades while it loads)
   try {
-    // On a computer: the model's full 2048-pixel colour, normal and roughness maps (env/hd/)
-    // and all 17 of its clumps; on a phone: 1024-pixel maps and three of the clumps.
+    // The same realistic lawn on every setting, mixed from the model's clumps: on High its
+    // full 2048-pixel colour, normal and roughness maps (env/hd/) and all 17 clumps; on
+    // Medium and Low the 1024-pixel maps, without the biggest clumps and with fewer blades.
     const tl = new THREE.TextureLoader();
     const grass = await loader.loadAsync(base + "grass.glb");
     let map, normalMap, roughnessMap = null;
@@ -446,7 +448,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     map.colorSpace = THREE.SRGBColorSpace;
     for (const t of [map, normalMap, roughnessMap]) if (t) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
-    if (high || medium) {
+    {
       // Mixed through the lawn by size: mid-sized clumps mostly, some big and tall ones,
       // tiny sprigs between them; further out, the lighter clumps.
       const g = (n) => geo(n);
@@ -459,24 +461,21 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       const refH = ref.boundingBox.max.y - ref.boundingBox.min.y;
       // The same clumps all the way out, the far rings with fewer blades each (they are
       // small on screen) so the whole arena is lawn from wherever the camera looks.
-      // Medium (a phone that can take more): the same lawn, its clumps a little further apart
-      // and with about half their blades, the big clumps left out.
-      const m = medium ? 0.5 : 1, nearMix = medium ? near.filter(([n]) => !n.startsWith("large")) : near;
-      terrain.useGrassModel({ refH, mix: [{ levels: [0], mix: mix(nearMix), keep: m }, { levels: [1], mix: mix(nearMix), keep: 0.8 * m },
-        { levels: [2], mix: mix(nearMix), keep: 0.55 * m }, { levels: [3], mix: mix(mid), keep: 0.4 * m }, { levels: [4], mix: mix(mid), keep: 0.3 * m },
-        { levels: [5], mix: mix(mid), keep: 0.15 * m }, { levels: [6], mix: mix(mid), keep: 0.08 * m }] }, { map, normalMap, roughnessMap }, medium ? 1.9 : 1.45);
-    } else terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, 1.9);
+      // Medium and Low (phones): the same lawn, its clumps a little further apart and the big
+      // clumps left out; the share of each clump's blades kept, ring by ring, falls faster.
+      const keep = high ? [1, 0.8, 0.55, 0.4, 0.3, 0.15, 0.08] : medium ? [0.8, 0.55, 0.35, 0.22, 0.15, 0.08, 0.04] : [0.6, 0.4, 0.25, 0.15, 0.1, 0.05, 0.03];
+      const nearMix = high ? near : near.filter(([n]) => !n.startsWith("large"));
+      terrain.useGrassModel({ refH, mix: keep.map((k, L) => ({ levels: [L], mix: mix(L < 3 ? nearMix : mid), keep: k })) },
+        { map, normalMap, roughnessMap }, high ? 1.45 : 1.9);
+    }
     // the grass round the fly and the light far grass show in the water
     // the grass shows in the water: all of it on a computer, only round the fly on a phone
     // (Medium: the rings nearest the camera)
-    for (const c of high ? terrain.clumps : medium ? terrain.clumps.filter((c) => c.geometry.attributes.aCell.array[2] <= 1) : terrain.clumps.slice(0, 1)) reflectable(c);
+    const lvl = (c) => c.geometry.attributes.aCell.array[2];
+    for (const c of high ? terrain.clumps : terrain.clumps.filter((c) => lvl(c) <= (medium ? 1 : 0))) reflectable(c);
   } catch (e) {
-    if (high) {
-      terrain.group.remove(terrain.blades); // do not substitute generated blades for the requested desktop asset
-      console.error("Grass asset failed to load; generated fallback hidden:", e);
-    } else {
-      console.warn("Grass model did not load; keeping the generated grass:", e);
-    }
+    terrain.group.remove(terrain.blades); // never the old generated blades instead
+    console.error("Grass asset failed to load:", e);
   }
   // Weeds don't grow through stones.
   terrain.clearWeeds?.(stonesPlaced);
