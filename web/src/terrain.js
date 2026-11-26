@@ -147,6 +147,7 @@ varying vec3 vSide;
 varying float vTone;
 uniform vec2 uCenter;
 uniform float uArena;
+uniform float uHole;
 uniform vec3 uExcl[${MAX_EXCL}];
 uniform int uNExcl;
 uniform sampler2D uLeaf;
@@ -174,6 +175,7 @@ float leafTop(vec2 p) {
   float alive = step(h01(cell, L + 3u), keep);
   float rr = length(bpos);
   alive *= 1.0 - step(uArena - 1.2, rr); // grass only inside the arena
+  alive *= step(uHole + 10.0, rr); // keep fallback blades clear of the pond
   for (int i = 0; i < ${MAX_EXCL}; i++) { if (i >= uNExcl) break; if (distance(bpos, uExcl[i].xy) < uExcl[i].z) alive = 0.0; }
   float h0 = h01(cell, L + 4u);
   float bh = (0.4 + 1.4 * h0 * h0) * (1.0 + 0.25 * lvl);             // fine, freshly mown turf
@@ -517,7 +519,7 @@ uniform float uWaterLine; // grass grows down the banks to just above this heigh
   // Down the pond's banks it follows the ground; it stops where the mud and water begin.
   float g0 = leafTop(bpos), base = 0.0;
   if (g0 < 0.0) { base = g0; alive *= step(uWaterLine + 2.5, g0); }
-  alive *= step(uHole - 30.0, rr);
+  alive *= step(uHole + 12.0 + 0.5 * sxy, rr); // keep complete asset clumps on dry ground
   for (int i = 0; i < ${MAX_EXCL}; i++) { if (i >= uNExcl) break; if (distance(bpos, uExcl[i].xy) < uExcl[i].z + 0.4 * sxy) alive = 0.0; }
   float yaw = h01(cell, L + 5u) * 6.2832;
   mat3 R = mat3(cos(yaw), sin(yaw), 0.0, -sin(yaw), cos(yaw), 0.0, 0.0, 0.0, 1.0);
