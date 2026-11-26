@@ -390,10 +390,20 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   try {
     // On a computer: the model's full 2048-pixel colour, normal and roughness maps (env/hd/)
     // and all 17 of its clumps; on a phone: 1024-pixel maps and three of the clumps.
-    const tl = new THREE.TextureLoader(), tx = high ? "hd/" : "";
-    const [grass, map, normalMap, roughnessMap] = await Promise.all([
-      loader.loadAsync(base + "grass.glb"), tl.loadAsync(base + tx + "grass_diff.png"), tl.loadAsync(base + tx + "grass_nor.jpg"),
-      high ? tl.loadAsync(base + "hd/grass_rough.jpg") : null]);
+    const tl = new THREE.TextureLoader();
+    const grass = await loader.loadAsync(base + "grass.glb");
+    let map, normalMap, roughnessMap = null;
+    if (high) {
+      try {
+        [map, normalMap, roughnessMap] = await Promise.all([
+          tl.loadAsync(base + "hd/grass_diff.png"), tl.loadAsync(base + "hd/grass_nor.jpg"), tl.loadAsync(base + "hd/grass_rough.jpg")]);
+      } catch (e) {
+        console.warn("High-resolution grass maps unavailable; using the standard grass asset maps:", e);
+        [map, normalMap] = await Promise.all([tl.loadAsync(base + "grass_diff.png"), tl.loadAsync(base + "grass_nor.jpg")]);
+      }
+    } else {
+      [map, normalMap] = await Promise.all([tl.loadAsync(base + "grass_diff.png"), tl.loadAsync(base + "grass_nor.jpg")]);
+    }
     map.colorSpace = THREE.SRGBColorSpace;
     for (const t of [map, normalMap, roughnessMap]) if (t) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
@@ -416,7 +426,12 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     // the grass shows in the water: all of it on a computer, only round the fly on a phone
     for (const c of high ? terrain.clumps : terrain.clumps.slice(0, 1)) reflectable(c);
   } catch (e) {
-    console.warn("Grass model did not load; keeping the generated grass:", e);
+    if (high) {
+      terrain.group.remove(terrain.blades); // do not substitute generated blades for the requested desktop asset
+      console.error("Grass asset failed to load; generated fallback hidden:", e);
+    } else {
+      console.warn("Grass model did not load; keeping the generated grass:", e);
+    }
   }
   // Weeds don't grow through stones.
   terrain.clearWeeds?.(stonesPlaced);
