@@ -421,7 +421,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       const refH = ref.boundingBox.max.y - ref.boundingBox.min.y;
       terrain.useGrassModel({ refH, mix: [{ levels: [0], mix: mix(near) }, { levels: [1], mix: mix(mid) }, { levels: [2], mix: mix(far) },
         // the whole arena, at full density, from wherever the camera looks (out to 1.3 m)
-        { levels: [3, 4, 5, 6], keep: 0.5, mix: mix(far) }] }, { map, normalMap, roughnessMap }, 1.45);
+        { levels: [3, 4, 5, 6], mix: mix(far) }] }, { map, normalMap, roughnessMap }, 1.45);
     } else terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, 1.9);
     // the grass round the fly and the light far grass show in the water
     // the grass shows in the water: all of it on a computer, only round the fly on a phone

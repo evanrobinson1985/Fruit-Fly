@@ -56,7 +56,9 @@ function setFrogMode(mode) {
 const canvas = $("stage");
 // On a computer, ask for the fast graphics card (e.g. NVIDIA rather than integrated graphics).
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: HIGH ? "high-performance" : "default" });
-renderer.setPixelRatio(Math.min(HIGH ? 3 : 2, window.devicePixelRatio));
+// On a computer: drawn at least 1.5x the screen's resolution and scaled down (smoother
+// edges on the grass and fine detail), up to 3x on high-DPI screens.
+renderer.setPixelRatio(HIGH ? Math.min(3, Math.max(1.5, window.devicePixelRatio)) : Math.min(2, window.devicePixelRatio));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
@@ -81,7 +83,7 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0dd, 2.4);
 sun.layers.enableAll();
 sun.castShadow = true;
-sun.shadow.mapSize.set(HIGH ? 4096 : 2048, HIGH ? 4096 : 2048);
+sun.shadow.mapSize.set(HIGH ? 8192 : 2048, HIGH ? 8192 : 2048);
 Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 60 });
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
