@@ -1043,7 +1043,7 @@ function frame(now) {
         * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) / 3;
       controls.target.set(x, y, 0.8 + z + perch.z + followFrameOffset);
     }
-    terrain.update(x, y, now / 1000, feet, h, simT, camera);
+    terrain.update(x, y, now / 1000, feet, h, simT, camera, controls.target);
     forest?.update(now / 1000);
     if (skyDome.visible) sun.position.set(x, y, 0).addScaledVector(skyDome.sunDir, 30); // the sky's sun
     else sun.position.set(x + 8, y - 6, 20);                                               // the lab lamp
@@ -1144,7 +1144,11 @@ async function boot() {
   underwater(flyRoot);
   weather.attachFly(flyRoot);
   setSkin(skin);
-  predators = new FrogPredators(scene, ASSETS + "frogs-original.glb", caughtByFrog, world.radius);
+  // On a computer: the full-resolution original frog models first, if they have been put in
+  // the PC app's my-assets folder (they are too big for the repository), else the copy here.
+  const frogFiles = [ASSETS + "frogs-original.glb"];
+  if (HIGH) frogFiles.unshift(new URL("../my-assets/" + encodeURIComponent("2 Realistic Frogs Rigged.glb"), ASSETS).href);
+  predators = new FrogPredators(scene, frogFiles, caughtByFrog, world.radius);
   predators.groundAt = groundZ; // frogs sit on stones and moss too
   predators.isWater = (x, y) => !!forest?.water?.contains(x, y); // and float in the pond
   predators.onRipple = (x, y, size) => forest?.water?.addRipple(x, y, size); // kicks as they swim
@@ -1152,7 +1156,8 @@ async function boot() {
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");
     $("frog-note").textContent = (count === 2 ? "Both frogs loaded: " : "Loaded one frog: ") + loaded +
-      " (the detailed models, re-rigged on their " + predators.frogs[0].bones.size + " deform bones).";
+      (/my-assets/.test(predators.loadedFrom) ? " (the full-resolution originals from my-assets" : " (the detailed models") +
+      ", re-rigged on their " + predators.frogs[0].bones.size + " deform bones).";
     for (const f of predators.frogs) { reflectable(f.actor); underwater(f.actor); }
     console.info("Frog rigs:", predators.frogs.map((frog) => ({ frog: frog.name, deformBones: frog.bones.size, eyes: frog.eyes.length, mouth: frog.mouth.toArray().map((v) => +v.toFixed(1)) })));
   }).catch((error) => {

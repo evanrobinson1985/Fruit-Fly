@@ -85,12 +85,38 @@ export class FrogPredators {
     this.catchLock = 0;
   }
 
+  /**
+   * `this.url` may be a list: each file is tried in turn until one gives both frogs (the PC
+   * app tries the full-resolution originals, if they have been put on the computer, before
+   * the copy that ships with it).
+   */
   async load() {
+    const urls = [].concat(this.url);
+    let lastError = null;
+    for (const url of urls) {
+      try {
+        await this._loadFrom(url);
+        if (this.frogs.length === FROG_DEFINITIONS.length || url === urls[urls.length - 1]) { this.loadedFrom = url; break; }
+        throw new Error("only " + this.frogs.length + " of the frogs could be prepared");
+      } catch (error) {
+        lastError = error;
+        if (url !== urls[urls.length - 1]) console.info("Frogs: not using " + decodeURIComponent(url.split("/").pop()) + " (" + (error?.message || error) + "); trying the next file");
+        for (const f of this.frogs) this.scene.remove(f.actor);
+        this.frogs = [];
+      }
+    }
+    if (!this.frogs.length) throw lastError || new Error("no frog models");
+    this.ready = true;
+    this.setMode(this.mode);
+    return this.frogs.length;
+  }
+
+  async _loadFrom(url) {
     let gltf;
     try {
-      gltf = await this.loader.loadAsync(this.url);
+      gltf = await this.loader.loadAsync(url);
     } catch (error) {
-      throw new Error("Could not fetch or parse " + this.url + ": " + (error?.message || String(error)));
+      throw new Error("Could not fetch or parse " + url + ": " + (error?.message || String(error)));
     }
     gltf.scene.updateMatrixWorld(true);
     const errors = [];
@@ -104,9 +130,6 @@ export class FrogPredators {
     }
     if (!this.frogs.length) throw new Error("The GLB opened, but neither frog could be prepared. " + errors.join(" | "));
     if (errors.length) console.warn("Some frog models were skipped:", errors.join(" | "));
-    this.ready = true;
-    this.setMode(this.mode);
-    return this.frogs.length;
   }
 
   // ---------- re-rigging ----------
@@ -121,6 +144,8 @@ export class FrogPredators {
       if (o.isSkinnedMesh && normalizeNodeName(o.name) === normalizeNodeName(def.meshName)) mesh = o;
       else if (o.isMesh && /^eye/i.test(o.name)) eyes.push(o);
     });
+    // (another export of the models may name the skin differently: then the most detailed one)
+    if (!mesh) rig.traverse((o) => { if (o.isSkinnedMesh && (!mesh || o.geometry.attributes.position.count > mesh.geometry.attributes.position.count)) mesh = o; });
     if (!mesh) throw new Error("No skinned mesh '" + def.meshName + "' under '" + def.rootName + "'");
 
     // glTF is Y-up; the arena is Z-up.

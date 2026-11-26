@@ -4,7 +4,7 @@ rem "Fruit Fly" shortcut on the desktop. No administrator rights needed.
 setlocal
 set "DEST=%LOCALAPPDATA%\FruitFly"
 echo Installing Fruit Fly to %DEST% ...
-robocopy "%~dp0FruitFly" "%DEST%" /MIR /XD browser /NFL /NDL /NJH /NJS /NP >nul
+robocopy "%~dp0FruitFly" "%DEST%" /MIR /XD browser my-assets /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 (
   echo Copying failed. & pause & exit /b 1
 )

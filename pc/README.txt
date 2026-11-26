@@ -21,3 +21,11 @@ it just starts the version you have.
 If Windows SmartScreen warns about Install.cmd, choose "More info" then "Run
 anyway" (the file isn't signed). To uninstall, delete the desktop icon and the
 folder %LOCALAPPDATA%\FruitFly.
+
+Full-resolution frogs (optional)
+--------------------------------
+The original frog models are too big to download with the game. If you have
+"2 Realistic Frogs Rigged.glb", put it in the my-assets folder next to
+FruitFly.ps1 (the folder is made the first time Fruit Fly starts). Fruit Fly
+uses it when it's there and the standard frogs when it isn't. Updates never
+touch the my-assets folder.

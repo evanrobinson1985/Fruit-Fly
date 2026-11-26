@@ -414,7 +414,8 @@ function seedlingGeometry() {
 // near the fly are the model's fuller tufts; further rings use lighter ones, spread wider.
 let GC0 = 1.9;                // level-0 cell size (mm): one clump per cell (smaller: denser, see useGrassModel)
 const GR0 = 20;               // radius of level 0; level L reaches GR0 * 2^L
-const GLEVELS = 6;            // out to 640 mm
+// Levels 0-5 reach 640 mm; on a computer a level 6 takes the lawn to 1.3 m, so the whole
+// arena is covered wherever the camera looks.
 export const GRASS_H = 2.4;   // a clump's height near the fly (mm): a lawn at a fly's scale
 const MAX_FROGS = 2;
 
@@ -887,19 +888,21 @@ export class Terrain {
   }
 
   // Per frame: time, where the fly is and where its feet are, which way it faces.
-  update(x, y, timeS, feetZ = 0, headingDeg = 0, simT = 0, camera = null) {
+  update(x, y, timeS, feetZ = 0, headingDeg = 0, simT = 0, camera = null, focus = null) {
     this.simT = simT;
     this.uniforms.uTime.value = timeS;
     this.uniforms.uSimT.value = simT;
     this.uniforms.uFly.value.set(x, y, feetZ);
     const h = (headingDeg * Math.PI) / 180;
     this.uniforms.uFlyDir.value.set(Math.cos(h), Math.sin(h));
-    // Finest grass between the fly and a nearby camera, so both are in it.
-    const c = this.uniforms.uCenter.value.set(x, y);
+    // Finest grass where the camera looks (the fly, or a frog it follows), leaning toward a
+    // nearby camera so both are in it.
+    const fx = focus ? focus.x : x, fy = focus ? focus.y : y;
+    const c = this.uniforms.uCenter.value.set(fx, fy);
     if (camera) {
-      const dx = camera.position.x - x, dy = camera.position.y - y, d = Math.hypot(dx, dy);
+      const dx = camera.position.x - fx, dy = camera.position.y - fy, d = Math.hypot(dx, dy);
       const k = Math.min(0.5, 12 / Math.max(d, 1e-3));
-      c.set(x + dx * k, y + dy * k);
+      c.set(fx + dx * k, fy + dy * k);
     }
   }
 }

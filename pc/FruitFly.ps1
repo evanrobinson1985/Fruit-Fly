@@ -120,7 +120,7 @@ function Install-Update {
     Expand-Archive -Path $zip -DestinationPath $tmp -Force
     $src = Join-Path $tmp 'FruitFly-PC\FruitFly'
     if (-not (Test-Path (Join-Path $src 'FruitFly.ps1'))) { throw 'The update package is incomplete.' }
-    robocopy $src $PSScriptRoot /MIR /XD browser /NFL /NDL /NJH /NJS /NP | Out-Null
+    robocopy $src $PSScriptRoot /MIR /XD browser my-assets /NFL /NDL /NJH /NJS /NP | Out-Null
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     $form.Close()
     # Start the new version (without checking again).
@@ -151,6 +151,10 @@ if (-not $NoUpdate) {
 }
 
 $root = Join-Path $PSScriptRoot 'site'
+# Your own files, kept through updates: models too big for the download (put
+# "2 Realistic Frogs Rigged.glb" here for the full-resolution frogs). Served at /my-assets/.
+$mine = Join-Path $PSScriptRoot 'my-assets'
+New-Item $mine -ItemType Directory -Force | Out-Null
 $url = "http://localhost:$Port/index.html"
 $types = @{
   '.html' = 'text/html; charset=utf-8'; '.js' = 'text/javascript; charset=utf-8'; '.mjs' = 'text/javascript; charset=utf-8'
@@ -202,8 +206,10 @@ while ($listener.IsListening) {
   try { $ctx = $listener.EndGetContext($pending) } catch { break }
   $rel = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath).TrimStart('/')
   if ($rel -eq '') { $rel = 'index.html' }
-  $full = [IO.Path]::GetFullPath((Join-Path $root $rel))
-  if ($full.StartsWith([IO.Path]::GetFullPath($root)) -and (Test-Path -LiteralPath $full -PathType Leaf)) {
+  $base = $root
+  if ($rel -like 'my-assets/*') { $base = $mine; $rel = $rel.Substring(10) }
+  $full = [IO.Path]::GetFullPath((Join-Path $base $rel))
+  if ($full.StartsWith([IO.Path]::GetFullPath($base)) -and (Test-Path -LiteralPath $full -PathType Leaf)) {
     Send-File $ctx $full
   } else {
     $ctx.Response.StatusCode = 404
