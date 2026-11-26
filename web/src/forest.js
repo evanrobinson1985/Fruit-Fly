@@ -14,6 +14,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { PondWater, RIPPLE_GLSL, reflectable, underwater, LAYER_UNDER } from "./water.js";
+import { modelPondPlants } from "./pondplants.js";
 
 // The Basis transcoder (KTX2 textures) sits next to the loaders: from the import map on the
 // website, from the APK's copy of three.js in the phone app.
@@ -183,7 +184,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   const k = POND_R / POND_MODEL_R; // mm per model metre
   const waterZ = POND_WATER_Y * k;
   const shared = { uWaterZ: { value: waterZ }, uWTime: { value: 0 } };
-  let water = null, bed = null;
+  let water = null, bed = null, cards = null;
   {
     const holder = new THREE.Group();
     holder.rotation.x = Math.PI / 2; // Y-up -> Z-up
@@ -208,7 +209,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       m.receiveShadow = true;
       reflectable(m);
       underwater(m);
-      if (/plants|lilies|cattails|rushes/i.test(name)) { m.castShadow = true; continue; }
+      if (/plants|lilies|cattails|rushes/i.test(name)) { m.castShadow = true; cards = m; continue; }
       m.castShadow = /stone/i.test(name);
       m.material = shoreMaterial(m.material, shared);
       if (/bed/i.test(name)) bed = m;
@@ -222,6 +223,14 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     const h = bed && ray.intersectObject(bed, false)[0];
     return h ? h.point.z : 0;
   };
+
+  // ---------- cattails and lily pads, modelled (the model's are flat cards) ----------
+  if (cards) {
+    try {
+      const got = modelPondPlants(cards, group, { waterZ, bedAt, shared, high, rand: rng(77) });
+      console.log("Pond plants:", got.cattails, "cattails,", got.pads, "lily pads modelled");
+    } catch (e) { console.warn("Pond plants were not modelled:", e); }
+  }
 
   // ---------- underwater weed ----------
   {

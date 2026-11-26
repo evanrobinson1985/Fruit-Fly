@@ -89,6 +89,11 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   The bed has silt, algae in the shallows and moving caustics; pondweed sways under the
   water, duckweed floats near the banks, shoreline stones sit half in the water, and the
   banks, stones and grass are wet at the waterline. There is haze only in the rain.
+  The pond model draws its cattails and water lilies as flat painted cards; those are
+  replaced by modelled ones (`web/src/pondplants.js`) in the same places: cattails with
+  arching, twisting, folded leaves swaying in the wind and velvety brown heads on their
+  stalks, and lily pads with their notch, upturned rim, veins, waxy sheen and stalks down
+  to the bed. The rushes are still the model's cards.
   On a computer the scenery uses its models at full resolution: the pond with its original
   2048-pixel textures (`web/assets/env/hd`), the lawn mixed from all 17 clumps of the grass
   model with its 2048-pixel colour, normal and roughness maps, and every stone of the stone
