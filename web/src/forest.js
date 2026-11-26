@@ -223,6 +223,34 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     const h = bed && ray.intersectObject(bed, false)[0];
     return h ? h.point.z : 0;
   };
+  // The same, fast enough for every frame (frogs wading in the shallows): the bed and banks
+  // drawn into a 1 mm height grid once.
+  const bedGrid = (() => {
+    if (!bed) return () => -Infinity;
+    const N = 2 * (POND_R + 8), off = POND_R + 8, H = new Float32Array(N * N).fill(-Infinity);
+    const g = bed.geometry, p = g.attributes.position, ix = g.index ? g.index.array : null, n = ix ? ix.length : p.count;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let t = 0; t < n; t += 3) {
+      a.fromBufferAttribute(p, ix ? ix[t] : t).applyMatrix4(bed.matrixWorld);
+      b.fromBufferAttribute(p, ix ? ix[t + 1] : t + 1).applyMatrix4(bed.matrixWorld);
+      c.fromBufferAttribute(p, ix ? ix[t + 2] : t + 2).applyMatrix4(bed.matrixWorld);
+      const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+      if (Math.abs(det) < 1e-9) continue;
+      const x0 = Math.max(0, Math.floor(Math.min(a.x, b.x, c.x) + off)), x1 = Math.min(N - 1, Math.ceil(Math.max(a.x, b.x, c.x) + off));
+      const y0 = Math.max(0, Math.floor(Math.min(a.y, b.y, c.y) + off)), y1 = Math.min(N - 1, Math.ceil(Math.max(a.y, b.y, c.y) + off));
+      for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
+        const x = i - off, y = j - off;
+        const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det, l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det, l3 = 1 - l1 - l2;
+        if (l1 < -0.02 || l2 < -0.02 || l3 < -0.02) continue;
+        const z = l1 * a.z + l2 * b.z + l3 * c.z, k = j * N + i;
+        if (z > H[k]) H[k] = z;
+      }
+    }
+    return (x, y) => {
+      const i = Math.round(x + off), j = Math.round(y + off);
+      return i < 0 || j < 0 || i >= N || j >= N ? -Infinity : H[j * N + i];
+    };
+  })();
 
   // ---------- cattails and lily pads, modelled (the model's are flat cards) ----------
   if (cards) {
@@ -423,14 +451,15 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       const near = [["mid_a", 3], ["mid_b", 3], ["mid_c", 3], ["small_a", 2], ["small_b", 2], ["large_a", 0.7], ["large_b", 0.7], ["large_c", 0.7],
         ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.4], ["tiny_b", 0.4], ["tiny_c", 0.4], ["tiny_d", 0.4], ["tiny_e", 0.4], ["tiny_f", 0.4]];
       const mid = [["mid_b", 2], ["mid_c", 2], ["small_a", 3], ["small_b", 3], ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.6], ["tiny_e", 0.6]];
-      const far = [["small_a", 1], ["small_b", 1], ["tall_b", 0.4], ["tall_c", 0.4]];
       const mix = (list) => list.map(([n, w]) => [g(n), w]).filter(([x]) => x);
       // sizes relative to mid_b, the clump a phone's lawn is made of
       const ref = g("mid_b"); ref.computeBoundingBox();
       const refH = ref.boundingBox.max.y - ref.boundingBox.min.y;
-      terrain.useGrassModel({ refH, mix: [{ levels: [0], mix: mix(near) }, { levels: [1], mix: mix(mid) }, { levels: [2], mix: mix(far) },
-        // the whole arena, at full density, from wherever the camera looks (out to 1.3 m)
-        { levels: [3, 4, 5, 6], mix: mix(far) }] }, { map, normalMap, roughnessMap }, 1.45);
+      // The same clumps all the way out, the far rings with fewer blades each (they are
+      // small on screen) so the whole arena is lawn from wherever the camera looks.
+      terrain.useGrassModel({ refH, mix: [{ levels: [0], mix: mix(near) }, { levels: [1], mix: mix(near), keep: 0.8 },
+        { levels: [2], mix: mix(near), keep: 0.55 }, { levels: [3], mix: mix(mid), keep: 0.4 }, { levels: [4], mix: mix(mid), keep: 0.3 },
+        { levels: [5], mix: mix(mid), keep: 0.15 }, { levels: [6], mix: mix(mid), keep: 0.08 }] }, { map, normalMap, roughnessMap }, 1.45);
     } else terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, 1.9);
     // the grass round the fly and the light far grass show in the water
     // the grass shows in the water: all of it on a computer, only round the fly on a phone
@@ -447,5 +476,5 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   terrain.clearWeeds?.(stonesPlaced);
   terrain.solids = solids;
   const update = (t) => { shared.uWTime.value = t; };
-  return { group, solids, stones: stonesPlaced, update, water, waterZ };
+  return { group, solids, stones: stonesPlaced, update, water, waterZ, bedAt: bedGrid };
 }

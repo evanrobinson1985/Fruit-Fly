@@ -974,8 +974,17 @@ export class FrogPredators {
         ground += Math.sin(frog.phase + performance.now() * 0.002) * L * 0.006;
       }
     }
+    // Its whole body stays above the ground, not just the point under its middle: on a
+    // sloping bank, and in shallows too shallow to float in, where it stands on the bed.
+    const ch = Math.cos(frog.heading), sh = Math.sin(frog.heading);
+    const solid = (k) => {
+      const x = frog.x + ch * k * L, y = frog.y + sh * k * L;
+      if (!this.isWater?.(x, y)) return this.groundAt ? this.groundAt(x, y) : 0;
+      return this.bedAt ? this.bedAt(x, y) : -Infinity;
+    };
+    const support = Math.max(solid(0), solid(0.32), solid(-0.28));
     frog.lift = z; // how high it is off the ground (in a hop)
-    frog.actor.position.set(frog.x + Math.cos(frog.heading) * lunge, frog.y + Math.sin(frog.heading) * lunge, z + ground);
+    frog.actor.position.set(frog.x + ch * lunge, frog.y + sh * lunge, Math.max(z + ground, support));
     frog.actor.rotation.set(0, pitch, frog.heading);
   }
 

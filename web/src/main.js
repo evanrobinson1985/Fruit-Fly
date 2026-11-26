@@ -1153,6 +1153,7 @@ async function boot() {
   predators = new FrogPredators(scene, frogFiles, caughtByFrog, world.radius);
   predators.groundAt = groundZ; // frogs sit on stones and moss too
   predators.isWater = (x, y) => !!forest?.water?.contains(x, y); // and float in the pond
+  predators.bedAt = (x, y) => (forest?.bedAt ? forest.bedAt(x, y) : -Infinity); // and wade, standing on the bed
   predators.onRipple = (x, y, size) => forest?.water?.addRipple(x, y, size); // kicks as they swim
   predators.setMode(frogMode);
   predators.load().then((count) => {

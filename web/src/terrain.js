@@ -436,6 +436,10 @@ function thinBlades(g, keep) {
 // With several clump models mixed (on a computer), each takes its share of an 8 x 8 tiling
 // of the cells, the tiling fixed to the ground: a cell keeps its clump as the rings move.
 const SLOTS = 8;
+// On a computer (the mixed lawn) the cells only grow by 2^0.5 per ring instead of doubling,
+// and the clumps keep their height and spread only a little: the lawn looks the same all
+// the way out instead of thinning into a different, sparser grass away from the fly.
+const TILED_CELL_GROWTH = 0.5, TILED_SPREAD = 0.35;
 
 /**
  * An instanced clump: the model's geometry (Y-up, any units) turned Z-up, 1 unit tall, or
@@ -456,7 +460,7 @@ function clumpGeometry(src, levels, keep = 1, slots = null, refH = 0) {
   const cells = [];
   for (const L of levels) {
     // (snapped to the tiling, the rings' centre is up to 8 cells off: a wider margin)
-    const c = GC0 * 2 ** L, m = (slots ? SLOTS : 0) * c;
+    const c = GC0 * 2 ** (L * (slots ? TILED_CELL_GROWTH : 1)), m = (slots ? SLOTS : 0) * c;
     const rOut = GR0 * 2 ** L + 2 * c + m, rIn = L ? Math.max(0, 0.8 * GR0 * 2 ** (L - 1) - 2 * c - m) : -1;
     const n = Math.ceil(rOut / c);
     for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
@@ -504,7 +508,7 @@ uniform float uHole;   // no grass inside this radius (the pond)
 uniform float uWaterLine; // grass grows down the banks to just above this height
 ` + shader.vertexShader
       .replace("#include <color_vertex>", `#include <color_vertex>
-  float lvl = aCell.z, cs = ${GC0} * exp2(lvl);
+  float lvl = aCell.z, cs = ${GC0} * exp2(lvl * ${tiled ? TILED_CELL_GROWTH.toFixed(2) : "1.0"});
   ivec2 cell = ivec2(${tiled ? `floor(uCenter / (cs * ${SLOTS}.0)) * ${SLOTS}.0` : "floor(uCenter / cs)"} + aCell.xy);
   uint L = uint(lvl) * 16u + 3u;
   vec2 bpos = (vec2(cell) + vec2(h01(cell, L + 1u), h01(cell, L + 2u))) * cs;
@@ -513,8 +517,8 @@ uniform float uWaterLine; // grass grows down the banks to just above this heigh
   float keep = (1.0 - smoothstep(0.8 * rOut, rOut, d)) * (lvl < 0.5 ? 1.0 : smoothstep(0.8 * rIn, rIn, d));
   float alive = step(h01(cell, L + 3u), keep);
   float jit = 0.75 + 0.5 * h01(cell, L + 4u);
-  float sz = ${GRASS_H} * jit * (1.0 + 0.25 * lvl);           // taller rings further out read as a meadow
-  float sxy = 1.5 * ${GRASS_H} * jit * exp2(0.85 * lvl);       // spread wide, and wider still further out, to stay covered
+  float sz = ${GRASS_H} * jit * ${tiled ? "1.0" : "(1.0 + 0.25 * lvl)"};   // (a phone: taller rings further out read as a meadow)
+  float sxy = 1.5 * ${GRASS_H} * jit * exp2(${tiled ? TILED_SPREAD.toFixed(2) : "0.85"} * lvl); // spread wider further out, to stay covered
   float rr = length(bpos);
   alive *= 1.0 - step(uArena - 0.5 * sxy, rr);                 // grass only inside the arena
   // Down the pond's banks it follows the ground; it stops where the mud and water begin.
