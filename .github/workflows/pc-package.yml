@@ -18,6 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check the launcher script parses
+        shell: pwsh
+        run: |
+          $e = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/pc/FruitFly.ps1", [ref]$null, [ref]$e) | Out-Null
+          $e | ForEach-Object { Write-Host "::error::FruitFly.ps1: $_" }
+          if ($e.Count) { exit 1 }
       - name: Assemble the package
         run: |
           set -e
@@ -35,6 +42,11 @@ jobs:
           test -f $P/FruitFly/site/vendor/three/examples/jsm/libs/basis/basis_transcoder.wasm
           test -f $P/FruitFly/site/assets/frogs-original.glb
           echo "${{ github.run_number }}" > $P/FruitFly/version.txt
+          # Every file with its SHA-256 and download URL: the app updates by fetching only
+          # the files that changed. A copy goes in the package for its first update.
+          python3 pc/make-manifest.py $P/FruitFly "${{ github.repository }}" "${{ github.sha }}" "${{ github.run_number }}" > pc-manifest.json
+          cp pc-manifest.json $P/FruitFly/manifest.json
+          cp $P/FruitFly/site/index.html pc-index.html
           du -sh $P
       - uses: actions/upload-artifact@v4
         with:
@@ -42,7 +54,8 @@ jobs:
           path: FruitFly-PC
           if-no-files-found: error
       # The desktop app updates itself from this release (pc/FruitFly.ps1): it compares
-      # pc-version.txt with its own version.txt and installs FruitFly-PC.zip if newer.
+      # pc-version.txt with its own version.txt and, if newer, downloads the files that
+      # pc-manifest.json says have changed (FruitFly-PC.zip if that fails).
       - name: Publish to the pc-latest release
         if: github.ref_name == 'claude/quirky-wozniak-5060bj'
         env:
@@ -55,4 +68,6 @@ jobs:
           gh release view pc-latest >/dev/null 2>&1 || gh release create pc-latest --prerelease \
             --title "Fruit Fly for Windows (latest)" \
             --notes "Updated by every build. Unzip and run Install.cmd; after that the desktop app updates itself from here."
-          gh release upload pc-latest FruitFly-PC.zip pc-version.txt --clobber
+          gh release upload pc-latest FruitFly-PC.zip pc-index.html pc-manifest.json --clobber
+          # last: the version number apps check, once everything it points to is in place
+          gh release upload pc-latest pc-version.txt --clobber

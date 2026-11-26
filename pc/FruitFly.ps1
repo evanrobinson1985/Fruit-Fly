@@ -2,7 +2,8 @@
 # in its own window (Microsoft Edge in app mode; your default browser if Edge isn't there).
 # Everything is local: the 3D fly, its 165,122-neuron brain, the frogs, the pond, three.js.
 # Closing the Edge window stops the server. Started by the "Fruit Fly" desktop shortcut.
-# At each start it checks GitHub for a newer build and installs it first (offline: skipped).
+# At each start it checks GitHub for a newer build and installs it first (offline: skipped):
+# only the files that changed are downloaded (pc-manifest.json lists every file's SHA-256).
 param([int]$Port = 47812, [switch]$NoUpdate)
 
 # ---------- updates: from the pc-latest release (.github/workflows/pc-package.yml) ----------
@@ -12,6 +13,89 @@ function Get-Text($u) {
   if ($c -is [byte[]]) { $c = [Text.Encoding]::UTF8.GetString($c) }
   return "$c".Trim()
 }
+# The progress window shown while updating.
+function New-UpdateWindow($text) {
+  Add-Type -AssemblyName System.Windows.Forms
+  $form = New-Object Windows.Forms.Form
+  $form.Text = 'Fruit Fly'; $form.Width = 400; $form.Height = 130; $form.StartPosition = 'CenterScreen'
+  $form.FormBorderStyle = 'FixedDialog'; $form.ControlBox = $false; $form.TopMost = $true
+  $label = New-Object Windows.Forms.Label
+  $label.Text = $text; $label.AutoSize = $true; $label.Left = 20; $label.Top = 18
+  $bar = New-Object Windows.Forms.ProgressBar
+  $bar.Left = 20; $bar.Top = 48; $bar.Width = 345; $bar.Maximum = 1000
+  $form.Controls.AddRange(@($label, $bar))
+  $form.Show(); [Windows.Forms.Application]::DoEvents()
+  return @{ Form = $form; Label = $label; Bar = $bar }
+}
+
+# Just the changed files: compare each file with the new build's list (by SHA-256; files the
+# last update recorded in manifest.json and that haven't changed size aren't re-hashed),
+# download the ones that differ, check them, then put them in place.
+function Update-ChangedFiles {
+  $manifest = (Get-Text "$release/pc-manifest.json") | ConvertFrom-Json
+  $known = @{}
+  $old = Join-Path $PSScriptRoot 'manifest.json'
+  if (Test-Path $old) { try { foreach ($f in (Get-Content $old -Raw | ConvertFrom-Json).files) { $known[$f.path] = $f.sha256 } } catch { } }
+  $need = @()
+  foreach ($f in $manifest.files) {
+    $local = Join-Path $PSScriptRoot ($f.path -replace '/', '\')
+    if (Test-Path -LiteralPath $local -PathType Leaf) {
+      $item = Get-Item -LiteralPath $local
+      if ($item.Length -eq $f.size) {
+        if ($known[$f.path] -eq $f.sha256) { continue }
+        if ((Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash -eq $f.sha256.ToUpper()) { continue }
+      }
+    }
+    $need += $f
+  }
+  $total = ($need | Measure-Object -Property size -Sum).Sum
+  if (-not $total) { $total = 0 }
+  $ui = $null
+  $tmp = Join-Path $env:TEMP 'FruitFly-update'
+  Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item $tmp -ItemType Directory -Force | Out-Null
+  try {
+    if ($need.Count) {
+      $ui = New-UpdateWindow ("Updating Fruit Fly: {0} changed file(s), {1:N1} MB" -f $need.Count, ($total / 1MB))
+      $done = 0
+      foreach ($f in $need) {
+        $dest = Join-Path $tmp ($f.path -replace '/', '\')
+        New-Item (Split-Path $dest) -ItemType Directory -Force | Out-Null
+        $wc = New-Object Net.WebClient
+        $task = $wc.DownloadFileTaskAsync($f.url, $dest)
+        while (-not $task.IsCompleted) {
+          $got = 0; if (Test-Path $dest) { $got = (Get-Item $dest).Length }
+          if ($total -gt 0) { $ui.Bar.Value = [Math]::Min(1000, [int](1000 * ($done + $got) / $total)) }
+          [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 50
+        }
+        if ($task.IsFaulted) { throw $task.Exception }
+        if ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -ne $f.sha256.ToUpper()) { throw "Bad download: $($f.path)" }
+        $done += $f.size
+      }
+      $ui.Label.Text = 'Installing...'; [Windows.Forms.Application]::DoEvents()
+      # Everything is downloaded and checked: now replace the files.
+      foreach ($f in $need) {
+        $dest = Join-Path $PSScriptRoot ($f.path -replace '/', '\')
+        New-Item (Split-Path $dest) -ItemType Directory -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $tmp ($f.path -replace '/', '\')) -Destination $dest -Force
+      }
+    }
+    # Files the new build no longer has (in the site folder only).
+    $keep = @{}; foreach ($f in $manifest.files) { $keep[($f.path -replace '/', '\').ToLowerInvariant()] = 1 }
+    $site = Join-Path $PSScriptRoot 'site'
+    Get-ChildItem $site -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+      $relPath = $_.FullName.Substring($PSScriptRoot.Length).TrimStart('\').ToLowerInvariant()
+      if (-not $keep.ContainsKey($relPath)) { Remove-Item -LiteralPath $_.FullName -Force }
+    }
+    $manifest | ConvertTo-Json -Depth 4 -Compress | Set-Content -Path $old -Encoding UTF8
+  } finally {
+    if ($ui) { $ui.Form.Close() }
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  return ($need | Where-Object { $_.path -eq 'FruitFly.ps1' }).Count -gt 0
+}
+
+# The whole package (only if the file-by-file update can't be done).
 function Install-Update {
   Add-Type -AssemblyName System.Windows.Forms
   $form = New-Object Windows.Forms.Form
@@ -53,7 +137,16 @@ if (-not $NoUpdate) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $local = (Get-Content (Join-Path $PSScriptRoot 'version.txt') -ErrorAction SilentlyContinue | Select-Object -First 1)
     $latest = Get-Text "$release/pc-version.txt"
-    if ($latest -match '^\d+$' -and "$latest" -ne "$local") { Install-Update }
+    if ($latest -match '^\d+$' -and "$latest" -ne "$local") {
+      $relaunch = $false
+      try { $relaunch = Update-ChangedFiles } catch { Install-Update }
+      if ($relaunch) {
+        # this script itself was updated: start the new one
+        Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
+          '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$(Join-Path $PSScriptRoot 'FruitFly.ps1')`"", '-NoUpdate')
+        exit
+      }
+    }
   } catch { }  # offline, or GitHub unreachable: start the installed version
 }
 
