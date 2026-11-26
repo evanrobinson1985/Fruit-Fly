@@ -97,8 +97,9 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   On a computer the scenery uses its models at full resolution: the pond with its original
   2048-pixel textures (`web/assets/env/hd`), the lawn mixed from all 17 clumps of the grass
   model with its 2048-pixel colour, normal and roughness maps, and every stone of the stone
-  set; a phone gets 1024-pixel textures and the same lawn without its biggest clumps,
-  each clump with fewer blades (fewest on Low).
+  set. The lawn is one even carpet over the whole arena, the same density everywhere
+  rather than finer round the fly (one clump per 2.2 mm square on High, 2.8 on Medium,
+  3.4 on Low, each drawn with part of its blades); a phone gets 1024-pixel textures.
   A Graphics setting (Low, Medium, High: the Graphics button in the phone game, or
   Simulation: Graphics) changes this on any device and is remembered there. Low is a
   phone's default; Medium keeps more of the lawn's blades and adds sharper water

@@ -446,7 +446,7 @@ const TILED_CELL_GROWTH = 0.5, TILED_SPREAD = 0.35;
  * scaled by `refH` (the model's units per unit) to keep its size among the other clumps.
  * `slots`: the cells of the 8 x 8 tiling it grows in (all cells if not given).
  */
-function clumpGeometry(src, levels, keep = 1, slots = null, refH = 0) {
+function clumpBase(src, keep = 1, refH = 0) {
   const g = keep < 1 ? thinBlades(src.clone(), keep) : src.clone();
   g.rotateX(Math.PI / 2);
   g.computeBoundingBox();
@@ -454,6 +454,18 @@ function clumpGeometry(src, levels, keep = 1, slots = null, refH = 0) {
   g.translate(-(b.min.x + b.max.x) / 2, -(b.min.y + b.max.y) / 2, -b.min.z);
   const k = 1 / (refH || b.max.z - b.min.z);
   g.scale(k, k, k);
+  return g;
+}
+function instanced(g, cells) {
+  const geo = new THREE.InstancedBufferGeometry();
+  for (const k of ["position", "normal", "uv"]) geo.setAttribute(k, g.getAttribute(k));
+  geo.setIndex(g.getIndex());
+  geo.setAttribute("aCell", new THREE.InstancedBufferAttribute(new Float32Array(cells), 3));
+  geo.instanceCount = cells.length / 3;
+  return geo;
+}
+function clumpGeometry(src, levels, keep = 1, slots = null, refH = 0) {
+  const g = clumpBase(src, keep, refH);
   const geo = new THREE.InstancedBufferGeometry();
   for (const k of ["position", "normal", "uv"]) geo.setAttribute(k, g.getAttribute(k));
   geo.setIndex(g.getIndex());
@@ -474,7 +486,7 @@ function clumpGeometry(src, levels, keep = 1, slots = null, refH = 0) {
   return geo;
 }
 
-function clumpMaterial(u, maps, tiled = false) {
+function clumpMaterial(u, maps, tiled = false, fixed = false) {
   const m = new THREE.MeshStandardMaterial({
     map: maps.map, normalMap: maps.normalMap, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.78, metalness: 0,
   });
@@ -509,16 +521,16 @@ uniform float uWaterLine; // grass grows down the banks to just above this heigh
 ` + shader.vertexShader
       .replace("#include <color_vertex>", `#include <color_vertex>
   float lvl = aCell.z, cs = ${GC0} * exp2(lvl * ${tiled ? TILED_CELL_GROWTH.toFixed(2) : "1.0"});
-  ivec2 cell = ivec2(${tiled ? `floor(uCenter / (cs * ${SLOTS}.0)) * ${SLOTS}.0` : "floor(uCenter / cs)"} + aCell.xy);
+  ivec2 cell = ${fixed ? "ivec2(aCell.xy)" : `ivec2(${tiled ? `floor(uCenter / (cs * ${SLOTS}.0)) * ${SLOTS}.0` : "floor(uCenter / cs)"} + aCell.xy)`};
   uint L = uint(lvl) * 16u + 3u;
   vec2 bpos = (vec2(cell) + vec2(h01(cell, L + 1u), h01(cell, L + 2u))) * cs;
   float d = length(bpos - uCenter);
   float rOut = ${GR0}.0 * exp2(lvl), rIn = ${GR0}.0 * exp2(lvl - 1.0);
-  float keep = (1.0 - smoothstep(0.8 * rOut, rOut, d)) * (lvl < 0.5 ? 1.0 : smoothstep(0.8 * rIn, rIn, d));
+  float keep = ${fixed ? "1.0" : "(1.0 - smoothstep(0.8 * rOut, rOut, d)) * (lvl < 0.5 ? 1.0 : smoothstep(0.8 * rIn, rIn, d))"};
   float alive = step(h01(cell, L + 3u), keep);
   float jit = 0.75 + 0.5 * h01(cell, L + 4u);
   float sz = ${GRASS_H} * jit * ${tiled ? "1.0" : "(1.0 + 0.25 * lvl)"};   // (a phone: taller rings further out read as a meadow)
-  float sxy = 1.5 * ${GRASS_H} * jit * exp2(${tiled ? TILED_SPREAD.toFixed(2) : "0.85"} * lvl); // spread wider further out, to stay covered
+  float sxy = 1.5 * ${GRASS_H} * jit * ${fixed ? "max(1.0, cs / 1.6)" : `exp2(${tiled ? TILED_SPREAD.toFixed(2) : "0.85"} * lvl)`}; // spread wider where the clumps are further apart
   float rr = length(bpos);
   alive *= 1.0 - step(uArena - 0.5 * sxy, rr);                 // grass only inside the arena
   // Down the pond's banks it follows the ground; it stops where the mud and water begin.
@@ -669,6 +681,45 @@ export class Terrain {
       mesh.receiveShadow = true;
       this.group.add(mesh);
       return mesh;
+    });
+    this.group.remove(this.blades);
+  }
+
+  /**
+   * The whole lawn at one density, fixed to the ground: one clump per `cell` mm square over
+   * the entire arena, the same everywhere, wherever the fly or the camera is. `mix`:
+   * [[geometry, weight], ...], each clump at its size relative to `refH`, keeping `keep` of
+   * its blades. No clumps inside `holeR` (the pond); those within `nearR` of the centre
+   * are separate meshes (marked nearPond), so only they need drawing in the reflection.
+   */
+  useLawn({ mix, refH = 0, keep = 1, holeR = 0, nearR = 0 }, maps, cell) {
+    GC0 = cell;
+    const mat = clumpMaterial(this.uniforms, maps, false, true);
+    const total = mix.reduce((a, [, w]) => a + w, 0);
+    const near = mix.map(() => []), far = mix.map(() => []);
+    const R = this.radius, n = Math.ceil(R / cell);
+    const hash = (i, j) => { const v = Math.sin(i * 127.1 + j * 311.7 + 0.5) * 43758.5453; return v - Math.floor(v); };
+    for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
+      const rr = Math.hypot(i + 0.5, j + 0.5) * cell;
+      if (rr > R + cell || rr < holeR) continue;
+      let w = hash(i, j) * total, k = 0;
+      while (k < mix.length - 1 && w >= mix[k][1]) { w -= mix[k][1]; k++; }
+      (rr < nearR ? near : far)[k].push(i, j, 0);
+    }
+    this.clumps = [];
+    mix.forEach(([src], k) => {
+      if (!src) return;
+      const base = clumpBase(src, keep, refH);
+      if (!base.getIndex()?.count) return;
+      for (const [cells, nearPond] of [[near[k], true], [far[k], false]]) {
+        if (!cells.length) continue;
+        const mesh = new THREE.Mesh(instanced(base, cells), mat);
+        mesh.frustumCulled = false;
+        mesh.receiveShadow = true;
+        mesh.userData.nearPond = nearPond;
+        this.group.add(mesh);
+        this.clumps.push(mesh);
+      }
     });
     this.group.remove(this.blades);
   }

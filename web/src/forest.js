@@ -427,9 +427,8 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   }
   // ---------- grass: the lawn itself, from the grass model ----------
   try {
-    // The same realistic lawn on every setting, mixed from the model's clumps: on High its
-    // full 2048-pixel colour, normal and roughness maps (env/hd/) and all 17 clumps; on
-    // Medium and Low the 1024-pixel maps, without the biggest clumps and with fewer blades.
+    // The same realistic lawn on every setting: on High with the model's 2048-pixel colour,
+    // normal and roughness maps (env/hd/) and the most blades; Medium and Low 1024-pixel maps.
     const tl = new THREE.TextureLoader();
     const grass = await loader.loadAsync(base + "grass.glb");
     let map, normalMap, roughnessMap = null;
@@ -448,30 +447,21 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     for (const t of [map, normalMap, roughnessMap]) if (t) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
     {
-      // Mixed through the lawn by size: mid-sized clumps mostly, some big and tall ones,
-      // tiny sprigs between them; further out, the lighter clumps.
+      // One even lawn over the whole arena, the same density everywhere (not finer round the
+      // fly): small and tall clumps with tiny sprigs between them, each drawn with part of
+      // its blades so the whole floor fits the graphics budget. Denser on High.
       const g = (n) => geo(n);
-      const near = [["mid_a", 3], ["mid_b", 3], ["mid_c", 3], ["small_a", 2], ["small_b", 2], ["large_a", 0.7], ["large_b", 0.7], ["large_c", 0.7],
-        ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.4], ["tiny_b", 0.4], ["tiny_c", 0.4], ["tiny_d", 0.4], ["tiny_e", 0.4], ["tiny_f", 0.4]];
-      const mid = [["mid_b", 2], ["mid_c", 2], ["small_a", 3], ["small_b", 3], ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.6], ["tiny_e", 0.6]];
-      const mix = (list) => list.map(([n, w]) => [g(n), w]).filter(([x]) => x);
-      // sizes relative to mid_b, the clump a phone's lawn is made of
+      const list = [["small_a", 2], ["small_b", 2], ["tall_a", 1], ["tall_b", 1], ["tall_c", 1],
+        ["tiny_a", 0.4], ["tiny_b", 0.4], ["tiny_c", 0.4], ["tiny_d", 0.4], ["tiny_e", 0.4], ["tiny_f", 0.4]];
+      const mix = list.map(([n, w]) => [g(n), w]).filter(([x]) => x);
+      // sizes relative to mid_b
       const ref = g("mid_b"); ref.computeBoundingBox();
       const refH = ref.boundingBox.max.y - ref.boundingBox.min.y;
-      // The same clumps all the way out, the far rings with fewer blades each (they are
-      // small on screen) so the whole arena is lawn from wherever the camera looks.
-      // Medium and Low (phones): the same lawn, its clumps a little further apart and the big
-      // clumps left out; the share of each clump's blades kept, ring by ring, falls faster.
-      const keep = high ? [1, 0.8, 0.55, 0.4, 0.3, 0.15, 0.08] : medium ? [0.8, 0.55, 0.35, 0.22, 0.15, 0.08, 0.04] : [0.6, 0.4, 0.25, 0.15, 0.1, 0.05, 0.03];
-      const nearMix = high ? near : near.filter(([n]) => !n.startsWith("large"));
-      terrain.useGrassModel({ refH, mix: keep.map((k, L) => ({ levels: [L], mix: mix(L < 3 ? nearMix : mid), keep: k })) },
-        { map, normalMap, roughnessMap }, high ? 1.45 : 1.9);
+      const [cell, keep] = high ? [2.2, 0.45] : medium ? [2.8, 0.25] : [3.4, 0.2];
+      terrain.useLawn({ mix, refH, keep, holeR: POND_R - 10, nearR: POND_R + (high ? 120 : 60) }, { map, normalMap, roughnessMap }, cell);
     }
-    // the grass round the fly and the light far grass show in the water
-    // the grass shows in the water: all of it on a computer, only round the fly on a phone
-    // (Medium: the rings nearest the camera)
-    const lvl = (c) => c.geometry.attributes.aCell.array[2];
-    for (const c of high ? terrain.clumps : terrain.clumps.filter((c) => lvl(c) <= (medium ? 1 : 0))) reflectable(c);
+    // in the water: the grass on the banks round the pond
+    for (const c of terrain.clumps) if (c.userData.nearPond) reflectable(c);
   } catch (e) {
     terrain.group.remove(terrain.blades); // never the old generated blades instead
     console.error("Grass asset failed to load:", e);
