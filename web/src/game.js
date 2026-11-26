@@ -35,6 +35,8 @@ const CSS = `
   #game .g-sleep { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); color: var(--muted); font-size: 14px; pointer-events: none; }
   #game .g-title b { cursor: pointer; }
   #game .g-title .g-cam { margin-left: auto; height: 34px; padding: 0 12px; font-size: 13px; border-radius: 12px; flex: 0 0 auto; }
+  #game .g-title .g-gfx { height: 34px; padding: 0 12px; font-size: 13px; border-radius: 12px; flex: 0 0 auto; }
+  #game .g-title span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `;
 
 export function startGame(api) {
@@ -47,7 +49,8 @@ export function startGame(api) {
   root.innerHTML = `
     <div class="g-top">
       <div class="g-title"><b id="g-name" role="button" title="Rename"></b><span id="g-info"></span>
-        <button id="g-cam" class="g-cam" title="What the camera follows">Camera: Fly</button></div>
+        <button id="g-cam" class="g-cam" title="What the camera follows">Camera: Fly</button>
+        <button id="g-gfx" class="g-gfx" title="Graphics quality (reloads)">Graphics</button></div>
       <div class="g-bars">
         <div class="g-bar" style="--c:var(--cuticle)">Food <span id="g-food"></span><i id="g-food-bar"></i></div>
         <div class="g-bar" style="--c:#7fb6e8">Energy <span id="g-energy"></span><i id="g-energy-bar"></i></div>
@@ -67,6 +70,15 @@ export function startGame(api) {
   const $ = (id) => document.getElementById(id);
   // The camera follows the fly, the frog or the toad (each tap: the next one).
   $("g-cam").onclick = () => { $("g-cam").textContent = "Camera: " + (api.cycleCamera?.() || "Fly"); };
+  // Graphics: Low -> Medium -> High -> Low; the scene reloads with it (the pet is kept).
+  const QN = { low: "Low", medium: "Medium", high: "High" };
+  $("g-gfx").textContent = "Graphics: " + (QN[api.quality] || "Low");
+  $("g-gfx").onclick = () => {
+    const order = ["low", "medium", "high"], next = order[(order.indexOf(api.quality) + 1) % 3];
+    $("g-gfx").textContent = "Graphics: " + QN[next] + "…";
+    toast(`Graphics: ${QN[next]}. Reloading…`, 3);
+    setTimeout(() => api.setQuality?.(next), 400);
+  };
   const showName = () => {
     $("g-name").textContent = pet.name;
     $("g-sleep").textContent = `Night: ${pet.name} is asleep until 7:00`;

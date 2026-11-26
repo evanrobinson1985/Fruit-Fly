@@ -21,13 +21,24 @@ const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
 const GAME = new URLSearchParams(location.search).has("game");
 // Rendering quality: "high" on a computer (full-resolution water reflections and refraction,
-// denser grass, sharper shadows), "low" on a phone. ?quality=high or ?quality=low overrides.
+// the full lawn, sharper shadows), "low" on a phone; "medium" between them. The Graphics
+// setting (saved on the device) or ?quality=low|medium|high overrides.
+const MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+export const QUALITIES = ["low", "medium", "high"];
 export const QUALITY = (() => {
   const q = new URLSearchParams(location.search).get("quality");
-  if (q === "high" || q === "low") return q;
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? "low" : "high";
+  if (QUALITIES.includes(q)) return q;
+  try { const s = localStorage.getItem("graphics"); if (QUALITIES.includes(s)) return s; } catch {}
+  return MOBILE ? "low" : "high";
 })();
-const HIGH = QUALITY === "high";
+const HIGH = QUALITY === "high", MEDIUM = QUALITY === "medium";
+/** Save a Graphics setting and reload with it ("auto": the device's default). */
+function setQuality(q) {
+  try { if (q === "auto") localStorage.removeItem("graphics"); else localStorage.setItem("graphics", q); } catch {}
+  const u = new URL(location.href);
+  u.searchParams.delete("quality");
+  location.replace(u.href);
+}
 let frogMode = "none";
 // Version the preference key so existing installs do not inherit the old Both default.
 try { frogMode = localStorage.getItem("frog-mode-v2") || "none"; } catch {}
@@ -58,7 +69,8 @@ const canvas = $("stage");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: HIGH ? "high-performance" : "default" });
 // On a computer: drawn at least 1.5x the screen's resolution and scaled down (smoother
 // edges on the grass and fine detail), up to 3x on high-DPI screens.
-renderer.setPixelRatio(HIGH ? Math.min(3, Math.max(1.5, window.devicePixelRatio)) : Math.min(2, window.devicePixelRatio));
+// (a phone on High: its own screen's full resolution, at most 2.5x)
+renderer.setPixelRatio(HIGH ? (MOBILE ? Math.min(2.5, window.devicePixelRatio) : Math.min(3, Math.max(1.5, window.devicePixelRatio))) : Math.min(2, window.devicePixelRatio));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
@@ -83,7 +95,10 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0dd, 2.4);
 sun.layers.enableAll();
 sun.castShadow = true;
-sun.shadow.mapSize.set(HIGH ? 8192 : 2048, HIGH ? 8192 : 2048);
+{
+  const s = Math.min(HIGH ? 8192 : MEDIUM ? 4096 : 2048, renderer.capabilities.maxTextureSize);
+  sun.shadow.mapSize.set(s, s);
+}
 Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 60 });
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
@@ -127,7 +142,7 @@ terrain.visible = false;
 // Kept clear: where the fly starts, and where the two frogs start.
 let forest = null;
 const ripple = { fly: 0, flyOn: false };
-loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }], { high: HIGH })
+loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }], { high: HIGH, medium: MEDIUM })
   .then((f) => { forest = f; terrain.bake(renderer); }) // the pond, stones and moss become ground the fly can walk on
   .catch((e) => console.warn("Forest scenery did not load:", e));
 function syncExclusions() {
@@ -661,6 +676,11 @@ function setCamSubject(subject) {
   return subject;
 }
 document.querySelectorAll("[data-cam-subject]").forEach((b) => { b.onclick = () => setCamSubject(b.dataset.camSubject); });
+// Simulation: Graphics (saved on this device; the page reloads with it)
+document.querySelectorAll("[data-quality]").forEach((b) => {
+  b.setAttribute("aria-pressed", String(b.dataset.quality === QUALITY));
+  b.onclick = () => setQuality(b.dataset.quality);
+});
 $("cam").onclick = () => {
   closeUp = !closeUp;
   $("cam").textContent = closeUp ? "Close-up" : "Arena view";
@@ -1179,6 +1199,7 @@ async function boot() {
         }
         return "Fly";
       },
+      quality: QUALITY, setQuality,
       body, world, canvas, addFood, removeFood, addDeposit, clearDeposits, groundZ,
       touchHead: () => {
         stim.touch = { zone: "head", side: Math.random() < 0.5 ? "L" : "R", hz: 120 };

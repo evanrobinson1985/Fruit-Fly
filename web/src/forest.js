@@ -165,13 +165,15 @@ function stoneMaterial(color, seed, base = 0) {
  * Load and place the scenery into terrain.group. Returns the solid meshes (stones, moss)
  * that terrain.bake() should include.
  */
-export async function loadForest(terrain, renderer, base, keepClear = [], { high = false } = {}) {
+export async function loadForest(terrain, renderer, base, keepClear = [], { high = false, medium = false } = {}) {
   const ktx2 = new KTX2Loader().setTranscoderPath(transcoderPath()).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
   // On a computer the pond comes with its original 2048-pixel textures (env/hd/); a phone
   // gets the copy with them at 1024. The plants' and stones' files are the originals.
+  // (a phone on High has no env/hd/ in its app: the standard pond then)
   const [stones, moss, bracken, fern, pond] = await Promise.all(
-    ["stones.glb", "moss-tufts.glb", "bracken.glb", "lady-fern.glb", high ? "hd/pond.glb" : "pond.glb"].map((f) => loader.loadAsync(base + f)));
+    ["stones.glb", "moss-tufts.glb", "bracken.glb", "lady-fern.glb", high ? "hd/pond.glb" : "pond.glb"].map((f) =>
+      loader.loadAsync(base + f).catch((e) => { if (f !== "hd/pond.glb") throw e; return loader.loadAsync(base + "pond.glb"); })));
   const R = terrain.radius, r = rng(2024);
   const group = new THREE.Group();
   group.name = "forest";
@@ -201,7 +203,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
         const geo = m.geometry.clone().applyMatrix4(m.matrixWorld);
         m.parent.remove(m);
         // On a computer: full-resolution passes, the reflection redrawn every frame.
-        water = new PondWater(renderer, geo, waterZ, high ? { scale: 1, reflectEvery: 1 } : { scale: renderer.getPixelRatio() > 1.5 ? 0.3 : 0.4, reflectEvery: 2 });
+        water = new PondWater(renderer, geo, waterZ, high ? { scale: 1, reflectEvery: 1 } : medium ? { scale: 0.6, reflectEvery: 1 } : { scale: renderer.getPixelRatio() > 1.5 ? 0.3 : 0.4, reflectEvery: 2 });
         group.add(water.mesh);
         solids.push(water.mesh); // the fly can stand on the water
         continue;
@@ -255,7 +257,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   // ---------- cattails and lily pads, modelled (the model's are flat cards) ----------
   if (cards) {
     try {
-      const got = modelPondPlants(cards, group, { waterZ, bedAt, shared, high, rand: rng(77) });
+      const got = modelPondPlants(cards, group, { waterZ, bedAt, shared, high: high || medium, rand: rng(77) });
       console.log("Pond plants:", got.cattails, "cattails,", got.pads, "lily pads modelled");
     } catch (e) { console.warn("Pond plants were not modelled:", e); }
   }
@@ -444,7 +446,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     map.colorSpace = THREE.SRGBColorSpace;
     for (const t of [map, normalMap, roughnessMap]) if (t) { t.flipY = false; t.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4; } // glTF UVs
     const geo = (name) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === name) g = o.geometry; }); return g; };
-    if (high) {
+    if (high || medium) {
       // Mixed through the lawn by size: mid-sized clumps mostly, some big and tall ones,
       // tiny sprigs between them; further out, the lighter clumps.
       const g = (n) => geo(n);
@@ -457,13 +459,17 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       const refH = ref.boundingBox.max.y - ref.boundingBox.min.y;
       // The same clumps all the way out, the far rings with fewer blades each (they are
       // small on screen) so the whole arena is lawn from wherever the camera looks.
-      terrain.useGrassModel({ refH, mix: [{ levels: [0], mix: mix(near) }, { levels: [1], mix: mix(near), keep: 0.8 },
-        { levels: [2], mix: mix(near), keep: 0.55 }, { levels: [3], mix: mix(mid), keep: 0.4 }, { levels: [4], mix: mix(mid), keep: 0.3 },
-        { levels: [5], mix: mix(mid), keep: 0.15 }, { levels: [6], mix: mix(mid), keep: 0.08 }] }, { map, normalMap, roughnessMap }, 1.45);
+      // Medium (a phone that can take more): the same lawn, its clumps a little further apart
+      // and with about half their blades, the big clumps left out.
+      const m = medium ? 0.5 : 1, nearMix = medium ? near.filter(([n]) => !n.startsWith("large")) : near;
+      terrain.useGrassModel({ refH, mix: [{ levels: [0], mix: mix(nearMix), keep: m }, { levels: [1], mix: mix(nearMix), keep: 0.8 * m },
+        { levels: [2], mix: mix(nearMix), keep: 0.55 * m }, { levels: [3], mix: mix(mid), keep: 0.4 * m }, { levels: [4], mix: mix(mid), keep: 0.3 * m },
+        { levels: [5], mix: mix(mid), keep: 0.15 * m }, { levels: [6], mix: mix(mid), keep: 0.08 * m }] }, { map, normalMap, roughnessMap }, medium ? 1.9 : 1.45);
     } else terrain.useGrassModel({ near: geo("mid_b"), mid: geo("small_a"), far: geo("small_b") }, { map, normalMap }, 1.9);
     // the grass round the fly and the light far grass show in the water
     // the grass shows in the water: all of it on a computer, only round the fly on a phone
-    for (const c of high ? terrain.clumps : terrain.clumps.slice(0, 1)) reflectable(c);
+    // (Medium: the rings nearest the camera)
+    for (const c of high ? terrain.clumps : medium ? terrain.clumps.filter((c) => c.geometry.attributes.aCell.array[2] <= 1) : terrain.clumps.slice(0, 1)) reflectable(c);
   } catch (e) {
     if (high) {
       terrain.group.remove(terrain.blades); // do not substitute generated blades for the requested desktop asset
