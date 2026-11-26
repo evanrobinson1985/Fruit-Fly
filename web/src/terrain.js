@@ -619,6 +619,7 @@ export class Terrain {
     this.blades = new THREE.Mesh(bladeGeometry(), grassMaterial(this.uniforms));
     this.blades.receiveShadow = true;
     this.blades.frustumCulled = false;
+    this.blades.visible = false; // only the grass model's lawn is ever shown (forest.js); never these placeholder blades
     scene.add(this.blades);
 
     this._addWeeds(scene);

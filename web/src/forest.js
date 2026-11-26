@@ -426,7 +426,6 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     }
   }
   // ---------- grass: the lawn itself, from the grass model ----------
-  terrain.blades.visible = false; // (not the generated blades while it loads)
   try {
     // The same realistic lawn on every setting, mixed from the model's clumps: on High its
     // full 2048-pixel colour, normal and roughness maps (env/hd/) and all 17 clumps; on
