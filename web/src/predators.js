@@ -748,6 +748,20 @@ export class FrogPredators {
     frog.swimT = (frog.swimT ?? 9) + dt;
     frog.sitLeft -= dt;
     if (!this.isWater?.(frog.x, frog.y)) { frog.vel = 0; frog.mode = "sit"; frog.sitLeft = 0.5; return; } // drifted ashore
+    // Run aground: the bank under it lifts it out of the water (see _body), or it keeps
+    // kicking into the bank. It climbs out onto the nearest dry ground instead.
+    if (frog.beached || (frog.blockedT || 0) > 1.2) {
+      const out = this._shore(frog);
+      frog.blockedT = 0;
+      frog.beached = false;
+      if (out) {
+        const b = Math.atan2(out[1] - frog.y, out[0] - frog.x), d = Math.min(frog.hopLength, Math.max(L * 0.6, Math.hypot(out[0] - frog.x, out[1] - frog.y)));
+        frog.vel = 0;
+        frog.swimGoal = null;
+        this.onRipple?.(frog.x, frog.y, L / 18);
+        return this._startHop(frog, "hop", frog.x + Math.cos(b) * d, frog.y + Math.sin(b) * d, b);
+      }
+    }
     const dx = fly.x - frog.x, dy = fly.y - frog.y, dist = Math.hypot(dx, dy);
     if (!fly.gone && frog.catchCooldown <= 0 && fly.z < 12 && dist < frog.sight && (flyMoving || dist < frog.sight * 0.6)) frog.hunting = 12;
     // In reach: strike (from a glide too).
@@ -800,7 +814,8 @@ export class FrogPredators {
     frog.vel *= Math.exp(-2.6 * dt);
     if (frog.vel < 0.02 * L) frog.vel = 0;
     const nx = frog.x + Math.cos(frog.heading) * frog.vel * dt, ny = frog.y + Math.sin(frog.heading) * frog.vel * dt;
-    if (this.isWater(nx, ny) && Math.hypot(nx, ny) < this.arenaRadius - 20) { frog.x = nx; frog.y = ny; } else frog.vel = 0;
+    if (this.isWater(nx, ny) && Math.hypot(nx, ny) < this.arenaRadius - 20) { frog.x = nx; frog.y = ny; frog.blockedT = 0; }
+    else { if (frog.vel > 0) frog.blockedT = (frog.blockedT || 0) + dt; frog.vel = 0; }
     // legs: extended through the kick and the glide, then drawn up; floating when still
     frog.kick = frog.swimT < 0.13 ? ease(frog.swimT / 0.13) : frog.swimT < 0.42 ? 1 : 1 - ease((frog.swimT - 0.42) / 0.3);
     const still = frog.vel < L * 0.25 && frog.swimT > 0.75;
@@ -983,6 +998,8 @@ export class FrogPredators {
       return this.bedAt ? this.bedAt(x, y) : -Infinity;
     };
     const support = Math.max(solid(0), solid(0.32), solid(-0.28));
+    // a swimmer held well above the water by the bank or bed under it is aground (_swim)
+    frog.beached = frog.mode === "swim" && support > z + ground + L * 0.2;
     frog.lift = z; // how high it is off the ground (in a hop)
     frog.actor.position.set(frog.x + ch * lunge, frog.y + sh * lunge, Math.max(z + ground, support));
     frog.actor.rotation.set(0, pitch, frog.heading);
