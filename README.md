@@ -119,6 +119,14 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   seconds, then curls its legs and dies, the head dropping to the ground; a few seconds
   later another appears, as after a frog. (A game event: real flies groom vigorously but don't
   pull their heads off; that is a popular myth.)
+- **Playing:** optionally play as the fly, the frog or the toad (the game's Play menu, or
+  Simulation: Play as; Watch leaves them to themselves), with a keyboard, a game controller or
+  the on-screen joystick and buttons (`web/src/play.js`). The fly: W A S D / stick to walk and
+  turn, Space / A to take off and land (it flies until you land it), E / X to groom; its brain
+  still runs, so a threat can still make it bolt. A frog: hop (or swim) where you push, Space /
+  A for a big jump (out of the water too), E / X for the tongue, which goes for the fly if it is
+  in reach. V / Y / View switches the camera: orbit, third person (behind it), first person
+  (from its eyes, a wider view).
 - **Moving about:** unlock the camera (Simulation: Unlock camera, or the game's camera button
   set to Free) and glide over the arena: W A S D or the arrow keys (Shift for speed), Q and E
   to turn, R and F to zoom, or the joystick on a touch screen; double-click or double-tap to

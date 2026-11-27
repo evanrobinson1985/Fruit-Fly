@@ -19,6 +19,7 @@ import { FrogPredators } from "./predators.js";
 import { LuckyClovers } from "./lucky.js";
 import { Perches } from "./perching.js";
 import { FreeCam } from "./camctl.js";
+import { Play } from "./play.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
@@ -52,6 +53,68 @@ if (GAME) {
 }
 let game = null;
 let predators = null;
+let play = null; // play.js: who you play, if anyone
+// The character you play, seen from behind (third person) or through its eyes (first person).
+const _pv = { pos: new THREE.Vector3(), fwd: new THREE.Vector3(), up: new THREE.Vector3(), want: new THREE.Vector3(), look: new THREE.Vector3(), fov: 35 };
+function playView(dt) {
+  const view = play && play.mode !== "watch" ? play.view : "orbit";
+  // the field of view eases back to normal outside first person
+  const fov = view === "first" ? 75 : 35;
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 6); camera.updateProjectionMatrix(); }
+  if (view === "orbit") return false;
+  let size, eye;
+  if (play.mode === "fly") {
+    if (!flyRoot?.visible) return false;
+    _pv.pos.copy(flyRoot.position);
+    _pv.fwd.set(1, 0, 0).applyQuaternion(flyRoot.quaternion);
+    _pv.up.set(0, 0, 1).applyQuaternion(flyRoot.quaternion);
+    _pv.pos.addScaledVector(_pv.up, fly.groundOffset); // (its feet)
+    size = 2.6;
+    eye = _pv.pos.clone().addScaledVector(_pv.fwd, 1.35).addScaledVector(_pv.up, 0.95); // just in front of its eyes
+  } else {
+    const f = predators?.frogs.find((x) => x.id === play.mode);
+    if (!f) return false;
+    f.actor.updateMatrixWorld();
+    _pv.pos.setFromMatrixPosition(f.actor.matrixWorld);
+    _pv.fwd.set(1, 0, 0).transformDirection(f.actor.matrixWorld);
+    _pv.up.set(0, 0, 1).transformDirection(f.actor.matrixWorld);
+    size = f.length;
+    // between its eyes, a touch forward and up so its own head stays behind the camera
+    if (f.eyes?.length) {
+      eye = new THREE.Vector3();
+      for (const e of f.eyes) eye.add(e.getWorldPosition(_pv.look));
+      // (eye height, but forward to just past the snout: the head is long in front of the eyes)
+      eye.multiplyScalar(1 / f.eyes.length);
+      const ahead = Math.max(0, f.mouth.x + f.length * 0.06 - _pv.look.copy(eye).sub(_pv.pos).dot(_pv.fwd));
+      eye.addScaledVector(_pv.fwd, ahead).addScaledVector(_pv.up, f.length * 0.02);
+    } else eye = _pv.pos.clone().addScaledVector(_pv.fwd, f.mouth.x).addScaledVector(_pv.up, f.mouth.z);
+  }
+  const k = view === "first" ? 1 : 1 - Math.exp(-dt * 5); // (first person: fixed to its head)
+  if (view === "first") {
+    // looking where it faces, levelled (a frog swims nose-down; a fly on a stem may face up):
+    // only a little of its tilt shows
+    const flat = _pv.fwd.clone().setZ(0);
+    if (flat.lengthSq() < 1e-6) flat.copy(_pv.up).setZ(0);
+    flat.normalize().multiplyScalar(0.85).addScaledVector(_pv.fwd, 0.15).normalize();
+    _pv.want.copy(eye);
+    _pv.look.copy(eye).addScaledVector(flat, size * 3).add(new THREE.Vector3(0, 0, -size * 0.12));
+  } else {
+    // behind and above, level with the ground (not tipping with every hop)
+    const flat = _pv.fwd.clone().setZ(0);
+    if (flat.lengthSq() < 1e-6) flat.set(1, 0, 0);
+    flat.normalize();
+    _pv.want.copy(_pv.pos).addScaledVector(flat, -size * 4.2).add(new THREE.Vector3(0, 0, size * 1.7));
+    // not under the ground
+    const g = (terrain.visible ? terrain.groundAt(_pv.want.x, _pv.want.y) : 0) + size * 0.4;
+    if (_pv.want.z < g) _pv.want.z = g;
+    _pv.look.copy(_pv.pos).add(new THREE.Vector3(0, 0, size * 0.45)).addScaledVector(flat, size * 1.2);
+  }
+  camera.position.lerp(_pv.want, k);
+  controls.target.lerp(_pv.look, k);
+  camera.up.set(0, 0, 1);
+  camera.lookAt(controls.target);
+  return true;
+}
 const STEP_MS = 20;         // brain/body exchange interval
 const SMOOTH_MS = 60;       // motor rate smoothing
 const $ = (id) => document.getElementById(id);
@@ -1397,9 +1460,16 @@ function frame(now) {
   if (gustGroup.children.length && now > gustGroup.userData.until) gustGroup.clear();
   // a shake jolts the view too
   canvas.style.transform = now < shakeUntil ? `translate(${(Math.random() - 0.5) * 14}px, ${(Math.random() - 0.5) * 10}px)` : "";
-  freeCam.update(Math.min(0.1, (now - freeCamAt) / 1000));
+  play?.update();
+  freeCam.blocked = !!play && play.mode !== "watch";
+  const camDt = Math.min(0.1, (now - freeCamAt) / 1000);
+  freeCam.update(camDt);
   freeCamAt = now;
-  controls.update();
+  // Playing in third or first person, the camera rides with the character (playView);
+  // otherwise the orbit controls have it.
+  const rode = playView(camDt);
+  controls.enabled = !rode;
+  if (!rode) controls.update();
   // Haze (in the rain only) starts beyond what the camera is looking at, however far out it is.
   {
     const d = camera.position.distanceTo(controls.target);
@@ -1468,6 +1538,28 @@ async function boot() {
   predators.isWater = (x, y) => !!forest?.water?.contains(x, y); // and float in the pond
   predators.bedAt = (x, y) => (forest?.bedAt ? forest.bedAt(x, y) : -Infinity); // and wade, standing on the bed
   predators.onRipple = (x, y, size) => forest?.water?.addRipple(x, y, size); // kicks as they swim
+  // Play as the fly, the frog or the toad (play.js), or just watch.
+  play = new Play({
+    camera, controls, body, predators,
+    onMode: (mode) => {
+      document.querySelectorAll("[data-play]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.play === mode)));
+      if (mode === "watch") { $("hint").textContent = "Watching: they all do as they please."; return; }
+      if (!followFly) $("camera-follow").click();
+      setCamSubject(mode); // the camera follows who you play
+      const keys = play.touch ? "the joystick and the two buttons" : "W A S D or the arrow keys, Space, and E (or a game controller: stick, A, X)";
+      $("hint").textContent = mode === "fly"
+        ? `Playing the fly: ${keys}. Walk and turn; Space/A takes off and lands, E/X grooms. Its brain still reacts: it may bolt from a threat.`
+        : `Playing the ${mode === "small" ? "frog" : "toad"}: ${keys}. Hop (or swim) where you push; Space/A jumps, E/X shoots the tongue at the fly in reach.`;
+      game?.notify(`Playing the ${mode === "fly" ? "fly" : mode === "small" ? "frog" : "toad"}`, 3);
+    },
+  });
+  document.querySelectorAll("[data-play]").forEach((b) => { b.onclick = () => play.setMode(b.dataset.play); });
+  play.onView = (view) => {
+    document.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+    if (view === "orbit") { camera.fov = 35; camera.updateProjectionMatrix(); }
+    game?.notify(view === "first" ? "First person" : view === "third" ? "Third person" : "Orbit view", 1.5);
+  };
+  document.querySelectorAll("[data-view]").forEach((b) => { b.onclick = () => play.cycleView(b.dataset.view); });
   predators.setMode(frogMode);
   predators.load().then((count) => {
     const loaded = predators.frogs.map((frog) => frog.name).join(" and ");
@@ -1496,6 +1588,7 @@ async function boot() {
       },
       quality: QUALITY, setQuality,
       pester, stress: () => (dying ? 100 : Math.min(100, stress.v)),
+      playAs: (mode) => play?.setMode(mode),
       body, world, canvas, addFood, removeFood, addDeposit, clearDeposits, groundZ,
       touchHead: () => {
         stim.touch = { zone: "head", side: Math.random() < 0.5 ? "L" : "R", hz: 120 };

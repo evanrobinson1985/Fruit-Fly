@@ -44,6 +44,9 @@ const CSS = `
   #game .g-title .g-gfx { height: 34px; padding: 0 10px; font: 600 13px var(--body); border-radius: 12px; flex: 0 0 auto;
     border: 1px solid var(--line); background: rgba(40, 34, 28, 0.85); color: var(--ink); }
   #game .g-title .g-gfx option { background: #2a231c; color: var(--ink); }
+  #game .g-play { align-self: flex-start; height: 30px; padding: 0 10px; font: 600 12px var(--body); border-radius: 10px;
+    border: 1px solid var(--line); background: rgba(40, 34, 28, 0.85); color: var(--ink); }
+  #game .g-play option { background: #2a231c; color: var(--ink); }
   #game .g-title span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `;
 
@@ -67,6 +70,9 @@ export function startGame(api) {
         <div class="g-bar" style="--c:#e88fa8">Mood <span id="g-mood"></span><i id="g-mood-bar"></i></div>
         <div class="g-bar" style="--c:#c36de0">Stress <span id="g-stress"></span><i id="g-stress-bar"></i></div>
       </div>
+      <select id="g-play" class="g-play" aria-label="Play as">
+        <option value="watch">Play: Watch</option><option value="fly">Play: Fly</option><option value="small">Play: Frog</option><option value="big">Play: Toad</option>
+      </select>
     </div>
     <div class="g-toast" id="g-toast" style="opacity:0"></div>
     <div class="g-sleep" id="g-sleep" hidden></div>
@@ -161,6 +167,8 @@ export function startGame(api) {
     dropAt(body.x + d * Math.cos(h) - side * Math.sin(h), body.y + d * Math.sin(h) + side * Math.cos(h));
   };
   $("g-tickle").onclick = () => { wake(); api.touchHead(); toast("Tickle!", 1.2); };
+  // Play as one of them (main.js / play.js), or just watch
+  $("g-play").onchange = () => { api.playAs?.($("g-play").value); $("g-play").blur(); };
   // Pester: ways to stress it (main.js: pester); the menu stays open for repeated use
   $("g-pester-btn").onclick = () => { $("g-pester").hidden = !$("g-pester").hidden; };
   for (const b of root.querySelectorAll("[data-pester]")) {

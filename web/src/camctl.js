@@ -93,7 +93,9 @@ export class FreeCam {
 
   /** Per frame (dt seconds), while free. */
   update(dt) {
-    if (!this.active) return;
+    // (while you play a character, the keys and stick are its: play.js)
+    this.el.classList.toggle("on", this.active && this.touch && !this.blocked);
+    if (!this.active || this.blocked) return;
     const c = this.controls, cam = this.camera, k = this.keys;
     const dist = cam.position.distanceTo(c.target);
     const fast = k.has("shift") ? 3 : 1;

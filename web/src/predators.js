@@ -788,7 +788,7 @@ export class FrogPredators {
           if (gnd(frog.x + ux * d, frog.y + uy * d) > g0 + leap) { stop = Math.max(0, d - L * 0.45); break; } // too high: stop before it
         }
         // a toad on land doesn't hop into the water: it stops at the edge, and goes elsewhere next
-        if (frog.landlubber && this.isWater && !this.isWater(frog.x, frog.y)) {
+        if (frog.landlubber && !frog.player && this.isWater && !this.isWater(frog.x, frog.y)) {
           for (let i = 1; i <= N; i++) {
             const d = (i / N) * stop;
             if (this.isWater(frog.x + ux * d, frog.y + uy * d)) {
@@ -1059,6 +1059,66 @@ export class FrogPredators {
     return this.bedAt(x, y) < this.groundAt(x, y) - frog.length * (frog.hunting > 0 ? 0.01 : 0.18);
   }
 
+  /**
+   * The frog you are playing (frog.player = {mx, my, jump, tongue}: the stick as a direction
+   * on the ground, and the buttons). On land it hops where you push (a big jump with the jump
+   * button); in the water it swims that way with frog kicks, and jumps out; the tongue
+   * strikes at the fly if it is in reach (it turns to it), otherwise straight ahead.
+   */
+  _played(frog, fly, dt) {
+    const I = frog.player, L = frog.length, m = Math.min(1, Math.hypot(I.mx, I.my));
+    const inWater = !!this.isWater?.(frog.x, frog.y);
+    if (I.tongue) {
+      I.tongue = false;
+      const mx = frog.x + Math.cos(frog.heading) * frog.mouth.x, my = frog.y + Math.sin(frog.heading) * frog.mouth.x;
+      const reachable = fly && !fly.gone && Math.hypot(fly.x - mx, fly.y - my) < frog.reach * 1.15 && fly.z < 12;
+      if (reachable) frog.heading = Math.atan2(fly.y - frog.y, fly.x - frog.x);
+      const at = reachable ? fly : { x: mx + Math.cos(frog.heading) * frog.reach * 0.8, y: my + Math.sin(frog.heading) * frog.reach * 0.8, z: (this.groundAt?.(frog.x, frog.y) || 0) + 1 };
+      frog.catchCooldown = 0;
+      return this._strike(frog, at);
+    }
+    const dir = m > 0.05 ? Math.atan2(I.my, I.mx) : frog.heading;
+    if (!inWater || !frog.swims) {
+      if (frog.mode !== "sit" && frog.mode !== "croak") this._sit(frog, 1);
+      frog.sitLeft = 1;
+      if (I.jump || m > 0.35) {
+        const big = I.jump;
+        I.jump = false;
+        const d = frog.hopLength * (big ? 1.6 : 0.35 + 0.65 * m);
+        return this._startHop(frog, big ? "jump" : "hop", frog.x + Math.cos(dir) * d, frog.y + Math.sin(dir) * d, dir);
+      }
+      return;
+    }
+    // swimming
+    if (frog.mode !== "swim") { frog.mode = "swim"; frog.t = 0; frog.vel = frog.vel || 0; }
+    frog.swimT = (frog.swimT ?? 9) + dt;
+    if (I.jump) {
+      I.jump = false;
+      const d = frog.hopLength * 1.4;
+      frog.vel = 0;
+      this.onRipple?.(frog.x, frog.y, L / 16);
+      return this._startHop(frog, "jump", frog.x + Math.cos(dir) * d, frog.y + Math.sin(dir) * d, dir);
+    }
+    if (m > 0.1) {
+      frog.heading = wrapAngle(frog.heading + clamp(wrapAngle(dir - frog.heading), -1, 1) * 4 * dt);
+      if (frog.swimT > 0.75 - 0.25 * m) { frog.swimT = 0; this.onRipple?.(frog.x - Math.cos(frog.heading) * L * 0.7, frog.y - Math.sin(frog.heading) * L * 0.7, L / 20); }
+    }
+    if (frog.swimT < 0.16 && m > 0.1) frog.vel += (L * 2.4 / 0.16) * dt * m;
+    frog.vel *= Math.exp(-2.6 * dt);
+    if (frog.vel < 0.02 * L) frog.vel = 0;
+    const nx = frog.x + Math.cos(frog.heading) * frog.vel * dt, ny = frog.y + Math.sin(frog.heading) * frog.vel * dt;
+    if (this.isWater(nx, ny) && Math.hypot(nx, ny) < this.arenaRadius - 20) { frog.x = nx; frog.y = ny; } else frog.vel = 0;
+    frog.kick = frog.swimT < 0.13 ? ease(frog.swimT / 0.13) : frog.swimT < 0.42 ? 1 : 1 - ease((frog.swimT - 0.42) / 0.3);
+    const still = frog.vel < L * 0.25 && frog.swimT > 0.75;
+    frog.floatW = clamp((frog.floatW || 0) + (still ? 1.5 : -4) * dt, 0, 1);
+  }
+
+  /** Play as one of the frogs ("small", "big") or none: input goes to it, not its own mind. */
+  setPlayer(id) {
+    for (const f of this.frogs) f.player = f.id === id ? (f.player || { mx: 0, my: 0, jump: false, tongue: false }) : null;
+    return this.frogs.find((f) => f.id === id)?.player || null;
+  }
+
   /** The nearest dry ground from a frog in the water: a spot a little way up the bank. */
   _shore(frog) {
     let best = null;
@@ -1124,10 +1184,12 @@ export class FrogPredators {
         if (t >= h.dur) {
           frog.heading = wrapAngle(h.h1);
           // Right after landing a hunting frog strikes if the fly is in reach.
-          if (inReach && frog.catchCooldown <= 0 && this.catchLock <= 0) this._strike(frog, fly);
+          if (inReach && frog.catchCooldown <= 0 && this.catchLock <= 0 && !frog.player) this._strike(frog, fly);
           else if (frog.boutLeft > 0 && frog.mode === "hop") this._sit(frog, 0.15 + Math.random() * 0.45);
           else this._sit(frog, frog.hunting > 0 ? 0.5 + Math.random() * 1.2 : 2 + Math.random() * 5);
         }
+      } else if (frog.player && (frog.mode === "swim" || frog.mode === "sit" || frog.mode === "croak")) {
+        this._played(frog, fly, dt);             // you are playing it (play.js)
       } else if (frog.mode === "swim") {
         this._swim(frog, fly, dt, flyMoving, inReach);
       } else if (frog.mode === "croak") {

@@ -196,8 +196,17 @@ export class Body {
       this.raise = BODY.wingRaiseS;
       return (this.state = "takeoff");
     }
+    // Played (play.js: this.player = {fwd, turn, takeoff, groom}): you take off when you
+    // choose (its escapes above stay its brain's); its own voluntary flights are off.
+    const P = this.player;
+    if (P?.takeoff) {
+      P.takeoff = false;
+      this.takeoffMode = "voluntary";
+      return this._takeoff("voluntary", 3600);
+    }
+    if (P?.groom) this.groomLeft = Math.max(this.groomLeft || 0, 0.25), this.groomCue = true;
     // Voluntary takeoff when the flight-muscle motor neurons stay active.
-    this.flightOn = sm.flight > BODY.flightOnHz ? (this.flightOn || 0) + dt : 0;
+    this.flightOn = !P && sm.flight > BODY.flightOnHz ? (this.flightOn || 0) + dt : 0;
     if (this.flightOn >= BODY.flightOnS) {
       this.heading += 120 * (rng() - 0.5);
       this.takeoffMode = "voluntary";
@@ -281,15 +290,17 @@ export class Body {
     // watch game; the model has no validated odor steering). this.lure = { x, y, speed }.
     // On the sugar it stops while its taste neurons decide (leg taste stops walking; Thoma
     // et al. 2016): lure.hold.
-    if (this.lure) target = this.lure.hold ? Math.min(target, 0) : Math.max(target, this.lure.speed);
+    if (this.lure && !P) target = this.lure.hold ? Math.min(target, 0) : Math.max(target, this.lure.speed);
+    if (P) target = P.fwd >= 0 ? P.fwd * 20 : P.fwd * 7; // played: walking speed from the stick (mm/s)
     this.speed += (target - this.speed) * Math.min(1, dt / 0.1);
     const noise = spontaneous ? BODY.exploreTurnSd : BODY.quietTurnSd;
     const cmd = BODY.turnGain * (m.turn.L - m.turn.R) + BODY.legTurnGain * (sm.legsL - sm.legsR);
     this.turn = (Math.abs(this.speed) > 0.3 ? cmd : cmd * 0.3) + noise * gauss(rng);
-    if (this.lure && !this.lure.hold) {
+    if (this.lure && !this.lure.hold && !P) {
       const want = (Math.atan2(this.lure.y - this.y, this.lure.x - this.x) * 180) / Math.PI;
       this.turn = 4 * ((((want - this.heading) % 360) + 540) % 360 - 180);
     }
+    if (P) this.turn = -P.turn * 170; // played: turning from the stick (deg/s; right is clockwise)
     this.heading = (this.heading + this.turn * dt + 360) % 360;
     const h = this.heading * Math.PI / 180;
     this.x += this.speed * Math.cos(h) * dt;
@@ -300,6 +311,7 @@ export class Body {
   }
 
   _takeoff(kind, duration) {
+    this.landing = false;
     this.flightKind = kind;
     this.airborne = duration;
     this.poopLeft = 0;
@@ -326,7 +338,13 @@ export class Body {
     const power = 1 + BODY.wingPowerGain * Math.min(50, Math.max(m.wingPower?.L || 0, m.wingPower?.R || 0));
     this.airTime += dt;
     this.wingOpen = Math.min(1, this.wingOpen + dt * 20);
-    if (this.flightKind === "voluntary") {
+    const P = this.player;
+    if (P) {
+      // played: it flies until you land it, steered with the stick (an escape flight too)
+      if (P.land) { P.land = false; this.landing = true; this.airborne = Math.min(this.airborne, 0.35); }
+      else if (this.airborne < 0.5 && !this.landing) this.airborne = 1;
+      this.heading = (this.heading - P.turn * 130 * dt + 360) % 360;
+    } else if (this.flightKind === "voluntary") {
       // Stay up while the flight-muscle motor neurons keep firing; steer with the wing pools.
       if (this.airTime > BODY.flightMinS && sm.flight < BODY.flightOffHz) this.airborne = Math.min(this.airborne, 0.35);
       this.heading = (this.heading + BODY.wingSteerGain * (sm.wingL - sm.wingR) * dt + 360) % 360;
@@ -346,13 +364,14 @@ export class Body {
         need = 0;
       }
     }
-    this.x += Math.cos(h) * BODY.flightSpeed * power * dt;
-    this.y += Math.sin(h) * BODY.flightSpeed * power * dt;
+    const pace = P ? 0.3 + 0.7 * Math.max(0, P.fwd) : 1; // played: the stick sets the pace
+    this.x += Math.cos(h) * BODY.flightSpeed * power * pace * dt;
+    this.y += Math.sin(h) * BODY.flightSpeed * power * pace * dt;
     const up = Math.min(1, this.airTime / 0.25), down = Math.min(1, Math.max(0, this.airborne) / 0.3);
     const cruise = (this.flightKind === "escape" ? 7 : 12) * Math.min(up, down);
     this.climb = Math.max(need, (this.climb || 0) - 30 * dt);
     this.z = Math.max(cruise, this.climb * Math.min(1, this.airTime / 0.1));
-    if (this.airborne <= 0) { this.z = 0; this.airborne = 0; this.climb = 0; }
+    if (this.airborne <= 0) { this.z = 0; this.airborne = 0; this.climb = 0; this.landing = false; }
     this._clip(world);
     return (this.state = "flying");
   }

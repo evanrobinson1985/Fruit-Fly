@@ -241,6 +241,19 @@
             <button id="cam">Close-up</button>
             <button id="camera-follow" aria-pressed="true">Unlock camera</button>
           </div>
+          <div class="row" role="group" aria-label="Play as">
+            <span class="label" style="flex:0 0 auto">Play as</span>
+            <button data-play="watch" aria-pressed="true">Watch</button>
+            <button data-play="fly" aria-pressed="false">Fly</button>
+            <button data-play="small" aria-pressed="false">Frog</button>
+            <button data-play="big" aria-pressed="false">Toad</button>
+          </div>
+          <div class="row" role="group" aria-label="View while playing">
+            <span class="label" style="flex:0 0 auto">View <span class="sub">(V)</span></span>
+            <button data-view="orbit" aria-pressed="true">Orbit</button>
+            <button data-view="third" aria-pressed="false">3rd person</button>
+            <button data-view="first" aria-pressed="false">1st person</button>
+          </div>
           <div class="row" role="group" aria-label="Stress the fly">
             <span class="label" style="flex:0 0 auto">Stress <span id="stress-val" class="sub">0</span></span>
             <button id="stress-swat" class="threat">Swat</button>
