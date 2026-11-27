@@ -331,12 +331,28 @@ export class Body {
       if (this.airTime > BODY.flightMinS && sm.flight < BODY.flightOffHz) this.airborne = Math.min(this.airborne, 0.35);
       this.heading = (this.heading + BODY.wingSteerGain * (sm.wingL - sm.wingR) * dt + 360) % 360;
     }
-    const h = this.heading * Math.PI / 180;
+    // Everything is solid (world.groundAt: stones, plants, the turf): it climbs over what is
+    // ahead, and turns away from what is too tall to clear.
+    let h = this.heading * Math.PI / 180;
+    const base = this.perch || 0;
+    let need = 0;
+    if (world.groundAt) {
+      let top = -Infinity;
+      for (const d of [1.5, 4, 8, 14]) top = Math.max(top, world.groundAt(this.x + Math.cos(h) * d, this.y + Math.sin(h) * d));
+      need = top + 2.5 - base;               // height above where it took off needed to clear it
+      if (need > 45) {                        // a wall: veer off
+        this.heading = (this.heading + (Math.random() < 0.5 ? 1 : -1) * (100 + Math.random() * 60) + 360) % 360;
+        h = this.heading * Math.PI / 180;
+        need = 0;
+      }
+    }
     this.x += Math.cos(h) * BODY.flightSpeed * power * dt;
     this.y += Math.sin(h) * BODY.flightSpeed * power * dt;
     const up = Math.min(1, this.airTime / 0.25), down = Math.min(1, Math.max(0, this.airborne) / 0.3);
-    this.z = (this.flightKind === "escape" ? 7 : 12) * Math.min(up, down);
-    if (this.airborne <= 0) { this.z = 0; this.airborne = 0; }
+    const cruise = (this.flightKind === "escape" ? 7 : 12) * Math.min(up, down);
+    this.climb = Math.max(need, (this.climb || 0) - 30 * dt);
+    this.z = Math.max(cruise, this.climb * Math.min(1, this.airTime / 0.1));
+    if (this.airborne <= 0) { this.z = 0; this.airborne = 0; this.climb = 0; }
     this._clip(world);
     return (this.state = "flying");
   }

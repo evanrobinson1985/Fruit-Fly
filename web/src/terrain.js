@@ -885,6 +885,77 @@ export class Terrain {
     mat.dispose();
   }
 
+  /**
+   * The plants the fly can land on but not fly through (the ferns, the pond's cattails and
+   * rushes, lily pads), baked from above like the weeds into their own height map: it is
+   * the fly's ground (flyGroundAt) but not the frogs' or the grass's, which stay under them.
+   */
+  bakePlants(renderer, meshes) {
+    const { x, y, size } = this.leafBox;
+    const rt = new THREE.WebGLRenderTarget(HMAP, HMAP, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+    // (leaves drawn as cut-outs count only where they are opaque)
+    const mats = new Map();
+    const matFor = (map) => {
+      if (!mats.has(map)) mats.set(map, new THREE.ShaderMaterial({
+        side: THREE.DoubleSide, uniforms: { map: { value: map } },
+        defines: map ? { CUTOUT: 1 } : {},
+        vertexShader: `varying float vZ; varying vec2 vUv;
+          void main() { vUv = uv; vec4 p = modelMatrix * vec4(position, 1.0); vZ = p.z; gl_Position = projectionMatrix * viewMatrix * p; }`,
+        fragmentShader: `varying float vZ; varying vec2 vUv; uniform sampler2D map;
+          void main() {
+            #ifdef CUTOUT
+              if (texture2D(map, vUv).a < 0.5) discard;
+            #endif
+            float v = clamp(floor((vZ + ${HZ0}.0) * 500.0 + 0.5), 1.0, 65535.0);
+            gl_FragColor = vec4(floor(v / 256.0) / 255.0, mod(v, 256.0) / 255.0, 0.0, 1.0);
+          }`,
+      }));
+      return mats.get(map);
+    };
+    const scene = new THREE.Scene();
+    this.group.updateMatrixWorld(true);
+    for (const root of meshes) root.traverse((o) => {
+      if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || !o.geometry.attributes.position) return;
+      const m0 = [].concat(o.material)[0];
+      const cut = m0 && (m0.alphaTest > 0 || m0.transparent) && m0.map && o.geometry.attributes.uv ? m0.map : null;
+      const copy = new THREE.Mesh(o.geometry, matFor(cut));
+      copy.matrixAutoUpdate = false;
+      copy.matrix.copy(o.matrixWorld);
+      copy.frustumCulled = false;
+      scene.add(copy);
+    });
+    const cam = new THREE.OrthographicCamera(-size / 2, size / 2, size / 2, -size / 2, 0.1, 400);
+    cam.position.set(x + size / 2, y + size / 2, 300);
+    cam.lookAt(x + size / 2, y + size / 2, 0);
+    const prevTarget = renderer.getRenderTarget(), prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
+    const prevTone = renderer.toneMapping;
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(scene, cam);
+    const buf = new Uint8Array(HMAP * HMAP * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, HMAP, HMAP, buf);
+    renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(prevClear, prevAlpha);
+    renderer.toneMapping = prevTone;
+    const hm = new Float32Array(HMAP * HMAP);
+    for (let i = 0; i < hm.length; i++) { const v = buf[4 * i] * 256 + buf[4 * i + 1]; hm[i] = v ? v / 500 - HZ0 : -Infinity; }
+    this.plantHeights = hm;
+    rt.dispose();
+    for (const m of mats.values()) m.dispose();
+  }
+
+  /** The fly's ground: the turf, weeds, stones and water, or a plant's top above them. */
+  flyGroundAt(x, y) {
+    const g = this.groundAt(x, y);
+    if (!this.plantHeights || !this.group.visible) return g;
+    const { x: x0, y: y0, size } = this.leafBox;
+    const i = Math.floor(((x - x0) / size) * HMAP), j = Math.floor(((y - y0) / size) * HMAP);
+    if (i < 0 || j < 0 || i >= HMAP || j >= HMAP) return g;
+    return Math.max(g, this.plantHeights[j * HMAP + i]);
+  }
+
   // Height of the top of any weed at (x, y), from the baked map; 0 where there is none.
   leafHeightAt(x, y) {
     if (!this.leafHeights) return 0;

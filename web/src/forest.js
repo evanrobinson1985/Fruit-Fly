@@ -187,6 +187,8 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   const waterZ = POND_WATER_Y * k;
   const shared = { uWaterZ: { value: waterZ }, uWTime: { value: 0 } };
   let water = null, bed = null, cards = null;
+  const plants = []; // solid for the fly, not for the frogs (terrain.bakePlants)
+  const rocks = [];  // stones and moss: the fly lands on their tops, sides and undersides (perching.js)
   {
     const holder = new THREE.Group();
     holder.rotation.x = Math.PI / 2; // Y-up -> Z-up
@@ -213,6 +215,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       underwater(m);
       if (/plants|lilies|cattails|rushes/i.test(name)) { m.castShadow = true; cards = m; continue; }
       m.castShadow = /stone/i.test(name);
+      if (m.castShadow) rocks.push(m); // the pond's margin stones
       m.material = shoreMaterial(m.material, shared);
       if (/bed/i.test(name)) bed = m;
       solids.push(m); // walkable: the banks, the bed, the stones
@@ -258,6 +261,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   if (cards) {
     try {
       const got = modelPondPlants(cards, group, { waterZ, bedAt, shared, high: high || medium, rand: rng(77) });
+      plants.push(cards, ...got.meshes.filter((m) => m.name)); // cattails, rushes, lily pads (not the stalks under water)
       console.log("Pond plants:", got.cattails, "cattails,", got.pads, "lily pads modelled");
     } catch (e) { console.warn("Pond plants were not modelled:", e); }
   }
@@ -361,6 +365,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     const at = spot(width * 0.5, rMin, rMax);
     if (!at) return;
     const { holder } = stand(src, width, at[0], at[1], r() * Math.PI * 2, sink);
+    rocks.push(holder);
     // each stone its own tone and grain
     const [h, sat, l] = tones[src.name[0]];
     const mat = stoneMaterial(new THREE.Color().setHSL(h + (r() - 0.5) * 0.04, sat + r() * 0.05, l + (r() - 0.5) * 0.1), r() * 50, 0);
@@ -389,6 +394,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       if (!shore) continue;
       const d = shore + (r() - 0.5) * 6, x = d * Math.cos(a), y = d * Math.sin(a), w = 7 + r() * r() * 26;
       const { holder, height } = stand(sets.B[Math.floor(r() * sets.B.length)], w, x, y, r() * Math.PI * 2, 0);
+      rocks.push(holder);
       holder.position.z = bedAt(x, y) - 0.4 * height;
       const mat = marginSrc ? marginSrc : stoneMaterial(new THREE.Color().setHSL(0.08, 0.07, 0.22), r() * 50, 0);
       holder.traverse((m) => { if (m.isMesh) { m.material = mat; solids.push(m); } });
@@ -411,6 +417,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     at ||= spot(w * 0.4, 15, R * 0.92);
     if (!at) continue;
     const { holder } = stand(mossSrc, w, at[0], at[1], r() * Math.PI * 2, 0.1);
+    rocks.push(holder);
     holder.traverse((m) => { if (m.isMesh) solids.push(m); });
     reflectable(holder);
   }
@@ -421,7 +428,9 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       const w = wMin + r() * (wMax - wMin);
       const at = spot(w * 0.22, R * 0.62, R * 0.9);
       if (!at) continue;
-      reflectable(stand(src, w, at[0], at[1], r() * Math.PI * 2, 0.02).holder);
+      const { holder } = stand(src, w, at[0], at[1], r() * Math.PI * 2, 0.02);
+      reflectable(holder);
+      plants.push(holder); // the fly can land on them, not fly through them
       placed.push({ x: at[0], y: at[1], r: w * 0.22 });
     }
   }
@@ -470,5 +479,5 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   terrain.clearWeeds?.(stonesPlaced);
   terrain.solids = solids;
   const update = (t) => { shared.uWTime.value = t; };
-  return { group, solids, stones: stonesPlaced, update, water, waterZ, bedAt: bedGrid };
+  return { group, solids, stones: stonesPlaced, update, water, waterZ, bedAt: bedGrid, plants, rocks };
 }

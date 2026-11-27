@@ -33,7 +33,8 @@ const FROG_DEFINITIONS = [
     sitPitch: -0.06,       // and sits a little nose-up (the model's spine is already arched)
     gape: 0.48,            // rad: how wide the mouth opens to strike
     swims: true,           // a frog: at home in the pond, swims and hunts there
-    start: [-176, 128],
+    aquatic: true,         // and lives in it: always in the water, swimming about, stalking the fly from it
+    start: [-60, 45],      // (in the pond)
     heading: -0.6,
   },
   {
@@ -766,6 +767,29 @@ export class FrogPredators {
     const maxR = Math.max(20, this.arenaRadius - frog.length * 0.62 - 5);
     const r = Math.hypot(tx, ty);
     if (r > maxR) { tx *= maxR / r; ty *= maxR / r; }
+    // Everything is solid: a stone (or anything else in the ground's height map) in the way is
+    // jumped onto if it is within the leap, otherwise the hop stops short at its foot; and it
+    // never lands with its head in a stone's side.
+    const gnd = (x, y) => (this.groundAt ? this.groundAt(x, y) : 0);
+    const L = frog.length, g0 = gnd(frog.x, frog.y), leap = L * (big ? 0.9 : 0.6);
+    {
+      const dx = tx - frog.x, dy = ty - frog.y, len = Math.hypot(dx, dy);
+      if (len > 1e-6) {
+        const ux = dx / len, uy = dy / len, N = Math.max(4, Math.ceil(len / (L * 0.12)));
+        let stop = len;
+        for (let i = 1; i <= N; i++) {
+          const d = (i / N) * len;
+          if (gnd(frog.x + ux * d, frog.y + uy * d) > g0 + leap) { stop = Math.max(0, d - L * 0.45); break; } // too high: stop before it
+        }
+        // a stone's side just ahead of where it lands: land a little short (or on top)
+        for (let k = 0; k < 8 && stop > 0; k++) {
+          const gl = gnd(frog.x + ux * stop, frog.y + uy * stop), gf = gnd(frog.x + ux * (stop + L * 0.4), frog.y + uy * (stop + L * 0.4));
+          if (gf - gl <= L * 0.15) break;
+          stop = Math.max(0, stop - L * 0.12);
+        }
+        tx = frog.x + ux * stop; ty = frog.y + uy * stop;
+      }
+    }
     const dist = Math.hypot(tx - frog.x, ty - frog.y);
     const [g, a, s] = frog.hopTime;
     const k = 0.9 + Math.random() * 0.2;
@@ -774,8 +798,14 @@ export class FrogPredators {
     const gather = g * k * (big ? 1.8 : 1), settle = s * k * (big ? 1.3 : 1);
     frog.mode = kind;
     frog.t = 0;
-    const gnd = (x, y) => (this.groundAt ? this.groundAt(x, y) : 0);
-    frog.hop = { x0: frog.x, y0: frog.y, x1: tx, y1: ty, h0: frog.heading, h1: toHeading, dist, g0: gnd(frog.x, frog.y), g1: gnd(tx, ty),
+    // The arc must clear whatever is under the path (a stone it hops over or onto).
+    const g1 = gnd(tx, ty);
+    let clear = 0;
+    for (let i = 1; i < 12; i++) {
+      const u = i / 12, under = gnd(frog.x + (tx - frog.x) * u, frog.y + (ty - frog.y) * u) - (g0 + (g1 - g0) * u);
+      if (under > 0) clear = Math.max(clear, (under + L * 0.04) / (4 * u * (1 - u)));
+    }
+    frog.hop = { x0: frog.x, y0: frog.y, x1: tx, y1: ty, h0: frog.heading, h1: toHeading, dist, g0, g1, clear,
       start: gather, end: gather + air, dur: gather + air + settle };
   }
 
@@ -805,6 +835,11 @@ export class FrogPredators {
 
   /** What to do next, after sitting for a while. */
   _decide(frog, fly, flyMoving) {
+    // The frog lives in the pond: out of it, it heads straight back (the pond is in the middle).
+    if (frog.aquatic && this.isWater && !this.isWater(frog.x, frog.y)) {
+      const d = Math.hypot(frog.x, frog.y), b = Math.atan2(-frog.y, -frog.x), step = Math.min(frog.hopLength, Math.max(frog.length * 0.6, d));
+      return this._startHop(frog, "hop", frog.x + Math.cos(b) * step, frog.y + Math.sin(b) * step, b);
+    }
     const dx = fly.x - frog.x, dy = fly.y - frog.y;
     const dist = Math.hypot(dx, dy);
     const bearing = Math.atan2(dy, dx);
@@ -873,6 +908,14 @@ export class FrogPredators {
     if (!this.isWater?.(frog.x, frog.y)) { frog.vel = 0; frog.mode = "sit"; frog.sitLeft = 0.5; return; } // drifted ashore
     // Run aground: the bank under it lifts it out of the water (see _body), or it keeps
     // kicking into the bank. It climbs out onto the nearest dry ground instead.
+    if (frog.aquatic && (frog.beached || (frog.blockedT || 0) > 1.2)) {
+      // it stays in: turns back toward open water
+      frog.beached = false; frog.blockedT = 0; frog.vel = 0;
+      const b = Math.atan2(-frog.y, -frog.x);
+      frog.heading = wrapAngle(b + (Math.random() - 0.5) * 0.8);
+      frog.swimGoal = null;
+      frog.swimT = 0; // a kick away from the bank
+    }
     if (frog.beached || (frog.blockedT || 0) > 1.2) {
       const out = this._shore(frog);
       frog.blockedT = 0;
@@ -901,7 +944,9 @@ export class FrogPredators {
     }
     if (!goal && frog.sitLeft <= 0) {
       const roll = Math.random();
-      const there = roll < 0.45 ? this._spot(true, frog, 160) : roll < 0.75 ? this._spot(false, frog, 220) : null;
+      // (the frog keeps to the pond: it swims about, now and then floating still)
+      const there = frog.aquatic ? (roll < 0.75 ? this._spot(true, frog, 160) : null)
+        : roll < 0.45 ? this._spot(true, frog, 160) : roll < 0.75 ? this._spot(false, frog, 220) : null;
       if (there) goal = frog.swimGoal = { x: there[0], y: there[1], land: !this.isWater(there[0], there[1]) };
       else frog.sitLeft = 3 + Math.random() * 6;
     }
@@ -918,7 +963,15 @@ export class FrogPredators {
         frog.heading = wrapAngle(frog.heading + clamp(err, -1, 1) * (kicking ? 6 : 1.6) * dt);
         // out onto the bank: the shore is just ahead, the goal beyond it
         const ax = frog.x + Math.cos(frog.heading) * L * 0.8, ay = frog.y + Math.sin(frog.heading) * L * 0.8;
-        if ((goal.land || goal.prey) && !this.isWater(ax, ay) && Math.abs(err) < 0.6) {
+        let waiting = false;
+        if (frog.aquatic && !this.isWater(ax, ay)) {
+          // the bank ahead: it stays in the water, at the edge, facing the fly, waiting
+          // (it strikes from there once the fly is in reach)
+          waiting = true;
+          frog.vel = 0;
+          frog.swimT = Math.max(frog.swimT, 0.2);
+          if (!goal.prey) frog.swimGoal = null;
+        } else if ((goal.land || goal.prey) && !this.isWater(ax, ay) && Math.abs(err) < 0.6) {
           const d = goal.prey ? Math.min(frog.hopLength, gd - frog.reach * 0.6) : Math.min(frog.hopLength, gd);
           frog.vel = 0;
           frog.swimGoal = null;
@@ -926,14 +979,16 @@ export class FrogPredators {
           return this._startHop(frog, "hop", frog.x + Math.cos(bearing) * Math.max(L * 0.6, d), frog.y + Math.sin(bearing) * Math.max(L * 0.6, d), bearing);
         }
         // the next kick, once drawn up again (and roughly facing the way)
-        if (frog.swimT > (goal.prey && gd < L * 2 ? 0.55 : 0.75) && Math.abs(err) < 1.1) {
+        // stalking: closing on a fly that sits still, it creeps in with slow, gentle kicks
+        frog.stalk = !!goal.prey && !flyMoving && gd < L * 5;
+        if (!waiting && frog.swimT > (frog.stalk ? 1.5 : goal.prey && gd < L * 2 ? 0.55 : 0.75) && Math.abs(err) < 1.1) {
           frog.swimT = 0;
           this.onRipple?.(frog.x - Math.cos(frog.heading) * L * 0.7, frog.y - Math.sin(frog.heading) * L * 0.7, L / 20);
         }
       }
     }
     // the kick drives it forward; the water slows it in the glide
-    if (frog.swimT < 0.16) frog.vel += (L * 2.4 / 0.16) * dt;
+    if (frog.swimT < 0.16) frog.vel += (L * 2.4 / 0.16) * dt * (frog.stalk ? 0.4 : 1);
     frog.vel *= Math.exp(-2.6 * dt);
     if (frog.vel < 0.02 * L) frog.vel = 0;
     const nx = frog.x + Math.cos(frog.heading) * frog.vel * dt, ny = frog.y + Math.sin(frog.heading) * frog.vel * dt;
@@ -996,6 +1051,8 @@ export class FrogPredators {
       const err = Math.abs(wrapAngle(Math.atan2(fly.y - frog.y, fly.x - frog.x) - frog.heading));
       const inReach = fly.z < 12 && gap < frog.reach && err < 0.6;
 
+      // a swimmer "sitting" in the water (where it started, say) floats and swims instead
+      if (frog.mode === "sit" && frog.swims && this.isWater?.(frog.x, frog.y)) this._sit(frog, Math.max(0.5, frog.sitLeft));
       if (frog.mode === "hop" || frog.mode === "jump") {
         const h = frog.hop, t = frog.t;
         // Ballistic: constant horizontal speed while airborne, none on the ground.
@@ -1077,7 +1134,7 @@ export class FrogPredators {
     const L = frog.length;
     if ((frog.mode === "hop" || frog.mode === "jump") && frog.hop) {
       const h = frog.hop, t = frog.t;
-      const height = clamp(h.dist * (frog.mode === "jump" ? 0.3 : 0.36), L * 0.06, L * 0.7) * (frog.hopHeight || 1);
+      const height = Math.max(clamp(h.dist * (frog.mode === "jump" ? 0.3 : 0.36), L * 0.06, L * 0.7) * (frog.hopHeight || 1), h.clear || 0);
       const base = frog.sitPitch || 0;
       // the ground under it: where it took off, then where it lands (a stone, say)
       ground = h.g0 + ((h.g1 ?? 0) - (h.g0 ?? 0)) * clamp((t - h.start) / (h.end - h.start), 0, 1) || 0;
@@ -1134,6 +1191,8 @@ export class FrogPredators {
         ground = Math.max(ground, (gF + gB) / 2 - L * 0.01);
       }
     }
+    // in the air it is never inside anything under it
+    if (z > 0 && this.groundAt && !inWater) z = Math.max(z, this.groundAt(frog.x, frog.y) - ground);
     frog.lift = z; // how high it is off the ground (in a hop)
     frog.actor.position.set(frog.x + ch * lunge, frog.y + sh * lunge, z + ground);
     frog.actor.rotation.set(0, pitch, frog.heading);

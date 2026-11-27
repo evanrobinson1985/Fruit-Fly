@@ -17,6 +17,7 @@ import { SkyDome } from "./sky.js";
 import { FlyAudio } from "./audio.js";
 import { FrogPredators } from "./predators.js";
 import { LuckyClovers } from "./lucky.js";
+import { Perches } from "./perching.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
@@ -138,6 +139,8 @@ scene.add(rim);
 // Optional outdoor floor: grass and small weeds (off by default; see the floor switch).
 const terrain = new Terrain(scene, world.radius);
 terrain.bake(renderer);
+// In flight nothing is passed through: stones, plants and the turf are solid (world.js _fly).
+world.groundAt = (x, y) => (terrain.visible ? terrain.flyGroundAt(x, y) : 0);
 terrain.visible = false;
 // Find a four-leaf clover in the grass and tap it: something lucky happens (lucky.js).
 const lucky = new LuckyClovers(terrain.group, camera, terrain, {
@@ -153,7 +156,14 @@ const lucky = new LuckyClovers(terrain.group, camera, terrain, {
 let forest = null;
 const ripple = { fly: 0, flyOn: false };
 loadForest(terrain, renderer, ASSETS + "env/", [{ ...FLY_START, r: 30 }, { x: -176, y: 128, r: 40 }, { x: 176, y: -128, r: 55 }], { high: HIGH, medium: MEDIUM })
-  .then((f) => { forest = f; terrain.bake(renderer); }) // the pond, stones and moss become ground the fly can walk on
+  .then((f) => {
+    forest = f;
+    terrain.bake(renderer); // the pond, stones and moss become ground the fly can walk on
+    terrain.bakePlants(renderer, f.plants); // and the plants solid for it in flight, to land on
+    // everywhere it can land and walk at any angle: plants, stones, moss (perching.js)
+    const n = perches.build(renderer, [...f.plants, ...f.rocks], { density: HIGH ? 0.4 : 0.25 });
+    console.log("Perches:", n, "points on plants and stones");
+  })
   .catch((e) => console.warn("Forest scenery did not load:", e));
 function syncExclusions() {
   terrain.setExclusions([
@@ -867,6 +877,16 @@ window.addEventListener("resize", resize);
 resize();
 
 const UP = new THREE.Vector3(0, 0, 1), tmpQ = new THREE.Quaternion(), tmpN = new THREE.Vector3();
+// Perching on plants and stones at any angle (perching.js): perch.landing while it comes in,
+// perch.surf ({p, n, fwd}) while it stands on one.
+const perches = new Perches();
+const _pb = new THREE.Matrix4(), _pf = new THREE.Vector3(), _pr = new THREE.Vector3();
+/** The fly's orientation standing on a surface: up along its normal, facing fwd. */
+function surfaceQuat(n, fwd, out) {
+  _pr.crossVectors(n, fwd).normalize();
+  _pf.crossVectors(_pr, n).normalize();
+  return out.setFromRotationMatrix(_pb.makeBasis(_pf, _pr, n));
+}
 const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, cool: 0 };
 
 // A frog's tongue caught the fly: it sticks to the tongue, is reeled in and swallowed, and
@@ -903,6 +923,7 @@ function respawnAfterPredation() {
   Object.assign(curr, { x, y, z: 0, heading: body.heading, phase: body.phase, t });
   tPrev = tCurr = performance.now();
   perch.z = 0; perch.hop = null; perch.cool = 0; perch.n.set(0, 0, 1);
+  perch.surf = perch.landing = null;
   flyRoot.visible = true;
   eaten = null;
   $("hint").textContent = "A fly appeared on the far side of the enclosure from the frogs; its neural state was preserved.";
@@ -1001,12 +1022,60 @@ function frame(now) {
   step();
   if (fly) {
     const f = tCurr > tPrev ? Math.min(1, (now - tCurr) / (tCurr - tPrev)) : 1;
-    const x = prev.x + (curr.x - prev.x) * f, y = prev.y + (curr.y - prev.y) * f, z = prev.z + (curr.z - prev.z) * f;
+    let x = prev.x + (curr.x - prev.x) * f, y = prev.y + (curr.y - prev.y) * f, z = prev.z + (curr.z - prev.z) * f;
     const h = lerpAngle(prev.heading, curr.heading, f);
+    const dtf = Math.min(0.1, (now - lastFrame) / 1000);
+    // Perching (perching.js): coming in to land on a plant or a stone, or standing on one at
+    // any angle and walking about on it.
+    let perchPose = null;
+    if (perch.surf && body.airborne > 0) {
+      // taking off from it: the flight starts from where it was
+      const s = perch.surf;
+      perch.z = s.p.z; perch.n.set(0, 0, 1); perch.surf = null;
+      body.x = s.p.x + s.n.x * 1.5; body.y = s.p.y + s.n.y * 1.5;
+      Object.assign(prev, { x: body.x, y: body.y }); Object.assign(curr, { x: body.x, y: body.y });
+      x = body.x; y = body.y;
+    }
+    if (!perch.surf && !perch.landing && body.airborne > 0 && body.airborne < 0.4 && !perch.tried && !eaten && terrain.visible) {
+      // the flight is ending: often it comes in on something nearby rather than the ground
+      perch.tried = true;
+      const at = new THREE.Vector3(x, y, perch.z + z);
+      const pick = Math.random() < 0.7 && perches.pickLanding(at, new THREE.Vector3(Math.cos(h * Math.PI / 180), Math.sin(h * Math.PI / 180), 0), 35);
+      if (pick) perch.landing = { from: at, fromQ: flyRoot.quaternion.clone(), to: pick, t0: now, dur: 420 };
+    }
+    if (body.airborne <= 0) perch.tried = false;
+    if (perch.landing) {
+      const L = perch.landing, u = Math.min(1, (now - L.t0) / L.dur), e = u * u * (3 - 2 * u);
+      const fwd = new THREE.Vector3().subVectors(L.to.p, L.from);
+      fwd.addScaledVector(L.to.n, -fwd.dot(L.to.n));
+      if (fwd.lengthSq() < 1e-6) fwd.set(Math.cos(h * Math.PI / 180), Math.sin(h * Math.PI / 180), 0).addScaledVector(L.to.n, -L.to.n.z);
+      fwd.normalize();
+      const pos = L.from.clone().lerp(L.to.p, e).addScaledVector(L.to.n, 2 * Math.sin(Math.PI * u) * (1 - u));
+      perchPose = { p: pos, q: L.fromQ.clone().slerp(surfaceQuat(L.to.n, fwd, new THREE.Quaternion()), Math.min(1, u * 1.6)), n: L.to.n };
+      if (u >= 1) {
+        perch.surf = { p: L.to.p.clone(), n: L.to.n.clone(), fwd, bx: body.x, by: body.y };
+        perch.landing = null;
+        body.airborne = 0; body.z = 0; // touched down
+      }
+    }
+    if (perch.surf && !perchPose) {
+      // its walking (the brain moves it in the plane, world.js) carries it along the surface
+      const s = perch.surf;
+      const moved = Math.hypot(body.x - s.bx, body.y - s.by) * Math.sign(body.speed || 1);
+      if (!perches.walk(s, h, moved)) {
+        // off the edge: it lets go and drops to whatever is below
+        perch.z = s.p.z; perch.n.set(0, 0, 1); perch.surf = null; perch.cool = 0;
+        body.x = s.p.x; body.y = s.p.y;
+        Object.assign(prev, { x: body.x, y: body.y }); Object.assign(curr, { x: body.x, y: body.y });
+      } else {
+        body.x = s.bx = s.p.x; body.y = s.by = s.p.y;
+        perchPose = { p: s.p, q: surfaceQuat(s.n, s.fwd, new THREE.Quaternion()), n: s.n };
+      }
+    }
+    if (perchPose) { x = perchPose.p.x; y = perchPose.p.y; z = 0; perch.z = perchPose.p.z; perch.n.copy(perchPose.n); }
     const delta = new THREE.Vector3(x - flyRoot.position.x, y - flyRoot.position.y, 0);
     // Stand on whatever is underneath (a leaf, the turf, the floor), tilted to its slope.
-    const dtf = Math.min(0.1, (now - lastFrame) / 1000);
-    const hopWing = updatePerch(perch, x, y, h, now, dtf);
+    const hopWing = perchPose ? 0 : updatePerch(perch, x, y, h, now, dtf);
     body.perch = perch.z;
     // Rain and snow, in simulated time so they pause with the brain.
     const simT = (prev.t ?? 0) + ((curr.t ?? 0) - (prev.t ?? 0)) * f;
@@ -1057,9 +1126,15 @@ function frame(now) {
       }
       if (now - eaten.at >= RESPAWN_S * 1000) respawnAfterPredation();
     }
-    tmpN.copy(perch.n).add(jolt.tilt).normalize();
-    flyRoot.quaternion.setFromUnitVectors(UP, tmpN)
-      .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
+    if (perchPose) {
+      // on a plant or a stone, at whatever angle its surface has (upside down too)
+      flyRoot.quaternion.copy(perchPose.q);
+      if (!eaten) flyRoot.position.copy(perchPose.p).addScaledVector(perchPose.n, -fly.groundOffset);
+    } else {
+      tmpN.copy(perch.n).add(jolt.tilt).normalize();
+      flyRoot.quaternion.setFromUnitVectors(UP, tmpN)
+        .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
+    }
     const frogCam = followFly && camFrog();
     if (frogCam) {
       // Following a frog: the view moves with it as it hops and swims.

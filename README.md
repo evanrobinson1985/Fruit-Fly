@@ -107,9 +107,20 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   computer's full scene (on a phone at up to 2.5x pixel density, with the standard pond).
 - **Frogs in the pond:** the Montane Brown Frog swims: frog kicks with both hind legs, a
   glide with them trailing, forelegs back along its sides, low in the water with only its
-  eyes and back out, and it floats with its legs hanging spread when it stops. It goes into
-  the pond now and then, hunts flies on the water or on the bank from there, and leaps out
-  onto the bank. The Japanese Toad keeps out of the water and stops at the edge.
+  eyes and back out, and it floats with its legs hanging spread when it stops. It lives in
+  the pond: it swims about, stalks the fly from the water (creeping in with slow, gentle
+  kicks on a fly that sits still), waits at the edge facing a fly on the bank and strikes
+  from there, and turns back into open water rather than climbing out. The Japanese Toad
+  keeps out of the water and stops at the edge.
+- **Solid ground and perching:** stones, plants and the turf are solid. A frog's hop clears
+  what is under its path or stops short of a stone too tall to leap onto, and it lands with
+  all four feet flat on the surface (each leg bends to put its foot down). The fly climbs
+  over stones and plants in flight and veers off from anything it can't clear. As a flight
+  ends it often lands on something nearby, a fern frond, a cattail leaf, a lily pad, the
+  side of a stone or the underside of a leaf, turning its body to the surface, and walks
+  about on it at any angle, upside down included, until it walks off an edge or takes off
+  (`web/src/perching.js`: perch points sampled over the plants and stones, skipping the
+  see-through parts of leaves).
 - **Mouths and tongues:** the frog models have no jaw, so one is rigged when they load: a
   jaw bone hinged behind the eyes carries the lower lip, chin and throat skin, and opening
   it parts the lips and shows the inside of the mouth. To strike, the mouth gapes, the
