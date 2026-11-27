@@ -121,16 +121,17 @@ fun DrawScope.drawLayer(img: ImageBitmap, sc: Scenery, v: View, col0: Float, row
     )
 }
 
-fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySize: Float) {
+fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySize: Float, frogs: FrogSprites? = null) {
     val w = size.width
-    // The grass arena behind the path.
-    drawRect(Color(0xFF0D0C0A))
+    // The grass arena behind the path (over a lawn colour, in case the view pulls back past an edge).
+    drawRect(Color(0xFF26361A))
     drawLayer(sc.far, sc, v, sc.farX0, sc.feetRow, sc.parallax)
     drawRainbow(f.luckyAge.toFloat())                 // after a four-leaf clover (Lucky.kt)
     drawLayer(sc.near, sc, v, sc.x0, sc.feetRow, 1f)
     val sx = { x: Double -> w / 2 + (x.toFloat() - v.camX) * v.k }
     val groundY = v.standY + v.camZ * v.k
     drawLuckyClover(f, sx, groundY, v.k)
+    if (frogs != null) drawFrogs(f, frogs, v, groundY)   // by the pond behind the path (FrogScene.kt)
     // Sugar drops at true size (2 mm across when full), glossy and flat.
     for ((fx, amount) in f.food) {
         val cx = sx(fx)
@@ -151,16 +152,19 @@ fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySiz
     val px = sx(f.x)
     val top = groundY - f.z.toFloat() * v.k - flySize * FEET_LINE
     val shadow = (1f - f.z.toFloat() / 15f).coerceIn(0.2f, 1f)
-    drawOval(Color(0x33000000).copy(alpha = 0.2f * shadow), Offset(px - flySize * 0.22f * shadow, groundY - 3f), Size(flySize * 0.44f * shadow, 7f))
-    scale(scaleX = f.facing.toFloat(), scaleY = 1f, pivot = Offset(px, top + flySize / 2)) {
-        drawImage(
-            img, dstOffset = IntOffset((px - flySize / 2).toInt(), top.toInt()),
-            dstSize = IntSize(flySize.toInt(), flySize.toInt()),
-        )
+    if (!f.eaten) {  // (caught by a frog: gone for a moment)
+        drawOval(Color(0x33000000).copy(alpha = 0.2f * shadow), Offset(px - flySize * 0.22f * shadow, groundY - 3f), Size(flySize * 0.44f * shadow, 7f))
+        scale(scaleX = f.facing.toFloat(), scaleY = 1f, pivot = Offset(px, top + flySize / 2)) {
+            drawImage(
+                img, dstOffset = IntOffset((px - flySize / 2).toInt(), top.toInt()),
+                dstSize = IntSize(flySize.toInt(), flySize.toInt()),
+            )
+        }
     }
     // Grass in front of the path, over the fly's feet.
     drawLayer(sc.front, sc, v, sc.x0, sc.feetRow, 1f)
     drawLuck(f, sx, groundY, v.k, px, top + flySize * 0.4f)
+    if (frogs != null) drawTongues(f, frogs, v, groundY, Offset(px, top + flySize * 0.6f))
     // Sugar off screen: a small arrow at that edge.
     for ((fx, _) in f.food) {
         val cx = sx(fx)

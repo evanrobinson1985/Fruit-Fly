@@ -1,5 +1,5 @@
 // Render the grass-arena scenery strip used by the watch game (see scenery.html).
-//   npm install three@0.169.0 playwright   (in watch/tools)
+//   npm install three@0.169.0 playwright   (in watch/tools), or set THREE_DIR to a copy of three
 //   node watch/tools/render_scenery.mjs     (writes watch/app/src/main/assets/scenery/*.png + scenery.json)
 // Then: python watch/tools/scenery_to_webp.py
 import { chromium } from "playwright";
@@ -10,9 +10,9 @@ import { createRequire } from "node:module";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
-const three = dirname(dirname(createRequire(import.meta.url).resolve("three")));
+const three = process.env.THREE_DIR || dirname(dirname(createRequire(import.meta.url).resolve("three")));
 const out = process.argv[2] || join(repo, "watch/app/src/main/assets/scenery");
-const types = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".png": "image/png" };
+const types = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".png": "image/png", ".wasm": "application/wasm" };
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM || undefined,

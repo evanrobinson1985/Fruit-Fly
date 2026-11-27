@@ -72,7 +72,8 @@ class MainActivity : ComponentActivity() {
         sound = FlySound(applicationContext)
         val sprites = Sprites.load(this)
         val scenery = Scenery.load(this)
-        setContent { MaterialTheme { Game(engine, sprites, scenery, sound) } }
+        val frogs = FrogSprites.load(this)
+        setContent { MaterialTheme { Game(engine, sprites, scenery, sound, frogs) } }
     }
 
     override fun onStart() {
@@ -90,7 +91,7 @@ class MainActivity : ComponentActivity() {
 
 
 @Composable
-fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound) {
+fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound, frogs: FrogSprites? = null) {
     val f by engine.frame.collectAsState()
     var info by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -106,32 +107,35 @@ fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val sizePx = constraints.maxWidth.coerceAtMost(constraints.maxHeight).toFloat()
-        val flySize = sizePx * 0.46f
+        // While a frog hunts nearby the view pulls back (up to twice as wide) to show it.
+        val zoom by androidx.compose.animation.core.animateFloatAsState(frogZoom(f), androidx.compose.animation.core.tween(900), label = "zoom")
+        val flySize = sizePx * 0.46f * zoom
+        val flySizeNow by androidx.compose.runtime.rememberUpdatedState(flySize)
         Canvas(
             Modifier.fillMaxSize().pointerInput(Unit) {
                 detectTapGestures(onLongPress = { pos ->
                     val cur = engine.frame.value
-                    val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySize)
+                    val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySizeNow)
                     val flyPx = size.width / 2f + (cur.x.toFloat() - v.camX) * v.k
-                    if (kotlin.math.abs(pos.x - flyPx) < flySize * 0.4f) engine.tickle() // tickle its head
+                    if (kotlin.math.abs(pos.x - flyPx) < flySizeNow * 0.4f) engine.tickle() // tickle its head
                 }) { pos ->
                     val cur = engine.frame.value
-                    val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySize)
+                    val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySizeNow)
                     val xMm = v.camX + (pos.x - size.width / 2f) / v.k
                     // a four-leaf clover! (Lucky.kt)
                     val sx = { x: Double -> size.width / 2f + (x.toFloat() - v.camX) * v.k }
                     if (cloverHit(cur, pos, sx, v.standY + v.camZ * v.k, v.k)) { engine.pickClover(); return@detectTapGestures }
                     val flyPx = size.width / 2f + (cur.x.toFloat() - v.camX) * v.k
-                    val flyY = v.standY - (cur.z.toFloat() - v.camZ) * v.k - flySize * 0.25f
-                    if (kotlin.math.abs(pos.x - flyPx) < flySize * 0.35f && kotlin.math.abs(pos.y - flyY) < flySize * 0.3f) {
+                    val flyY = v.standY - (cur.z.toFloat() - v.camZ) * v.k - flySizeNow * 0.25f
+                    if (kotlin.math.abs(pos.x - flyPx) < flySizeNow * 0.35f && kotlin.math.abs(pos.y - flyY) < flySizeNow * 0.3f) {
                         engine.tap(xMm.toDouble())          // a hand looms in: the brain decides whether to flee
-                    } else if (pos.y > v.standY - flySize * 0.2f) {
+                    } else if (pos.y > v.standY - flySizeNow * 0.2f) {
                         engine.feed(xMm.toDouble())           // tapping the ground drops sugar there
                     }
                 }
             },
         ) {
-            drawScene(f, sprites, scenery, viewFor(f, size.width, size.height, flySize), flySize)
+            drawScene(f, sprites, scenery, viewFor(f, size.width, size.height, flySize), flySize, frogs)
             drawStats(f)
         }
         f.message?.let {

@@ -1,22 +1,26 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Feed the Fly scenery renderer</title>
-<!-- Renders the website's grass arena (web/src/terrain.js: GPU grass, weeds and their skins)
-     as a side-view strip for the watch game, at the same scale and viewing angle as the fly
-     sprites (sprites.html). Two layers: everything behind the fly's path, and the grass in
-     front of it (drawn over the fly). Driven by watch/tools/render_scenery.mjs; serve the
-     repository's web/ folder as the root. -->
+<!-- Renders the website's grass arena (web/src/terrain.js and forest.js: the lawn from the
+     grass model, weeds, stones, ferns, and the pond with its cattails and lily pads) as a
+     side-view strip for the watch game, at the same scale and viewing angle as the fly
+     sprites (sprites.html). The fly's path runs along the pond's south bank, so the far view
+     looks out over the pond. Layers: the grass and weeds just behind the path, the grass in
+     front of it (drawn over the fly), and the far view. Driven by
+     watch/tools/render_scenery.mjs; serve the repository's web/ folder as the root. -->
 <body style="margin:0;background:transparent">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { Terrain, TURF_TOP } from "/src/terrain.js";
+import { loadForest, POND_R } from "/src/forest.js";
 import { SkyDome } from "/src/sky.js";
 
 // The strip: the fly walks along world y = Y0 from x = X0 - SPAN to X0 + SPAN (game stage
 // x = world x - X0). Pixels per mm, and how far below and above the path the strip reaches.
-const P = 40, X0 = 0, Y0 = 0, SPAN = 37, BELOW = 5, ABOVE = 20;
+const P = 40, X0 = 0, Y0 = -(POND_R + 32), SPAN = 37, BELOW = 10, ABOVE = 20, FRONT_MM = 30;
 // Same view direction as the sprite camera, minus its slight three-quarter turn: looking along
 // +y, 17 degrees down.
 const DIR = new THREE.Vector3(0, 10.5, -3.2).normalize();
@@ -39,7 +43,7 @@ Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, n
 sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
 
-const terrain = new Terrain(scene, 100);
+const terrain = new Terrain(scene, 450); // the website's arena
 // Keep the fly's path clear of weeds: move any that would stand on it to either side.
 const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
 for (const mesh of terrain.weedMeshes) {
@@ -55,6 +59,29 @@ for (const mesh of terrain.weedMeshes) {
   }
   mesh.instanceMatrix.needsUpdate = true;
 }
+// The pond, stones, ferns and moss (none of them on the path), and the website's lawn.
+const keepClear = [];
+for (let x = X0 - SPAN - 12; x <= X0 + SPAN + 12; x += 8) keepClear.push({ x, y: Y0, r: 9 });
+const forest = await loadForest(terrain, r, "/assets/env/", keepClear, { high: true });
+// Along the path, where the strips look closely, a denser lawn of every clump of the model
+// (full blades); the website's lawn everywhere else.
+{
+  const grass = await new GLTFLoader().loadAsync("/assets/env/grass.glb");
+  const geo = (n) => { let g = null; grass.scene.traverse((o) => { if (o.isMesh && o.name === n) g = o.geometry; }); return g; };
+  const near = [["mid_a", 3], ["mid_b", 3], ["mid_c", 3], ["small_a", 2], ["small_b", 2], ["large_a", 0.7], ["large_b", 0.7], ["large_c", 0.7],
+    ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.4], ["tiny_b", 0.4], ["tiny_c", 0.4], ["tiny_d", 0.4], ["tiny_e", 0.4], ["tiny_f", 0.4]];
+  const ref = geo("mid_b"); ref.computeBoundingBox();
+  const refH = ref.boundingBox.max.y - ref.boundingBox.min.y;
+  const m0 = terrain.clumps[0].material, maps = { map: m0.map, normalMap: m0.normalMap, roughnessMap: m0.roughnessMap };
+  const strip = (x, y) => Math.abs(x - X0) < SPAN + 20 && y > Y0 - FRONT_MM - 8 && y < Y0 + 40;
+  const far = terrain.clumps.map((c) => c.geometry);
+  for (const c of terrain.clumps) terrain.group.remove(c);
+  terrain.useLawn({ mix: near.map(([n, w]) => [geo(n), w]).filter(([g]) => g), refH, keep: 1, holeR: POND_R - 10, region: strip }, maps, 1.45);
+  const dense = terrain.clumps;
+  const sparse = [["small_a", 2], ["small_b", 2], ["tall_a", 1], ["tall_b", 1], ["tall_c", 1], ["tiny_a", 0.4], ["tiny_e", 0.4]];
+  terrain.useLawn({ mix: sparse.map(([n, w]) => [geo(n), w]).filter(([g]) => g), refH, keep: 0.45, holeR: POND_R - 10, region: (x, y) => !strip(x, y) }, maps, 2.2);
+  terrain.clumps = [...dense, ...terrain.clumps];
+}
 terrain.bake(r);
 terrain.visible = true;
 // No fly to press the grass, no wind.
@@ -67,7 +94,7 @@ terrain.update(X0, Y0, 0, 1000, 0, 0);
 const NEAR = 8;
 // Keep y > a: Plane((0, 1, 0), -a); keep y < b: Plane((0, -1, 0), b).
 const above = (a) => new THREE.Plane(new THREE.Vector3(0, 1, 0), -a), below = (b) => new THREE.Plane(new THREE.Vector3(0, -1, 0), b);
-const FRONT = 30; // grass in front of the path (it sits below the feet on screen, so it can reach far)
+const FRONT = FRONT_MM; // grass in front of the path (it sits below the feet on screen, so it can reach far)
 const planes = {
   near: { plants: [above(Y0 + 0.25), below(Y0 + NEAR)], floor: [above(Y0 - FRONT), below(Y0 + NEAR)] },
   front: { plants: [above(Y0 - FRONT), below(Y0 - 0.3)], floor: [above(Y0 - FRONT - 30), below(Y0 - FRONT)] },
@@ -78,7 +105,7 @@ const planes = {
 const skyDome = new SkyDome(scene);
 skyDome.set("off", 2);
 skyDome.setSun(63, 323);
-scene.fog = new THREE.Fog(new THREE.Color().setHex(skyDome.horizon, THREE.LinearSRGBColorSpace), 80, 420);
+// (no haze: the website has it only in the rain, and in the full-size arena it washed out the stones)
 const UP = new THREE.Vector3(0, 0, 1).sub(DIR.clone().multiplyScalar(DIR.z)).normalize();
 const W = Math.round(2 * SPAN * P), H = Math.round((BELOW + ABOVE) * P), TILE = 1024;
 const D = 11.16, PARALLAX = D / (D + NEAR);
@@ -91,7 +118,13 @@ const persp = new THREE.PerspectiveCamera(60, 1, 0.1, 1200);
 persp.up.set(0, 0, 1);
 
 function setLayer(layer) {
-  for (const mt of [terrain.blades.material, ...terrain.weedMeshes.map((w) => w.material)]) { mt.clippingPlanes = planes[layer].plants; mt.needsUpdate = true; }
+  // everything standing on the ground (grass, weeds, stones, ferns, the pond's plants)
+  terrain.group.traverse((o) => {
+    if (!o.isMesh || o === terrain.floor) return;
+    for (const mt of [].concat(o.material)) { mt.clippingPlanes = planes[layer].plants; mt.needsUpdate = true; }
+  });
+  // the pond's water only in the far view (its own shader is not clipped)
+  forest.water.mesh.visible = layer === "far";
   terrain.floor.material.clippingPlanes = planes[layer].floor;
   terrain.floor.material.needsUpdate = true;
   // Weeds stand behind the path only, so they never hide the fly.
@@ -129,6 +162,8 @@ window.render = (layer) => {
       r.setSize(TILE, TILE);
       persp.setViewOffset(FULL, FULL, FULL / 2 - FAR_W / 2 + tx * TILE, top + ty * TILE, TILE, TILE);
       skyDome.update(persp, 0);
+      forest.update(0);
+      forest.water.prerender(r, scene, persp, 0, sun);
       r.render(scene, persp);
       tiles.push({ tx, ty, png: r.domElement.toDataURL("image/png") });
     }

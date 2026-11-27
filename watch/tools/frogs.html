@@ -1,0 +1,96 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Feed the Fly frog sprite renderer</title>
+<!-- Renders the website's two frogs (web/src/predators.js, web/assets/frogs-original.glb) as
+     side-view sprite frames for the watch game, from the sprites' viewing angle (17 degrees
+     down): sitting, a hop (in place: the game moves it) and a strike (the mouth opening; the
+     game draws the tongue).
+     Driven by watch/tools/render_frogs.mjs; serve the repository's web/ folder as the root. -->
+<body style="margin:0;background:transparent">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { FrogPredators } from "/src/predators.js";
+
+const P = 4; // px per mm
+const DIR = new THREE.Vector3(0, 10.5, -3.2).normalize();
+const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+r.toneMapping = THREE.ACESFilmicToneMapping;
+r.setClearColor(0x000000, 0);
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+scene.add(new THREE.HemisphereLight(0xfff3e0, 0x302820, 0.9));
+const sun = new THREE.DirectionalLight(0xfff0dd, 2.4);
+sun.position.set(8, -6, 20);
+scene.add(sun, sun.target);
+
+const P8 = new FrogPredators(scene, "/assets/frogs-original.glb", () => {}, 1000);
+await P8.load();
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 2000);
+cam.up.set(0, 0, 1);
+
+function pose(frog) {
+  frog.x = 0; frog.y = 0;
+  P8._body(frog);
+  frog.actor.position.x = 0; frog.actor.position.y = 0;
+  P8._pose(frog);
+  P8._tongue(frog);
+  frog.actor.updateMatrixWorld(true);
+}
+
+window.render = (id) => {
+  const frog = P8.frogs.find((f) => f.id === id);
+  for (const f of P8.frogs) f.actor.visible = f === frog;
+  const L = frog.length;
+  // the frame: from 1.8 L behind the origin to 1.7 L ahead (the tongue), the ground to 1.3 L up
+  // (each frame is cropped to the frog afterwards)
+  const x0 = -1.8 * L, x1 = 1.7 * L, z0 = -0.45 * L, z1 = 1.3 * L;
+  const W = Math.round((x1 - x0) * P), H = Math.round((z1 - z0) * P);
+  r.setSize(W, H);
+  const target = new THREE.Vector3((x0 + x1) / 2, 0, (z0 + z1) / 2);
+  cam.position.copy(target).addScaledVector(DIR, -400);
+  cam.lookAt(target);
+  Object.assign(cam, { left: -W / 2 / P, right: W / 2 / P, top: H / 2 / P, bottom: -H / 2 / P });
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld();
+  const px = (v) => { const p = v.clone().project(cam); return [(p.x * 0.5 + 0.5) * W, (-p.y * 0.5 + 0.5) * H]; };
+  const frames = {};
+  const shot = (name) => { r.render(scene, cam); (frames[name] ||= []).push(r.domElement.toDataURL("image/png")); };
+  const rand = Math.random;
+  Math.random = () => 0.5;
+  frog.heading = 0; frog.holding = false; frog.lastSwam = false; frog.sitPitch = 0;
+  // sitting
+  frog.mode = "sit"; frog.hop = null;
+  frog.t = 0; pose(frog); shot("sit");
+  // a hop, in place: the crouch, eight through the air, the landing
+  P8._startHop(frog, "hop", L * 0.9, 0, 0);
+  const h = frog.hop, hopT = [h.start * 0.7];
+  for (let i = 0; i < 8; i++) hopT.push(h.start + ((i + 0.5) / 8) * (h.end - h.start));
+  hopT.push(h.end + 0.4 * (h.dur - h.end));
+  const nHop = hopT.length;
+  for (const t of hopT) { frog.mode = "hop"; frog.t = t; pose(frog); shot("hop"); }
+  // a strike at a fly ahead, at a fly's height
+  frog.mode = "sit"; frog.t = 0; pose(frog);
+  frog.mode = "strike";
+  frog.strikeAt = { x: frog.mouth.x + frog.reach * 0.85, y: 0, z: 1.0 };
+  const strikeT = [0.02, 0.05, 0.07, 0.09, 0.11, 0.14, 0.18, 0.22, 0.28, 0.36];
+  // (mouth open, without the tongue: the game draws it from the mouth to wherever the fly is)
+  for (const t of strikeT) { frog.t = t; pose(frog); frog.tongue.visible = false; shot("strike"); }
+  frog.tongue.visible = false;
+  Math.random = rand;
+  const [ox, oy] = px(new THREE.Vector3(0, 0, 0));
+  const mouthPx = px(new THREE.Vector3(frog.mouth.x, 0, frog.mouth.z));
+  const tip = px(new THREE.Vector3(frog.strikeAt.x, 0, frog.strikeAt.z));
+  return {
+    frames, meta: {
+      id, name: frog.name, length: L, pxPerMm: P, width: W, height: H, originCol: ox, groundRow: oy,
+      mouthMm: frog.mouth.x, mouthZ: frog.mouth.z, mouthPx, reachMm: frog.reach, tongueTip: tip, hopT, hop: { dur: h.dur, start: h.start, end: h.end, frames: nHop },
+      strikeT,
+    },
+  };
+};
+window.ready = true;
+</script>

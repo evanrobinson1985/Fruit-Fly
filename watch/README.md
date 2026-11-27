@@ -7,11 +7,23 @@ wiring, whether to eat what you give it and whether to flee when you poke at it.
 
 ![Feed the Fly screens](previews/screens.png)
 
-The fly lives in the same grass arena as the website: the GPU grass, clover, dandelions and
-seedlings with their detailed skins (web/src/terrain.js), rendered at the fly sprites' scale and
-viewing angle into three layers (`tools/scenery.html`): the plants just behind the fly's path,
-the grass in front of it (drawn over its feet), and a far view to the arena's edge that
-scrolls with parallax, under the website's daylight sky and clouds. The view follows the fly
+The fly lives in the same arena as the website: the lawn from the grass model, clover,
+dandelions and seedlings (web/src/terrain.js), and the pond with its stones, cattails and lily
+pads, the ferns and moss (web/src/forest.js), rendered at the fly sprites' scale and viewing
+angle into three layers (`tools/scenery.html`). The fly's path runs along the pond's south
+bank: the plants just behind the path, the grass in front of it (drawn over its feet), and a
+far view out over the pond to the arena's edge that scrolls with parallax, under the
+website's daylight sky and clouds.
+
+The website's **frog and toad** live by the pond behind the path (`brain/.../game/Frogs.kt`),
+drawn from sprite frames rendered from their models (`tools/frogs.html`): sitting, hopping and
+striking, smaller and higher on the screen the further back they are. When the fly moves
+within sight, one hunts: it hops in toward the path and strikes with its tongue once the fly is
+in reach, and the view pulls back to show it. An approaching frog looms on the fly's eye on
+that side, so its **Giant Fiber** can fire and it takes off in time; if not, the frog gets it
+(it's back a few seconds later, away from the frogs, and a little shaken).
+
+A **four-leaf clover** grows somewhere on the stage, glinting now and then: tap it for luck. The view follows the fly
 and rises when it flies. The fly buzzes in flight (a synthesized ~210 Hz wingbeat) and rubs
 softly while it grooms; switch sound off in the info panel.
 
@@ -120,6 +132,8 @@ cd watch
 PYTHONPATH=. python watch/tools/export_brain.py
 # Re-render the fly frames:
 cd watch/tools && npm install three@0.169.0 playwright && node render_sprites.mjs && python sprites_to_webp.py
+# Re-render the scenery (lawn, pond) and the frog frames (Pillow for the WebP conversion):
+node render_scenery.mjs && python scenery_to_webp.py && node render_frogs.mjs
 ```
 
 `:brain` is plain Kotlin (engine in `brain/src/main/kotlin/fly/brain`, game in

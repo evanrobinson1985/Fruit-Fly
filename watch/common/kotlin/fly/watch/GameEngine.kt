@@ -17,6 +17,12 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.concurrent.ConcurrentLinkedQueue
 
+/** A frog as drawn: where (stage x, mm behind the path), its sprite frame and tongue. */
+data class FrogView(
+    val id: String, val x: Double, val depth: Double, val facing: Int, val mode: fly.game.FrogMode, val frame: Int,
+    val tongueOut: Double, val holding: Boolean, val hunting: Boolean, val reach: Double,
+)
+
 /** What the screen draws, copied from the world after every brain step. */
 data class Frame(
     val x: Double = 0.0, val z: Double = 0.0, val facing: Int = 1, val anim: Anim = Anim.IDLE,
@@ -31,6 +37,7 @@ data class Frame(
     // the four-leaf clover (shown when cloverShown) and the luck effect: seconds since the last was picked
     val cloverX: Double = 0.0, val cloverShown: Boolean = false, val luckyX: Double = 0.0, val luckyAge: Double = 1e9,
     val timeS: Double = 0.0,
+    val frogs: List<FrogView> = emptyList(), val eaten: Boolean = false,
 )
 
 /**
@@ -117,7 +124,7 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
     private fun load(): FlyWorld {
         val c = if (fullBrain) WebConnectome.read { name -> context.assets.open("full/$name") }
         else context.assets.open("brain.bin").use { bin -> context.assets.open("brain.txt").use { txt -> Connectome.read(bin, txt) } }
-        return FlyWorld(c, store.load(), seed = (System.currentTimeMillis() % 100000).toInt())
+        return FlyWorld(c, store.load(), seed = (System.currentTimeMillis() % 100000).toInt(), withFrogs = !fullBrain)
     }
 
     private fun publish(w: FlyWorld, realtime: Double) {
@@ -132,6 +139,11 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
             neurons = w.brain.n, droppings = w.pet.droppings.toList(), name = p.name, named = p.named,
             cloverX = w.cloverX, cloverShown = w.timeS >= w.cloverFrom, luckyX = w.luckyX, luckyAge = w.timeS - w.luckyAt,
             timeS = w.timeS,
+            frogs = w.frogs.map {
+                FrogView(it.kind.id, it.x, it.depth, it.facing, it.mode, it.frame, it.tongueOut, it.holding,
+                    it.hunting > 0 || it.mode == fly.game.FrogMode.STRIKE, it.kind.reach)
+            },
+            eaten = w.eaten,
         )
     }
 

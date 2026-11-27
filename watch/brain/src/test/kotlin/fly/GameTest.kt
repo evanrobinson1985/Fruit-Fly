@@ -37,6 +37,14 @@ class GameTest {
     }
 
     @Test
+    fun theGameHasTwoFrogsByThePond() {
+        val w = FlyWorld(c, Pet(), seed = 5, withFrogs = true)
+        assertEquals(listOf("small", "big"), w.frogs.map { it.kind.id })
+        runUntil(w, 20.0)
+        assertTrue(w.frogs.all { it.depth >= fly.game.Frog.MIN_DEPTH })
+    }
+
+    @Test
     fun hungryFlyWalksToFoodAndEats() {
         val pet = Pet(satiety = 5.0)
         val w = FlyWorld(c, pet, seed = 4)

@@ -492,6 +492,9 @@ function clumpMaterial(u, maps, tiled = false, fixed = false) {
   });
   // the model's roughness map (green channel, as glTF packs it)
   if (maps.roughnessMap) Object.assign(m, { roughnessMap: maps.roughnessMap, roughness: 1 });
+  // (the cell size as it is now: the shader is built at the first render)
+  const C0 = GC0.toFixed(4);
+  m.customProgramCacheKey = () => `clump ${C0} ${tiled} ${fixed}`;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = GLSL_COMMON + `
@@ -520,7 +523,7 @@ uniform float uHole;   // no grass inside this radius (the pond)
 uniform float uWaterLine; // grass grows down the banks to just above this height
 ` + shader.vertexShader
       .replace("#include <color_vertex>", `#include <color_vertex>
-  float lvl = aCell.z, cs = ${GC0} * exp2(lvl * ${tiled ? TILED_CELL_GROWTH.toFixed(2) : "1.0"});
+  float lvl = aCell.z, cs = ${C0} * exp2(lvl * ${tiled ? TILED_CELL_GROWTH.toFixed(2) : "1.0"});
   ivec2 cell = ${fixed ? "ivec2(aCell.xy)" : `ivec2(${tiled ? `floor(uCenter / (cs * ${SLOTS}.0)) * ${SLOTS}.0` : "floor(uCenter / cs)"} + aCell.xy)`};
   uint L = uint(lvl) * 16u + 3u;
   vec2 bpos = (vec2(cell) + vec2(h01(cell, L + 1u), h01(cell, L + 2u))) * cs;
@@ -691,8 +694,10 @@ export class Terrain {
    * [[geometry, weight], ...], each clump at its size relative to `refH`, keeping `keep` of
    * its blades. No clumps inside `holeR` (the pond); those within `nearR` of the centre
    * are separate meshes (marked nearPond), so only they need drawing in the reflection.
+   * `region(x, y)`: only where it is true; `append`: add to the lawn already laid (the watch's
+   * scenery renderer lays a denser one along the fly's path). The cell size is per material.
    */
-  useLawn({ mix, refH = 0, keep = 1, holeR = 0, nearR = 0 }, maps, cell) {
+  useLawn({ mix, refH = 0, keep = 1, holeR = 0, nearR = 0, region = null, append = false }, maps, cell) {
     GC0 = cell;
     const mat = clumpMaterial(this.uniforms, maps, false, true);
     const total = mix.reduce((a, [, w]) => a + w, 0);
@@ -702,11 +707,12 @@ export class Terrain {
     for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
       const rr = Math.hypot(i + 0.5, j + 0.5) * cell;
       if (rr > R + cell || rr < holeR) continue;
+      if (region && !region((i + 0.5) * cell, (j + 0.5) * cell)) continue;
       let w = hash(i, j) * total, k = 0;
       while (k < mix.length - 1 && w >= mix[k][1]) { w -= mix[k][1]; k++; }
       (rr < nearR ? near : far)[k].push(i, j, 0);
     }
-    this.clumps = [];
+    if (!append) this.clumps = [];
     mix.forEach(([src], k) => {
       if (!src) return;
       const base = clumpBase(src, keep, refH);

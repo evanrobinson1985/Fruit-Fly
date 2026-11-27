@@ -48,7 +48,7 @@ private data class Loom(val fromLeft: Boolean, val t0: Double) {
  * looming DNs, and grooming from the head and leg grooming DNs. The watch circuit has no
  * background, so there the fly wanders on a body-level random walk between your inputs.
  */
-class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
+class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1, withFrogs: Boolean = false) {
     val brain = Brain(c, seed)
     private val rng = Random(seed)
     private val counts = IntArray(c.n)
@@ -74,6 +74,12 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     /** Where and when the last one was picked (for the effect on screen). */
     var luckyX = 0.0; private set
     var luckyAt = -1e9; private set
+
+    /** The frog and the toad by the pond behind the path (Frogs.kt); the game has them, tests choose. */
+    val frogs = if (withFrogs) listOf(Frog(FrogKind.SMALL, -18.0, 40.0, rng), Frog(FrogKind.BIG, 24.0, 55.0, rng)) else emptyList()
+    /** Caught by a frog: gone until then (s), and back somewhere away from them. */
+    var eatenUntil = -1.0; private set
+    val eaten get() = timeS < eatenUntil
 
     /** Smoothed motor-group rates (Hz), max over sides. */
     val motor = mutableMapOf("forward" to 0.0, "backward" to 0.0, "turn" to 0.0, "escape" to 0.0, "feed" to 0.0, "groom" to 0.0)
@@ -158,6 +164,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         val dt = STEP_MS / 1000.0
         timeS += dt
         if (timeS > messageUntil) message = null
+        stepFrogs(dt)
 
         // ---------- senses -> firing rates ----------
         val onFood = food.firstOrNull { abs(it.x - x) < FOOD_RADIUS && it.amount > 0 && z == 0.0 }
@@ -403,6 +410,33 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         cloverX = nx
         cloverFrom = timeS + CLOVER_REGROW_S
         return true
+    }
+
+    /**
+     * The frogs: an attack looms on the fly's eye on the frog's side (the Giant Fiber may fire
+     * and the fly take off in time); a catch takes the fly away for a few seconds.
+     */
+    private fun stepFrogs(dt: Double) {
+        val moving = speed > 0.5 || anim == Anim.WALK || anim == Anim.FLY
+        for (f in frogs) {
+            when (f.step(dt, x, z, moving, eaten || anim == Anim.FLY)) {
+                Frog.Event.APPROACH, Frog.Event.STRIKE ->
+                    if (loom == null && anim != Anim.FLY) loom = Loom(fromLeft = f.x < x, t0 = timeS)
+                Frog.Event.CAUGHT -> {
+                    eatenUntil = timeS + 5.0
+                    pet.mood = max(0.0, pet.mood - 20.0)
+                    say("Gulp! The ${f.kind.name.substringAfterLast(' ').lowercase()} got ${pet.name}!", 3.0)
+                }
+                null -> {}
+            }
+        }
+        if (eatenUntil > 0 && timeS >= eatenUntil) {
+            eatenUntil = -1.0
+            // back where it is furthest from both frogs
+            x = (-25..25 step 5).map { it.toDouble() }.maxByOrNull { c -> frogs.minOfOrNull { abs(it.x - c) } ?: 0.0 } ?: 0.0
+            z = 0.0
+            say("${pet.name} is back, far from the frogs", 3.0)
+        }
     }
 
     /** Clean up the droppings; a clean home cheers the pet up. Returns how many there were. */
