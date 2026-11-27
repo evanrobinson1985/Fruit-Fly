@@ -401,23 +401,42 @@ export class FrogPredators {
     }
     const loop = [...ring.map(([x, w, z]) => [x, w, z]), ...ring.slice().reverse().map(([x, w, z]) => [x, -w, z])];
     const toHead = (x, y, z) => head.worldToLocal(actor.localToWorld(new THREE.Vector3(x, y, z)));
-    const mid = ring[Math.floor(st * 0.45)];
-    const upper = loop.map(([x, y, z]) => toHead(x, y, z)), lower = upper.map((p) => p.clone());
-    const cu = toHead(mid[0], 0, mid[2] + L * 0.045), cl = toHead(mid[0], 0, mid[2] - L * 0.035);
-    // vertices: palate rim, floor rim, cheek rims (upper, lower), the palate's and floor's middles
-    const nl = loop.length, nv = nl * 4 + 2, mp = new Float32Array(nv * 3), col = new Float32Array(nv * 3), idx = [];
+    // A hollow pocket, not a box: the palate a dome rising into the head and the floor a bowl
+    // sinking into the jaw, each a stack of rings from the lips in to the midline; walls only
+    // at the corners and the back (the throat), so from the side you look into the mouth.
+    const NU = 5, nl = loop.length, front = loop.map(([x]) => clamp((x - xh) / (xs - xh), 0, 1));
+    const shell = (sign, depth) => {
+      const pts = [];
+      for (let u = 0; u < NU; u++) {
+        const t = u / (NU - 1), lift = Math.sin((t * Math.PI) / 2);
+        for (let i = 0; i < nl; i++) {
+          const [x, y, z] = loop[i], d = depth * (1 - 0.55 * front[i] ** 2);
+          pts.push(toHead(x, y * (1 - t), z + sign * d * lift));
+        }
+      }
+      return pts;
+    };
+    const upper = shell(1, L * 0.065), lower = shell(-1, L * 0.055);
+    const NP = upper.length, mp = new Float32Array(NP * 2 * 3), col = new Float32Array(NP * 2 * 3), idx = [];
+    for (let u = 0; u + 1 < NU; u++) for (let i = 0; i < nl; i++) {
+      const j = (i + 1) % nl, a0 = u * nl + i, b0 = u * nl + j, a1 = a0 + nl, b1 = b0 + nl;
+      idx.push(a0, b0, a1, b0, b1, a1);                          // palate
+      idx.push(NP + a0, NP + a1, NP + b0, NP + b0, NP + a1, NP + b1); // floor
+    }
+    // the corners and the back: palate rim to floor rim, in shadow
     for (let i = 0; i < nl; i++) {
       const j = (i + 1) % nl;
-      idx.push(4 * nl, j, i);                 // palate
-      idx.push(4 * nl + 1, nl + i, nl + j);   // floor of the mouth
-      idx.push(2 * nl + i, 2 * nl + j, 3 * nl + i, 2 * nl + j, 3 * nl + j, 3 * nl + i); // inner cheeks and the throat: in shadow
+      if (Math.max(front[i], front[j]) < 0.22) idx.push(i, j, NP + i, j, NP + j, NP + i);
     }
-    // pink at the lips, darkening into the throat
-    const front = loop.map(([x]) => clamp((x - xh) / (xs - xh), 0, 1));
-    const tint = (from, back, fore) => front.forEach((f, i) => col.set(back.map((b, c) => b + (fore[c] - b) * f), (from + i) * 3));
-    tint(0, [0.2, 0.07, 0.08], [0.6, 0.3, 0.31]); tint(nl, [0.24, 0.08, 0.09], [0.72, 0.38, 0.4]);
-    tint(2 * nl, [0.08, 0.025, 0.03], [0.3, 0.1, 0.11]); tint(3 * nl, [0.08, 0.025, 0.03], [0.34, 0.12, 0.13]);
-    col.set([0.22, 0.07, 0.08], 4 * nl * 3); col.set([0.3, 0.11, 0.12], (4 * nl + 1) * 3);
+    // pink at the lips, darker inside and toward the throat
+    const shade = (base, back, fore) => {
+      for (let u = 0; u < NU; u++) for (let i = 0; i < nl; i++) {
+        const f = front[i], dark = 1 - 0.55 * (u / (NU - 1)) - (f < 0.22 ? 0.35 * (1 - f / 0.22) : 0);
+        col.set(back.map((c, k) => (c + (fore[k] - c) * f) * Math.max(0.15, dark)), (base + u * nl + i) * 3);
+      }
+    };
+    shade(0, [0.2, 0.06, 0.07], [0.62, 0.3, 0.32]);
+    shade(NP, [0.24, 0.07, 0.08], [0.74, 0.4, 0.42]);
     const mg = new THREE.BufferGeometry();
     mg.setAttribute("position", new THREE.BufferAttribute(mp, 3));
     mg.setAttribute("color", new THREE.BufferAttribute(col, 3));
@@ -427,7 +446,7 @@ export class FrogPredators {
     mouthMesh.visible = false;
     head.add(mouthMesh);
     const hinge = jaw.position.clone();
-    frog.jaw = { bone: jaw, axis, closed, open, mouthMesh, upper, lower, cu, cl, hinge, max: frog.gape || 0.6, lip: { xs, zs, xh, zh },
+    frog.jaw = { bone: jaw, axis, closed, open, mouthMesh, upper, lower, hinge, max: frog.gape || 0.6, lip: { xs, zs, xh, zh },
       root: jaw.worldToLocal(actor.localToWorld(new THREE.Vector3(xs - L * 0.07, 0, lipZ(xs - L * 0.07) - L * 0.015))) };
   }
 
@@ -441,18 +460,14 @@ export class FrogPredators {
     if (frog.mesh.geometry.index !== (isOpen ? J.open : J.closed)) frog.mesh.geometry.setIndex(isOpen ? J.open : J.closed);
     J.mouthMesh.visible = isOpen;
     if (!isOpen) return;
-    const p = J.mouthMesh.geometry.attributes.position, nl = J.upper.length;
+    // the palate stays with the head; the floor turns with the jaw about its hinge
+    const p = J.mouthMesh.geometry.attributes.position, np = J.upper.length;
     _q1.setFromAxisAngle(J.axis, a);
-    for (let i = 0; i < nl; i++) {
+    for (let i = 0; i < np; i++) {
       p.setXYZ(i, J.upper[i].x, J.upper[i].y, J.upper[i].z);
-      p.setXYZ(2 * nl + i, J.upper[i].x, J.upper[i].y, J.upper[i].z);
       _v1.copy(J.lower[i]).sub(J.hinge).applyQuaternion(_q1).add(J.hinge);
-      p.setXYZ(nl + i, _v1.x, _v1.y, _v1.z);
-      p.setXYZ(3 * nl + i, _v1.x, _v1.y, _v1.z);
+      p.setXYZ(np + i, _v1.x, _v1.y, _v1.z);
     }
-    p.setXYZ(4 * nl, J.cu.x, J.cu.y, J.cu.z);
-    _v1.copy(J.cl).sub(J.hinge).applyQuaternion(_q1).add(J.hinge);
-    p.setXYZ(4 * nl + 1, _v1.x, _v1.y, _v1.z);
     p.needsUpdate = true;
     J.mouthMesh.geometry.computeVertexNormals();
   }
