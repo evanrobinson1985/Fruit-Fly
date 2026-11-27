@@ -975,9 +975,17 @@ export class FrogPredators {
           // in the shallows itself: back out to deep water first (the pond is deepest in the middle)
           frog.heading = wrapAngle(Math.atan2(-frog.y, -frog.x));
           if (frog.swimT > 0.6) frog.swimT = 0;
-        } else if (frog.aquatic && !this._swimmable(frog, ax, ay)) {
-          // the bank ahead: it stays in the water, at the edge, facing the fly, waiting
-          // (it strikes from there once the fly is in reach)
+        } else if (frog.aquatic && !this._swimmable(frog, frog.x + Math.cos(frog.heading) * L * 0.3, frog.y + Math.sin(frog.heading) * L * 0.3)) {
+          // the bank just ahead: it stays in the water, at the edge, facing the fly; it strikes
+          // from there once the fly is in reach, or, a fly further up the bank but within a leap
+          // and a tongue's reach, it lunges out after it (and hops back in afterwards)
+          if (goal.prey && gd < frog.reach + frog.hopLength * 0.9 && Math.abs(err) < 0.6 && frog.catchCooldown <= 0) {
+            const d = Math.min(frog.hopLength, Math.max(L * 0.6, gd - frog.reach * 0.6));
+            frog.vel = 0;
+            frog.swimGoal = null;
+            this.onRipple?.(frog.x, frog.y, L / 16);
+            return this._startHop(frog, "jump", frog.x + Math.cos(bearing) * d, frog.y + Math.sin(bearing) * d, bearing);
+          }
           waiting = true;
           frog.vel = 0;
           frog.swimT = Math.max(frog.swimT, 0.2);
@@ -1022,7 +1030,7 @@ export class FrogPredators {
     if (!this.isWater?.(x, y)) return false;
     if (!frog.aquatic || !this.bedAt || !this.groundAt) return true;
     // hunting, it creeps right into the shallows (lying very low) to get within reach of the bank
-    return this.bedAt(x, y) < this.groundAt(x, y) - frog.length * (frog.hunting > 0 ? 0.03 : 0.18);
+    return this.bedAt(x, y) < this.groundAt(x, y) - frog.length * (frog.hunting > 0 ? 0.01 : 0.18);
   }
 
   /** The nearest dry ground from a frog in the water: a spot a little way up the bank. */
