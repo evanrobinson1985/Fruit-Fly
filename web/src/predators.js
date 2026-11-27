@@ -1000,30 +1000,41 @@ export class FrogPredators {
       pitch += 0.12 * k;
       lunge = L * 0.07 * k;
     }
-    // Afloat in the pond it rides low, eyes and back out of the water, level and bobbing.
-    if (this.isWater?.(frog.x, frog.y)) {
-      // swimming, low in the water (only the eyes and the top of the back out); a frog that
-      // sits in the shallows or a toad at the edge, less so
+    // It stands on the ground under it, its feet on the surface: the height under its middle
+    // (a stone it hopped onto, the turf, a bank), and on a slope it tilts to lie along it.
+    // A stone or a bank merely beside or behind it doesn't lift it (only the ground right
+    // under it counts, and a tilt only follows a real slope, not the edge of a step).
+    const ch = Math.cos(frog.heading), sh = Math.sin(frog.heading);
+    const inWater = !!this.isWater?.(frog.x, frog.y);
+    frog.beached = false;
+    if (inWater) {
+      // Afloat in the pond it rides low, eyes and back out of the water, level and bobbing;
+      // a frog that sits in the shallows or a toad at the edge, less so. Where the water is
+      // too shallow for that it stands on the bed, and a swimmer there is aground (_swim).
+      const surface = ground;
       const sunk = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam) ? 0.3 : 0.17;
       ground -= L * sunk * (1 - clamp(z / (L * 0.3), 0, 1));
       if (frog.mode === "swim") {
         pitch = -0.03 + 0.05 * (frog.kick || 0);
         ground += Math.sin(frog.phase + performance.now() * 0.002) * L * 0.006;
       }
+      const bed = this.bedAt ? this.bedAt(frog.x, frog.y) : -Infinity;
+      if (z <= 0 && bed > ground) {
+        ground = Math.min(bed, surface);
+        if (frog.mode === "swim" && bed > surface - L * 0.12) frog.beached = true;
+      }
+    } else if (z <= 0 && this.groundAt) {
+      const span = L * 0.55, gF = this.groundAt(frog.x + ch * span * 0.55, frog.y + sh * span * 0.55),
+        gB = this.groundAt(frog.x - ch * span * 0.45, frog.y - sh * span * 0.45);
+      // only the edge of a stone under its middle, its feet on the turf in front and behind
+      if (ground - Math.max(gF, gB) > L * 0.12) ground = Math.max(gF, gB);
+      else if (Math.abs(gF - ground) < L * 0.12 && Math.abs(gB - ground) < L * 0.12 && !this.isWater?.(frog.x + ch * span * 0.55, frog.y + sh * span * 0.55)) {
+        pitch += Math.atan2(gB - gF, span); // nose up a rise, down a fall (positive pitch: nose down)
+        ground = Math.max(ground, (gF + gB) / 2 - L * 0.01);
+      }
     }
-    // Its whole body stays above the ground, not just the point under its middle: on a
-    // sloping bank, and in shallows too shallow to float in, where it stands on the bed.
-    const ch = Math.cos(frog.heading), sh = Math.sin(frog.heading);
-    const solid = (k) => {
-      const x = frog.x + ch * k * L, y = frog.y + sh * k * L;
-      if (!this.isWater?.(x, y)) return this.groundAt ? this.groundAt(x, y) : 0;
-      return this.bedAt ? this.bedAt(x, y) : -Infinity;
-    };
-    const support = Math.max(solid(0), solid(0.32), solid(-0.28));
-    // a swimmer held well above the water by the bank or bed under it is aground (_swim)
-    frog.beached = frog.mode === "swim" && support > z + ground + L * 0.2;
     frog.lift = z; // how high it is off the ground (in a hop)
-    frog.actor.position.set(frog.x + ch * lunge, frog.y + sh * lunge, Math.max(z + ground, support));
+    frog.actor.position.set(frog.x + ch * lunge, frog.y + sh * lunge, z + ground);
     frog.actor.rotation.set(0, pitch, frog.heading);
   }
 
