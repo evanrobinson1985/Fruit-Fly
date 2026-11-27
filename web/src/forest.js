@@ -26,7 +26,8 @@ function transcoderPath() {
 // The pond (pond.glb: its basin, cut from the ground tile it came with, plus margin stones,
 // rushes, cattails, water lilies and the water) is 21 m across as modelled; here it is
 // POND_R mm in radius, set into a matching hole in the arena floor.
-export const POND_R = 140;
+export const POND_R = 190;
+const POND_DEEPEN = 1.8; // the basin below the waterline made this much deeper than modelled (about 5 cm in the middle)
 const POND_MODEL_R = 10.5; // m: where the basin meets the level ground in the model
 const POND_WATER_Y = -0.3; // m: the model's water level
 
@@ -217,6 +218,17 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
       m.castShadow = /stone/i.test(name);
       if (m.castShadow) rocks.push(m); // the pond's margin stones
       m.material = shoreMaterial(m.material, shared);
+      if (!m.castShadow) {
+        // a deeper pond: the bed below the waterline sinks further (the banks above stay)
+        const g = (m.geometry = m.geometry.clone()), p = g.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+          const y = p.getY(i);
+          if (y < POND_WATER_Y) p.setY(i, POND_WATER_Y - (POND_WATER_Y - y) * POND_DEEPEN);
+        }
+        p.needsUpdate = true;
+        g.computeVertexNormals();
+        g.computeBoundingBox(); g.computeBoundingSphere();
+      }
       if (/bed/i.test(name)) bed = m;
       solids.push(m); // walkable: the banks, the bed, the stones
     }

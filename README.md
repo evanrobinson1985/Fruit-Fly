@@ -80,7 +80,7 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   bracken and lady ferns toward the wall. Stones and moss are solid ground: the fly walks
   and hops up onto them, frogs sit on them, rain lands on them and grass stays beneath.
   The stone set's texture maps were not supplied, so the stones have a procedural surface.
-  In the middle is a pond 28 cm across (the arena is 90 cm across), its basin cut from the
+  In the middle is a pond 38 cm across and about 5 cm deep (the arena is 90 cm across), its basin cut from the
   ground tile it came with and set into the floor, with its own water (`web/src/water.js`):
   a mirrored reflection pass and a refraction pass with depth, so the surface reflects the
   banks, sky, frogs and fly and shows the bed through it, bent by drifting ripples and by

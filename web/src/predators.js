@@ -34,6 +34,8 @@ const FROG_DEFINITIONS = [
     gape: 0.48,            // rad: how wide the mouth opens to strike
     swims: true,           // a frog: at home in the pond, swims and hunts there
     aquatic: true,         // and lives in it: always in the water, swimming about, stalking the fly from it
+    swimPitch: 0.42,       // rad nose-down in the water: its arched (sitting) spine lies level, back and head just out
+    swimSunk: 0.34,        // body lengths its belly floats below the surface
     start: [-60, 45],      // (in the pond)
     heading: -0.6,
   },
@@ -666,12 +668,16 @@ export class FrogPredators {
     const inWater = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam);
     if (inWater) {
       const k = frog.mode === "swim" ? frog.kick || 0 : 0, fl = frog.floatW ?? 1;
+      // (directions are in the body's frame: for a frog swimming nose-down they are turned
+      // by that tilt, so its legs still kick back level, under the water, not up out of it)
+      const th = frog.swimPitch || 0, c = Math.cos(th), sn = Math.sin(th);
+      const lv = (ds) => (th ? ds.map(([x, y, z]) => [x * c - z * sn, y, x * sn + z * c]) : ds);
       for (const s of ["L", "R"]) {
         const { hind, fore, sign } = frog.limbs[s];
-        this._limb(frog, hind, sign, [[-0.5, 0.75, -0.42], [-0.72, 0.5, -0.48], [-0.62, 0.45, -0.64], [-0.5, 0.55, -0.66]], fl * (1 - k));
-        this._limb(frog, hind, sign, [[-0.93, 0.3, -0.18], [-0.97, 0.18, -0.12], [-0.98, 0.12, -0.12], [-0.96, 0.18, -0.16]], k);
-        this._limb(frog, fore, sign, [[-0.75, 0.5, -0.4], [-0.85, 0.35, -0.38], [-0.7, 0.3, -0.62]], (1 - fl) * 0.9);
-        this._limb(frog, fore, sign, [[0.3, 0.78, -0.55], [0.45, 0.6, -0.65], [0.35, 0.6, -0.72]], fl * 0.8);
+        this._limb(frog, hind, sign, lv([[-0.5, 0.75, -0.42], [-0.72, 0.5, -0.48], [-0.62, 0.45, -0.64], [-0.5, 0.55, -0.66]]), fl * (1 - k));
+        this._limb(frog, hind, sign, lv([[-0.93, 0.3, -0.18], [-0.97, 0.18, -0.12], [-0.98, 0.12, -0.12], [-0.96, 0.18, -0.16]]), k);
+        this._limb(frog, fore, sign, lv([[-0.75, 0.5, -0.4], [-0.85, 0.35, -0.38], [-0.7, 0.3, -0.62]]), (1 - fl) * 0.9);
+        this._limb(frog, fore, sign, lv([[0.3, 0.78, -0.55], [0.45, 0.6, -0.65], [0.35, 0.6, -0.72]]), fl * 0.8);
       }
     }
     // Standing: all four feet flat on the ground.
@@ -947,7 +953,8 @@ export class FrogPredators {
       // (the frog keeps to the pond: it swims about, now and then floating still)
       const there = frog.aquatic ? (roll < 0.75 ? this._spot(true, frog, 160) : null)
         : roll < 0.45 ? this._spot(true, frog, 160) : roll < 0.75 ? this._spot(false, frog, 220) : null;
-      if (there) goal = frog.swimGoal = { x: there[0], y: there[1], land: !this.isWater(there[0], there[1]) };
+      if (there && frog.aquatic && !this._swimmable(frog, there[0], there[1])) frog.sitLeft = 1; // too shallow there
+      else if (there) goal = frog.swimGoal = { x: there[0], y: there[1], land: !this.isWater(there[0], there[1]) };
       else frog.sitLeft = 3 + Math.random() * 6;
     }
     if (goal) {
@@ -964,7 +971,11 @@ export class FrogPredators {
         // out onto the bank: the shore is just ahead, the goal beyond it
         const ax = frog.x + Math.cos(frog.heading) * L * 0.8, ay = frog.y + Math.sin(frog.heading) * L * 0.8;
         let waiting = false;
-        if (frog.aquatic && !this.isWater(ax, ay)) {
+        if (frog.aquatic && !this._swimmable(frog, frog.x, frog.y)) {
+          // in the shallows itself: back out to deep water first (the pond is deepest in the middle)
+          frog.heading = wrapAngle(Math.atan2(-frog.y, -frog.x));
+          if (frog.swimT > 0.6) frog.swimT = 0;
+        } else if (frog.aquatic && !this._swimmable(frog, ax, ay)) {
           // the bank ahead: it stays in the water, at the edge, facing the fly, waiting
           // (it strikes from there once the fly is in reach)
           waiting = true;
@@ -992,12 +1003,25 @@ export class FrogPredators {
     frog.vel *= Math.exp(-2.6 * dt);
     if (frog.vel < 0.02 * L) frog.vel = 0;
     const nx = frog.x + Math.cos(frog.heading) * frog.vel * dt, ny = frog.y + Math.sin(frog.heading) * frog.vel * dt;
-    if (this.isWater(nx, ny) && Math.hypot(nx, ny) < this.arenaRadius - 20) { frog.x = nx; frog.y = ny; frog.blockedT = 0; }
+    // (out of the shallows it may always swim toward deeper water)
+    const deeper = frog.aquatic && this.bedAt && this.isWater(nx, ny) && !this._swimmable(frog, frog.x, frog.y) && this.bedAt(nx, ny) <= this.bedAt(frog.x, frog.y) + 0.01;
+    if ((this._swimmable(frog, nx, ny) || deeper) && Math.hypot(nx, ny) < this.arenaRadius - 20) { frog.x = nx; frog.y = ny; frog.blockedT = 0; }
     else { if (frog.vel > 0) frog.blockedT = (frog.blockedT || 0) + dt; frog.vel = 0; }
     // legs: extended through the kick and the glide, then drawn up; floating when still
     frog.kick = frog.swimT < 0.13 ? ease(frog.swimT / 0.13) : frog.swimT < 0.42 ? 1 : 1 - ease((frog.swimT - 0.42) / 0.3);
     const still = frog.vel < L * 0.25 && frog.swimT > 0.75;
     frog.floatW = clamp((frog.floatW || 0) + (still ? 1.5 : -4) * dt, 0, 1);
+  }
+
+  /**
+   * Water deep enough for the frog to swim in, low, with only its back and head out (in the
+   * shallower parts its belly and hanging legs are down in the mud, hidden by the bed): where
+   * the aquatic frog goes. Elsewhere, any water.
+   */
+  _swimmable(frog, x, y) {
+    if (!this.isWater?.(x, y)) return false;
+    if (!frog.aquatic || !this.bedAt || !this.groundAt) return true;
+    return this.bedAt(x, y) < this.groundAt(x, y) - frog.length * 0.18;
   }
 
   /** The nearest dry ground from a frog in the water: a spot a little way up the bank. */
@@ -1170,17 +1194,19 @@ export class FrogPredators {
       // a frog that sits in the shallows or a toad at the edge, less so. Where the water is
       // too shallow for that it stands on the bed, and a swimmer there is aground (_swim).
       const surface = ground;
-      const sunk = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam) ? 0.3 : 0.17;
+      const sunk = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam) ? frog.swimSunk || 0.3 : 0.17;
       ground -= L * sunk * (1 - clamp(z / (L * 0.3), 0, 1));
       if (frog.mode === "swim") {
-        pitch = -0.03 + 0.05 * (frog.kick || 0);
+        pitch = (frog.swimPitch || 0) - 0.03 + 0.05 * (frog.kick || 0);
         ground += Math.sin(frog.phase + performance.now() * 0.002) * L * 0.006;
       }
+      // Swimming it always floats this low, only its back and head out, whatever the depth
+      // (in the shallows its belly and legs are in the mud, hidden by the bed); sitting, it
+      // stands on the bed. A swimmer where the bed comes up to the surface is aground.
       const bed = this.bedAt ? this.bedAt(frog.x, frog.y) : -Infinity;
-      if (z <= 0 && bed > ground) {
-        ground = Math.min(bed, surface);
-        if (frog.mode === "swim" && bed > surface - L * 0.12) frog.beached = true;
-      }
+      const swimming = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam);
+      if (swimming) { if (bed > surface - L * 0.06) frog.beached = true; }
+      else if (z <= 0 && bed > ground) ground = Math.min(bed, surface);
     } else if (z <= 0 && this.groundAt) {
       const span = L * 0.55, gF = this.groundAt(frog.x + ch * span * 0.55, frog.y + sh * span * 0.55),
         gB = this.groundAt(frog.x - ch * span * 0.45, frog.y - sh * span * 0.45);
