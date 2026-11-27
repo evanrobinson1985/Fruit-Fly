@@ -119,6 +119,11 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   seconds, then curls its legs and dies, the head dropping to the ground; a few seconds
   later another appears, as after a frog. (A game event: real flies groom vigorously but don't
   pull their heads off; that is a popular myth.)
+- **Moving about:** unlock the camera (Simulation: Unlock camera, or the game's camera button
+  set to Free) and glide over the arena: W A S D or the arrow keys (Shift for speed), Q and E
+  to turn, R and F to zoom, or the joystick on a touch screen; double-click or double-tap to
+  glide to a spot; drag to turn, wheel or pinch to zoom, right-drag or two fingers to slide
+  along the ground (`web/src/camctl.js`).
 - **Solid ground and perching:** stones, plants and the turf are solid. A frog's hop clears
   what is under its path or stops short of a stone too tall to leap onto, and it lands with
   all four feet flat on the surface (each leg bends to put its foot down). The fly climbs

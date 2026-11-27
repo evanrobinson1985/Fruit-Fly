@@ -18,6 +18,7 @@ import { FlyAudio } from "./audio.js";
 import { FrogPredators } from "./predators.js";
 import { LuckyClovers } from "./lucky.js";
 import { Perches } from "./perching.js";
+import { FreeCam } from "./camctl.js";
 
 const ASSETS = new URL("../assets/", import.meta.url).href;
 // Game mode (index.html?game, used by the phone app): the fly as a pet (game.js).
@@ -671,7 +672,27 @@ $("camera-follow").onclick = () => {
   camLast = null;
   $("camera-follow").textContent = followFly ? "Unlock camera" : followLabel();
   $("camera-follow").setAttribute("aria-pressed", String(followFly));
+  freeCam?.setActive(!followFly);
+  if (!followFly) {
+    const how = freeCam?.touch
+      ? "Camera free: the joystick moves you about, double-tap to glide to a spot, drag to turn, pinch to zoom."
+      : "Camera free: W A S D or the arrow keys move you about (Shift: faster), Q/E turn, R/F zoom; double-click to glide to a spot.";
+    $("hint").textContent = how;
+    game?.notify(freeCam?.touch ? "Free camera: joystick to move, double-tap to go there" : "Free camera: W A S D to move, double-click to go there", 4);
+  }
 };
+// With the camera unlocked: keys, a joystick and double-tap to move about (camctl.js).
+const freeCam = new FreeCam(camera, controls, canvas, {
+  radius: world.radius,
+  groundAt: (x, y) => (terrain.visible ? terrain.groundAt(x, y) : 0),
+  pick: (cx, cy) => {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    return ray.intersectObject(terrain.visible ? terrain.floor : floor)[0]?.point || null;
+  },
+});
+let freeCamAt = performance.now();
 // What the camera follows: the fly, or one of the frogs ("small": the frog, "big": the toad).
 let camSubject = "fly", camLast = null;
 const camFrog = () => (camSubject === "fly" ? null : predators?.frogs.find((f) => f.id === camSubject && f.actor.visible) || null);
@@ -1284,6 +1305,8 @@ function frame(now) {
   }
   for (const c of loomGroup.children.slice()) if (!world.looms.some((lo) => lo.mesh === c)) loomGroup.remove(c);
   if (gustGroup.children.length && now > gustGroup.userData.until) gustGroup.clear();
+  freeCam.update(Math.min(0.1, (now - freeCamAt) / 1000));
+  freeCamAt = now;
   controls.update();
   // Haze (in the rain only) starts beyond what the camera is looking at, however far out it is.
   {
@@ -1370,12 +1393,14 @@ async function boot() {
     game = startGame({
       // the camera button: fly -> frog -> toad -> fly
       cycleCamera: () => {
+        // fly -> frog -> toad -> free (move about yourself: joystick, double-tap) -> fly
+        if (!followFly) { setCamSubject("fly"); return "Fly"; }
         const order = ["fly", "small", "big"];
-        for (let i = 1; i <= 3; i++) {
-          const next = order[(order.indexOf(camSubject) + i) % 3];
-          if (setCamSubject(next)) return next === "fly" ? "Fly" : next === "small" ? "Frog" : "Toad";
+        for (let i = order.indexOf(camSubject) + 1; i < order.length; i++) {
+          if (setCamSubject(order[i])) return order[i] === "small" ? "Frog" : "Toad";
         }
-        return "Fly";
+        $("camera-follow").click(); // unlock
+        return "Free";
       },
       quality: QUALITY, setQuality,
       body, world, canvas, addFood, removeFood, addDeposit, clearDeposits, groundZ,
