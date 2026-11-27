@@ -768,6 +768,7 @@ $("wx-level").addEventListener("input", () => { weather.set(weather.mode, +$("wx
 let lastHitNote = 0;
 const jolt = { tilt: new THREE.Vector3(), dip: 0 };
 function onWeatherHit(h) {
+  addStress(3);
   const t = curr.t || 0;
   const ratio = h.mass / (h.mass + FLY_MASS);
   const speed = h.v.length();
@@ -895,6 +896,15 @@ const perch = { z: 0, n: new THREE.Vector3(0, 0, 1), hop: null, cool: 0 };
 // experience carry on (its body is held still meanwhile).
 const RESPAWN_S = 10;
 let eaten = null; // { frog, at: ms, swallowed }
+// Stress (0..100+): every escape, raindrop strike and frog that lunges at it, and in the game
+// a miserable mood, add to it; it drains away over time. Past 100 the fly breaks: it grooms
+// its head frantically for DYING_S seconds, twisting it harder until it comes off (a game
+// event, not real fly behaviour: real flies groom hard but keep their heads), then lies dead
+// for DEAD_S, legs curled, and another appears, as after a frog.
+const stress = { v: 0, lastState: "" };
+const DYING_S = 5, DEAD_S = 3;
+let dying = null; // { at: ms, off, fallAt }
+function addStress(n) { if (!dying && !eaten && flyRoot) stress.v = Math.min(140, stress.v + n); }
 function caughtByFrog(frog) {
   if (!flyRoot || eaten) return;
   eaten = { frog, at: performance.now(), swallowed: false };
@@ -903,7 +913,7 @@ function caughtByFrog(frog) {
   $("hint").textContent = frog.name + "'s tongue caught the fly!";
   game?.notify(`Gulp! The ${frog.name.split(" ").pop().toLowerCase()} got ${game.pet?.name || "the fly"}!`, 3);
 }
-function respawnAfterPredation() {
+function respawnAfterPredation(why = "frog") {
   if (!flyRoot) return;
   // Opposite the frogs: away from where they are, near the far edge.
   const frogs = predators?.frogs.filter((f) => f.actor.visible) || [];
@@ -924,10 +934,16 @@ function respawnAfterPredation() {
   tPrev = tCurr = performance.now();
   perch.z = 0; perch.hop = null; perch.cool = 0; perch.n.set(0, 0, 1);
   perch.surf = perch.landing = null;
+  fly.setHeadOff(null);
   flyRoot.visible = true;
   eaten = null;
-  $("hint").textContent = "A fly appeared on the far side of the enclosure from the frogs; its neural state was preserved.";
-  game?.notify(`${game.pet?.name || "The fly"} is back, far from the frogs`, 3);
+  if (why === "stress") {
+    $("hint").textContent = "A new fly appeared, away from the frogs; its neural state was preserved.";
+    game?.notify(`${game.pet?.name || "The fly"} is back, calmer now`, 3);
+  } else {
+    $("hint").textContent = "A fly appeared on the far side of the enclosure from the frogs; its neural state was preserved.";
+    game?.notify(`${game.pet?.name || "The fly"} is back, far from the frogs`, 3);
+  }
 }
 // The fly stands on its six feet. It stays on a leaf while at least two feet are still on it,
 // so it walks across gaps between leaflets and along ragged edges without bobbing. It hops
@@ -1135,6 +1151,11 @@ function frame(now) {
       flyRoot.quaternion.setFromUnitVectors(UP, tmpN)
         .multiply(tmpQ.setFromAxisAngle(UP, (h * Math.PI) / 180));
     }
+    if (dying?.off) {
+      // dead: legs curled, it settles a little lower
+      const e = Math.min(1, ((now - dying.at) / 1000 - DYING_S) / 0.7);
+      flyRoot.position.addScaledVector(new THREE.Vector3(0, 0, 1).applyQuaternion(flyRoot.quaternion), -0.3 * e);
+    }
     const frogCam = followFly && camFrog();
     if (frogCam) {
       // Following a frog: the view moves with it as it hops and swims.
@@ -1166,6 +1187,50 @@ function frame(now) {
     fly.setGroom(body.groomBlend || 0, body.groomMode, body.groomPhase || 0, body.groomSide);
     fly.setSong(body.songBlend || 0, body.songSide, body.songPhase || 0);
     fly.setDefecate(body.poopBlend || 0);
+    // Stress, and a fly that has had too much of it (see addStress).
+    {
+      if (body.state === "escape" && stress.lastState !== "escape") addStress(22);
+      stress.lastState = body.state;
+      for (const fr of predators?.frogs || []) {
+        if (fr.mode === "strike" && !fr._stressed) { fr._stressed = true; addStress(20); }
+        if (fr.mode !== "strike") fr._stressed = false;
+      }
+      if (game?.pet && game.pet.mood < 15) addStress(2 * dtf);
+      stress.v = Math.max(0, stress.v - 1.5 * dtf);
+      if (!dying && !eaten && stress.v >= 100 && body.airborne <= 0 && !perch.landing) {
+        dying = { at: now, off: false, x: body.x, y: body.y };
+        $("hint").textContent = "Too much stress: the fly is grooming its head frantically…";
+        game?.notify(`${game.pet?.name || "The fly"} is overwhelmed and grooming frantically…`, 4);
+      }
+    }
+    if (dying) {
+      const u = (now - dying.at) / 1000;
+      body.speed = 0; body.turn = 0; body.airborne = 0; body.x = dying.x; body.y = dying.y; // it stops everything else
+      if (u < DYING_S) {
+        // both front legs work over the head, faster and harder, the head twisting and
+        // pulled forward more and more
+        const k = u / DYING_S;
+        fly.setGroom(1, Math.floor(u * 2.2) % 2 ? "sweep" : "rub", u * (10 + 12 * k), Math.floor(u * 1.4) % 2 ? "l" : "r");
+        const twist = (0.12 + 1.1 * k * k) * Math.sin(u * (14 + 10 * k));
+        const tq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), twist)
+          .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0.3 * k * Math.sin(u * 9)));
+        fly.setHeadOff(new THREE.Vector3(0.35 * k ** 3, 0, -0.1 * k ** 2), tq);
+      } else {
+        if (!dying.off) {
+          dying.off = true;
+          $("hint").textContent = "The fly pulled its own head off.";
+          game?.notify(`Oh no, ${game.pet?.name || "the fly"} pulled its head off!`, 4);
+        }
+        // the head drops to the ground and rolls; the legs curl
+        const t2 = u - DYING_S, fall = Math.min(1, t2 / 0.45);
+        const tq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1.6 * fall)
+          .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 2.5 * fall + 0.4 * Math.sin(t2 * 3) * Math.exp(-t2)));
+        fly.setHeadOff(new THREE.Vector3(0.7 + 0.4 * fall, 0.2 * fall, -0.9 * fall * fall), tq);
+        fly.setGroom(0, "rub", 0);
+        fly.setFlightLegs(Math.min(1, t2 / 0.8));
+        if (u >= DYING_S + DEAD_S) { dying = null; stress.v = 0; if (game?.pet) game.pet.mood = Math.max(game.pet.mood, 40); respawnAfterPredation("stress"); }
+      }
+    }
     audio.update({
       wing: body.airborne > 0 ? body.wingOpen : hopWing * 0.6, power: smooth.wingPower ? Math.max(smooth.wingPower.L, smooth.wingPower.R) : 0,
       song: body.songBlend || 0, groom: body.groomBlend || 0, groomPhase: body.groomPhase || 0,

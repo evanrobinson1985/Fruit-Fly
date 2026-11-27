@@ -443,6 +443,32 @@ export class Fly {
       }
       this.nodes[b.id].matrix.compose(out.p, out.q, ONE);
     }
+    // The head, twisted and pulled about its neck, or off (setHeadOff).
+    if (this.headOff) {
+      const H = this.headOff, hp = this.poses[this.byName.c_head.id].p;
+      if (!H.neck) H.neck = hp.clone();
+      for (const id of this.headParts) {
+        const out = this.poses[id];
+        out.p.sub(H.neck).applyQuaternion(H.q).add(H.neck).add(H.p);
+        out.q.premultiply(H.q);
+        this.nodes[id].matrix.compose(out.p, out.q, ONE);
+      }
+    }
+  }
+
+  /**
+   * Move the head and everything on it (eyes, antennae, mouthparts) as one: turned by `q`
+   * about the neck and moved by `p` (mm, in the fly's frame); null puts it back.
+   */
+  setHeadOff(p, q) {
+    if (!p) { this.headOff = null; return; }
+    if (!this.headParts) {
+      const head = this.byName.c_head.id, under = (b) => b.id === head || (b.parent >= 0 && under(this.bodies[b.parent]));
+      this.headParts = this.bodies.filter(under).map((b) => b.id);
+    }
+    this.headOff = this.headOff || { p: new THREE.Vector3(), q: new THREE.Quaternion(), neck: null };
+    this.headOff.p.copy(p);
+    this.headOff.q.copy(q);
   }
 
   _lowestClaw() {
