@@ -785,7 +785,45 @@ export class Terrain {
       mesh.receiveShadow = true;
       scene.add(mesh);
       this.weedMeshes.push(mesh);
+      if (k.geo === kinds[0].geo) this.cloverMesh = mesh; // (the three-leaf clovers: useCloverModels)
     }
+  }
+
+  /**
+   * The clovers from a model (web/assets/env/clovers.glb, built from the "4 Leaf Clover"
+   * model by uncle808us): "clover3" for the common three-leaf ones, "clover4" for the lucky
+   * ones, each its textured leaves and stalk and its flower head. They take the drawn ones'
+   * places (same spots, sizes and turns).
+   */
+  useCloverModels(gltf) {
+    const build = (name) => {
+      const node = gltf.scene.getObjectByName(name);
+      if (!node) return null;
+      const parts = [], mats = [];
+      node.updateMatrixWorld(true);
+      node.traverse((o) => {
+        if (!o.isMesh) return;
+        const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
+        if (!g.attributes.uv) g.setAttribute("uv", new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+        for (const k of Object.keys(g.attributes)) if (!["position", "normal", "uv"].includes(k)) g.deleteAttribute(k);
+        parts.push(g.index ? g : g); mats.push(o.material);
+      });
+      const geo = mergeGeometries(parts, true);
+      geo.rotateX(Math.PI / 2); // Y-up model -> the arena's Z-up
+      return { geo, mats };
+    };
+    const swap = (mesh, made) => {
+      if (!mesh || !made) return;
+      mesh.geometry = made.geo;
+      mesh.material = made.mats;
+      // (the drawn clovers were tinted green per plant; the model has its own colours: only a
+      // little lighter or darker each)
+      const c = new THREE.Color();
+      for (let i = 0; i < mesh.count; i++) mesh.setColorAt(i, c.setScalar(0.82 + Math.random() * 0.18));
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    };
+    swap(this.cloverMesh, build("clover3"));
+    swap(this.lucky?.mesh, build("clover4"));
   }
 
   // Remove the weeds inside these circles ({x, y, r}: where stones sit).

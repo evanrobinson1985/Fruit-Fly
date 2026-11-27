@@ -185,6 +185,15 @@ normal and roughness maps as `grass_*`, at full size in `env/hd`) and a pond (`p
 cut from its ground tile; `env/hd/pond.glb` keeps its original textures). Supplied by the
 project owner for use in the arena.
 
+The clovers (`env/clovers.glb`) are from **"4 Leaf Clover"** by
+[uncle808us](https://sketchfab.com/uncle808us), on Sketchfab
+(https://sketchfab.com/3d-models/4-leaf-clover-0efddc6d35de4919a9a6ffba715ed247), licensed
+[CC BY-NC 4.0](http://creativecommons.org/licenses/by-nc/4.0/) (attribution, non-commercial).
+Changed for the arena: stood upright with its stalk shortened into the ground, scaled to the
+arena, its flower head simplified, its texture at 1024 px; and a three-leaf copy made from it
+(one leaflet removed, the other three turned to 120 degrees apart). Because of the licence, the project as a whole may not be used commercially
+while it includes them.
+
 ## Software and fonts
 
 - [three.js](https://threejs.org) (MIT License, © three.js authors) renders the website.

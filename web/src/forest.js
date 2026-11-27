@@ -489,6 +489,9 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     terrain.group.remove(terrain.blades); // never the old generated blades instead
     console.error("Grass asset failed to load:", e);
   }
+  // The clovers, from the clover model (three-leaf, and the lucky four-leaf ones).
+  try { terrain.useCloverModels?.(await loader.loadAsync(base + "clovers.glb")); }
+  catch (e) { console.warn("Clover model did not load; keeping the drawn clovers:", e); }
   // Weeds don't grow through stones.
   terrain.clearWeeds?.(stonesPlaced);
   terrain.solids = solids;

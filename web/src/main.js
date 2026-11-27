@@ -56,6 +56,7 @@ let predators = null;
 let play = null; // play.js: who you play, if anyone
 // The character you play, seen from behind (third person) or through its eyes (first person).
 const _pv = { pos: new THREE.Vector3(), fwd: new THREE.Vector3(), up: new THREE.Vector3(), want: new THREE.Vector3(), look: new THREE.Vector3(), fov: 35 };
+const camEase = { p: new THREE.Vector3(), on: false }; // the eased point the follow camera tracks
 function playView(dt) {
   const view = play && play.mode !== "watch" ? play.view : "orbit";
   // the field of view eases back to normal outside first person
@@ -89,7 +90,8 @@ function playView(dt) {
       eye.addScaledVector(_pv.fwd, ahead).addScaledVector(_pv.up, f.length * 0.02);
     } else eye = _pv.pos.clone().addScaledVector(_pv.fwd, f.mouth.x).addScaledVector(_pv.up, f.mouth.z);
   }
-  const k = view === "first" ? 1 : 1 - Math.exp(-dt * 5); // (first person: fixed to its head)
+  // (first person: close to its head, but eased a little so the view doesn't shake with its steps)
+  const k = view === "first" ? 1 - Math.exp(-dt * 22) : 1 - Math.exp(-dt * 5);
   if (view === "first") {
     // looking where it faces, levelled (a frog swims nose-down; a fly on a stem may face up):
     // only a little of its tilt shows
@@ -1212,7 +1214,13 @@ function frame(now) {
   requestAnimationFrame(frame);
   step();
   if (fly) {
-    const f = tCurr > tPrev ? Math.min(1, (now - tCurr) / (tCurr - tPrev)) : 1;
+    // Between the last two brain steps, on the simulation's own clock (it is paced to real
+    // time), one step behind: steps arriving at uneven moments no longer make the fly stall
+    // and jump. (If the brain falls behind real time, it waits at the latest step.)
+    const span = (curr.t ?? 0) - (prev.t ?? 0);
+    const renderT = simAtStart + (now - wallStart) / 1000 - STEP_MS / 1000;
+    const f = span > 1e-6 && !paused ? Math.min(1, Math.max(0, (renderT - prev.t) / span))
+      : tCurr > tPrev ? Math.min(1, (now - tCurr) / (tCurr - tPrev)) : 1;
     let x = prev.x + (curr.x - prev.x) * f, y = prev.y + (curr.y - prev.y) * f, z = prev.z + (curr.z - prev.z) * f;
     const h = lerpAngle(prev.heading, curr.heading, f);
     const dtf = Math.min(0.1, (now - lastFrame) / 1000);
@@ -1331,22 +1339,34 @@ function frame(now) {
       const e = Math.min(1, ((now - dying.at) / 1000 - DYING_S) / 0.7);
       flyRoot.position.addScaledVector(new THREE.Vector3(0, 0, 1).applyQuaternion(flyRoot.quaternion), -0.3 * e);
     }
-    const frogCam = followFly && camFrog();
+    // (in third or first person, playView has the camera)
+    const riding = !!play && play.mode !== "watch" && play.view !== "orbit";
+    const frogCam = followFly && !riding && camFrog();
+    // The camera follows a point that eases after its subject: the fly moves in brain-step
+    // increments that don't line up with frames, and a camera fixed to it shook the view.
+    const ease = (raw) => {
+      if (!camEase.on || camEase.p.distanceTo(raw) > 40) camEase.p.copy(raw); // (a jump: no glide)
+      else camEase.p.lerp(raw, 1 - Math.exp(-dtf * 12));
+      camEase.on = true;
+      return camEase.p;
+    };
     if (frogCam) {
       // Following a frog: the view moves with it as it hops and swims.
-      const at = frogTarget(frogCam, new THREE.Vector3());
+      const at = ease(frogTarget(frogCam, new THREE.Vector3())).clone();
       if (camLast) camera.position.add(at.clone().sub(camLast));
       camLast = at;
       controls.target.copy(at);
-    } else if (followFly) {
+    } else if (followFly && !riding) {
       if (camSubject !== "fly") setCamSubject("fly"); // its frog was hidden
-      camera.position.add(delta);
+      const before = camEase.on ? camEase.p.clone() : null;
+      const at = ease(new THREE.Vector3(x, y, 0.8 + z + perch.z));
+      if (before) camera.position.add(at.clone().sub(before)); else camera.position.add(delta);
       // Aim slightly above the fly so its body sits at the visual center of the screen.
       // The offset scales with camera distance, keeping the framing consistent while zooming.
       const followFrameOffset = camera.position.distanceTo(controls.target)
         * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) / 3;
-      controls.target.set(x, y, 0.8 + z + perch.z + followFrameOffset);
-    }
+      controls.target.set(at.x, at.y, at.z + followFrameOffset);
+    } else camEase.on = false;
     terrain.update(x, y, now / 1000, feet, h, simT, camera, controls.target);
     forest?.update(now / 1000);
     lucky.update(dtf, { x, y, z: z + perch.z });
