@@ -28,6 +28,9 @@ data class Frame(
     val stepping: Int = 0, val realtime: Double = 1.0, val night: Boolean = false, val loading: Boolean = true,
     val neurons: Int = 0, val droppings: List<Double> = emptyList(),
     val name: String = "", val named: Boolean = true,
+    // the four-leaf clover (shown when cloverShown) and the luck effect: seconds since the last was picked
+    val cloverX: Double = 0.0, val cloverShown: Boolean = false, val luckyX: Double = 0.0, val luckyAge: Double = 1e9,
+    val timeS: Double = 0.0,
 )
 
 /**
@@ -66,6 +69,9 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
 
     /** Name (or rename) the fly. */
     fun rename(name: String) = commands.add { it.name(name.trim().take(MAX_NAME).ifEmpty { "Dot" }); store.save(it.pet) }
+
+    /** Pick the four-leaf clover. */
+    fun pickClover() = commands.add { if (it.pickClover()) store.save(it.pet) }
 
     /** Clean up the droppings. */
     fun clean() = commands.add { it.clean() }
@@ -124,6 +130,8 @@ class GameEngine(private val context: Context, private val fullBrain: Boolean = 
             mn9 = w.motor["feed"]!!, gf = w.motor["escape"]!!, p9 = w.motor["forward"]!!, mdn = w.motor["backward"]!!,
             stepping = w.brain.stepping, realtime = realtime.coerceAtMost(1.0), night = isNight(), loading = false,
             neurons = w.brain.n, droppings = w.pet.droppings.toList(), name = p.name, named = p.named,
+            cloverX = w.cloverX, cloverShown = w.timeS >= w.cloverFrom, luckyX = w.luckyX, luckyAge = w.timeS - w.luckyAt,
+            timeS = w.timeS,
         )
     }
 
@@ -168,6 +176,7 @@ class PetStore(context: Context) {
             escapes = prefs.getInt("escapes", 0), cleans = prefs.getInt("cleans", 0),
             gut = prefs.getFloat("gut", 0f).toDouble(),
             name = prefs.getString("name", "Dot")!!, named = prefs.getBoolean("named", false),
+            clovers = prefs.getInt("clovers", 0),
             droppings = prefs.getString("droppings", "")!!.split(",").mapNotNull { it.toDoubleOrNull() }.toMutableList(),
         )
     }
@@ -177,7 +186,7 @@ class PetStore(context: Context) {
             .putFloat("satiety", p.satiety.toFloat()).putFloat("energy", p.energy.toFloat()).putFloat("mood", p.mood.toFloat())
             .putLong("bornAt", p.bornAtMs).putLong("updatedAt", p.updatedAtMs)
             .putInt("feedings", p.feedings).putInt("escapes", p.escapes).putInt("cleans", p.cleans)
-            .putString("name", p.name).putBoolean("named", p.named)
+            .putString("name", p.name).putBoolean("named", p.named).putInt("clovers", p.clovers)
             .putFloat("gut", p.gut.toFloat()).putString("droppings", p.droppings.joinToString(",") { "%.2f".format(java.util.Locale.ROOT, it) })
             .apply()
     }

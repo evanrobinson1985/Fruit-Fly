@@ -68,6 +68,13 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
     var asleep = false; private set
     var timeS = 0.0; private set
 
+    /** A four-leaf clover somewhere on the stage (mm); shown from [cloverFrom] (s). Tap it for luck. */
+    var cloverX = (rng.nextDouble() - 0.5) * 2 * (HALF_WIDTH - 4); private set
+    var cloverFrom = 0.0; private set
+    /** Where and when the last one was picked (for the effect on screen). */
+    var luckyX = 0.0; private set
+    var luckyAt = -1e9; private set
+
     /** Smoothed motor-group rates (Hz), max over sides. */
     val motor = mutableMapOf("forward" to 0.0, "backward" to 0.0, "turn" to 0.0, "escape" to 0.0, "feed" to 0.0, "groom" to 0.0)
     val turnLR = doubleArrayOf(0.0, 0.0)
@@ -378,6 +385,26 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         setAnim(Anim.FLY)
     }
 
+    /**
+     * The four-leaf clover is picked: the pet feels lucky (mood and energy full, a good feed),
+     * and the clover grows again a moment later at a random spot elsewhere on the stage.
+     */
+    fun pickClover(): Boolean {
+        if (timeS < cloverFrom) return false
+        luckyX = cloverX
+        luckyAt = timeS
+        pet.mood = 100.0
+        pet.energy = 100.0
+        pet.satiety = min(100.0, pet.satiety + 30.0)
+        pet.clovers++
+        say(if (pet.clovers == 1) "A four-leaf clover! Luck all round." else "Four-leaf clover number ${pet.clovers}!", 4.0)
+        var nx: Double
+        do nx = (rng.nextDouble() - 0.5) * 2 * (HALF_WIDTH - 4) while (abs(nx - cloverX) < 10)
+        cloverX = nx
+        cloverFrom = timeS + CLOVER_REGROW_S
+        return true
+    }
+
     /** Clean up the droppings; a clean home cheers the pet up. Returns how many there were. */
     fun clean(): Int {
         val n = pet.droppings.size
@@ -453,5 +480,6 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1) {
         const val DEPOSIT_S = 1.1          // the pause and abdomen dip; the droplet leaves at 65%
         const val BASAL_DEPOSIT_S = 240.0  // an empty gut still passes one about this often
         const val MAX_DROPPINGS = 20
+        const val CLOVER_REGROW_S = 3.0    // a picked four-leaf clover grows again elsewhere after this
     }
 }

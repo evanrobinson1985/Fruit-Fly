@@ -20,6 +20,7 @@ data class Pet(
     val droppings: MutableList<Double> = mutableListOf(), // stage x (mm) of droppings not yet cleaned
     var name: String = "Dot",
     var named: Boolean = false,   // the player has chosen its name (asked on first start)
+    var clovers: Int = 0,         // four-leaf clovers found
 ) {
     /** 0 (full) .. 1 (starving). */
     val hunger get() = 1.0 - satiety / 100.0

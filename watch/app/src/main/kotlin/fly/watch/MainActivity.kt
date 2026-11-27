@@ -98,6 +98,8 @@ fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound
     LaunchedEffect(f.anim) {
         if (f.anim == Anim.FLY || f.anim == Anim.FEED) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
+    val lucky = f.luckyAge < 1.0
+    LaunchedEffect(lucky) { if (lucky) haptics.performHapticFeedback(HapticFeedbackType.LongPress) } // a four-leaf clover
     var soundOn by remember { mutableStateOf(sound.enabled) }
     LaunchedEffect(f.anim, soundOn) { // buzz in flight, rub while grooming
         sound.set(wing = if (f.anim == Anim.FLY) 1.0 else 0.0, groom = if (f.anim == Anim.GROOM) 1.0 else 0.0)
@@ -116,6 +118,9 @@ fun Game(engine: GameEngine, sprites: Sprites, scenery: Scenery, sound: FlySound
                     val cur = engine.frame.value
                     val v = viewFor(cur, size.width.toFloat(), size.height.toFloat(), flySize)
                     val xMm = v.camX + (pos.x - size.width / 2f) / v.k
+                    // a four-leaf clover! (Lucky.kt)
+                    val sx = { x: Double -> size.width / 2f + (x.toFloat() - v.camX) * v.k }
+                    if (cloverHit(cur, pos, sx, v.standY + v.camZ * v.k, v.k)) { engine.pickClover(); return@detectTapGestures }
                     val flyPx = size.width / 2f + (cur.x.toFloat() - v.camX) * v.k
                     val flyY = v.standY - (cur.z.toFloat() - v.camZ) * v.k - flySize * 0.25f
                     if (kotlin.math.abs(pos.x - flyPx) < flySize * 0.35f && kotlin.math.abs(pos.y - flyY) < flySize * 0.3f) {

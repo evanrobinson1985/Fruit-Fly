@@ -126,9 +126,11 @@ fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySiz
     // The grass arena behind the path.
     drawRect(Color(0xFF0D0C0A))
     drawLayer(sc.far, sc, v, sc.farX0, sc.feetRow, sc.parallax)
+    drawRainbow(f.luckyAge.toFloat())                 // after a four-leaf clover (Lucky.kt)
     drawLayer(sc.near, sc, v, sc.x0, sc.feetRow, 1f)
     val sx = { x: Double -> w / 2 + (x.toFloat() - v.camX) * v.k }
     val groundY = v.standY + v.camZ * v.k
+    drawLuckyClover(f, sx, groundY, v.k)
     // Sugar drops at true size (2 mm across when full), glossy and flat.
     for ((fx, amount) in f.food) {
         val cx = sx(fx)
@@ -158,6 +160,7 @@ fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySiz
     }
     // Grass in front of the path, over the fly's feet.
     drawLayer(sc.front, sc, v, sc.x0, sc.feetRow, 1f)
+    drawLuck(f, sx, groundY, v.k, px, top + flySize * 0.4f)
     // Sugar off screen: a small arrow at that edge.
     for ((fx, _) in f.food) {
         val cx = sx(fx)

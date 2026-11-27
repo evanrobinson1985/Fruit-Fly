@@ -19,6 +19,24 @@ class GameTest {
     }
 
     @Test
+    fun fourLeafCloverBringsLuckAndRegrowsElsewhere() {
+        val pet = Pet(satiety = 20.0, energy = 30.0, mood = 10.0)
+        val w = FlyWorld(c, pet, seed = 3)
+        val first = w.cloverX
+        assertTrue(kotlin.math.abs(first) <= FlyWorld.HALF_WIDTH)
+        assertTrue(w.pickClover())
+        assertEquals(100.0, pet.mood)
+        assertEquals(100.0, pet.energy)
+        assertEquals(50.0, pet.satiety)
+        assertEquals(1, pet.clovers)
+        assertTrue(kotlin.math.abs(w.cloverX - first) >= 10.0, "it grows again somewhere else")
+        assertTrue(!w.pickClover(), "not until it has grown again")
+        runUntil(w, FlyWorld.CLOVER_REGROW_S + 0.1)
+        assertTrue(w.pickClover())
+        assertEquals(2, pet.clovers)
+    }
+
+    @Test
     fun hungryFlyWalksToFoodAndEats() {
         val pet = Pet(satiety = 5.0)
         val w = FlyWorld(c, pet, seed = 4)
