@@ -1021,7 +1021,8 @@ export class FrogPredators {
   _swimmable(frog, x, y) {
     if (!this.isWater?.(x, y)) return false;
     if (!frog.aquatic || !this.bedAt || !this.groundAt) return true;
-    return this.bedAt(x, y) < this.groundAt(x, y) - frog.length * 0.18;
+    // hunting, it creeps right into the shallows (lying very low) to get within reach of the bank
+    return this.bedAt(x, y) < this.groundAt(x, y) - frog.length * (frog.hunting > 0 ? 0.03 : 0.18);
   }
 
   /** The nearest dry ground from a frog in the water: a spot a little way up the bank. */
@@ -1103,8 +1104,11 @@ export class FrogPredators {
         if (!frog.caught && frog.t >= 0.11 && !fly.gone) {
           frog.caught = true;
           // where the fully extended tip is: toward the aim point, at most the reach
-          const mouth = _v2.set(frog.x + Math.cos(frog.heading) * frog.mouth.x, frog.y + Math.sin(frog.heading) * frog.mouth.x,
-            frog.mouth.z + (this.groundAt ? this.groundAt(frog.x, frog.y) : 0));
+          // (from where its mouth really is: the tongue's root in the open mouth, wherever the
+          // frog's body is, sitting up on the bank or lying low in the water)
+          const mouth = frog.jaw ? frog.jaw.bone.localToWorld(_v2.copy(frog.jaw.root))
+            : _v2.set(frog.x + Math.cos(frog.heading) * frog.mouth.x, frog.y + Math.sin(frog.heading) * frog.mouth.x,
+              frog.mouth.z + (this.groundAt ? this.groundAt(frog.x, frog.y) : 0));
           const aim = _v1.set(frog.strikeAt.x, frog.strikeAt.y, frog.strikeAt.z).sub(mouth);
           const tip = mouth.add(aim.setLength(Math.min(aim.length(), frog.reach * 1.1)));
           const touch = Math.hypot(tip.x - fly.x, tip.y - fly.y, tip.z - ((fly.z || 0) + 0.8));
@@ -1205,7 +1209,7 @@ export class FrogPredators {
       // stands on the bed. A swimmer where the bed comes up to the surface is aground.
       const bed = this.bedAt ? this.bedAt(frog.x, frog.y) : -Infinity;
       const swimming = frog.mode === "swim" || (frog.mode === "strike" && frog.lastSwam);
-      if (swimming) { if (bed > surface - L * 0.06) frog.beached = true; }
+      if (swimming) { if (bed > surface - L * (frog.hunting > 0 ? 0.015 : 0.06)) frog.beached = true; }
       else if (z <= 0 && bed > ground) ground = Math.min(bed, surface);
     } else if (z <= 0 && this.groundAt) {
       const span = L * 0.55, gF = this.groundAt(frog.x + ch * span * 0.55, frog.y + sh * span * 0.55),
