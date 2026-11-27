@@ -339,7 +339,7 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
   }
   // Water wherever the pond bed lies below the surface (the model's water surface is not quite
   // flat, so comparing the ground's height with the water level left patches of open water dry)
-  water.isWater = (x, y) => bedGrid(x, y) < waterZ - 0.1;
+  water.isWater = (x, y) => { const b = bedGrid(x, y); return b > -Infinity && b < waterZ - 0.1; }; // (no bed there: not the pond)
   terrain.uniforms.uWaterLine.value = waterZ; // grass down the banks to the water's edge
   reflectable(terrain.floor); // the far banks show in the water
   for (const m of terrain.weedMeshes || []) reflectable(m);

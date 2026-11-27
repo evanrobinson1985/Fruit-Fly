@@ -19,12 +19,18 @@ const CSS = `
   #game .g-title { display: flex; align-items: baseline; gap: 10px; }
   #game .g-title b { font-family: var(--display); font-style: italic; font-weight: 500; font-size: 26px; }
   #game .g-title span { color: var(--muted); font-size: 13px; }
-  #game .g-bars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  #game .g-bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  #game .g-pester { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(92px, calc(env(safe-area-inset-bottom) + 80px));
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; border-radius: 18px; background: rgba(20, 17, 14, 0.82);
+    border: 1px solid var(--line); width: min(320px, calc(100% - 28px)); }
+  #game .g-pester[hidden] { display: none; }
+  #game .g-pester p { grid-column: 1 / -1; margin: 0 0 2px; font-size: 12px; color: var(--muted); text-align: center; }
+  #game .g-pester button { height: 46px; font-size: 15px; }
   #game .g-bar { font-size: 12px; color: var(--ink); }
   #game .g-bar i { display: block; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.15); margin-top: 4px; overflow: hidden; }
   #game .g-bar i::after { content: ""; display: block; height: 100%; width: var(--v); background: var(--c); transition: width 0.4s; }
   #game .g-bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px max(14px, env(safe-area-inset-bottom));
-    display: grid; grid-template-columns: 1.3fr 1fr 1fr 0.8fr; gap: 10px;
+    display: grid; grid-template-columns: 1.15fr 1fr 1fr 1fr 0.8fr; gap: 8px;
     background: linear-gradient(rgba(10, 9, 8, 0), rgba(10, 9, 8, 0.78)); }
   #game button { font: 600 16px var(--body); height: 54px; border-radius: 16px; border: 1px solid var(--line);
     background: rgba(40, 34, 28, 0.85); color: var(--ink); }
@@ -59,6 +65,7 @@ export function startGame(api) {
         <div class="g-bar" style="--c:var(--cuticle)">Food <span id="g-food"></span><i id="g-food-bar"></i></div>
         <div class="g-bar" style="--c:#7fb6e8">Energy <span id="g-energy"></span><i id="g-energy-bar"></i></div>
         <div class="g-bar" style="--c:#e88fa8">Mood <span id="g-mood"></span><i id="g-mood-bar"></i></div>
+        <div class="g-bar" style="--c:#c36de0">Stress <span id="g-stress"></span><i id="g-stress-bar"></i></div>
       </div>
     </div>
     <div class="g-toast" id="g-toast" style="opacity:0"></div>
@@ -66,8 +73,14 @@ export function startGame(api) {
     <div class="g-bottom">
       <button class="feed" id="g-feed">Feed</button>
       <button id="g-tickle">Tickle</button>
+      <button id="g-pester-btn">Pester</button>
       <button id="g-clean">Clean</button>
       <button id="g-lab">Lab</button>
+    </div>
+    <div class="g-pester" id="g-pester" hidden>
+      <p>Stress your fly (too much and it breaks)</p>
+      <button data-pester="swat">Swat</button><button data-pester="shake">Shake</button>
+      <button data-pester="puff">Puff</button><button data-pester="flash">Flash</button>
     </div>`;
   document.body.append(root);
   document.body.classList.add("game-lab-hidden");
@@ -148,6 +161,11 @@ export function startGame(api) {
     dropAt(body.x + d * Math.cos(h) - side * Math.sin(h), body.y + d * Math.sin(h) + side * Math.cos(h));
   };
   $("g-tickle").onclick = () => { wake(); api.touchHead(); toast("Tickle!", 1.2); };
+  // Pester: ways to stress it (main.js: pester); the menu stays open for repeated use
+  $("g-pester-btn").onclick = () => { $("g-pester").hidden = !$("g-pester").hidden; };
+  for (const b of root.querySelectorAll("[data-pester]")) {
+    b.onclick = () => { api.pester?.[b.dataset.pester]?.(); tick(); toast(b.textContent + "!", 0.9); };
+  }
   $("g-clean").onclick = () => {
     wake();
     const n = world.deposits.length;
@@ -219,7 +237,7 @@ export function startGame(api) {
   function tick() {
     pet.advance(Date.now(), asleep() ? 1 : 0);
     const s = (k, v) => { $(`g-${k}`).textContent = Math.round(v); $(`g-${k}-bar`).style.setProperty("--v", `${v}%`); };
-    s("food", pet.satiety); s("energy", pet.energy); s("mood", pet.mood);
+    s("food", pet.satiety); s("energy", pet.energy); s("mood", pet.mood); s("stress", api.stress?.() ?? 0);
     $("g-info").textContent = `day ${pet.ageDays()} · ${pet.feedings} meals · ${pet.escapes} escapes`;
     const n = world.deposits.length;
     $("g-clean").textContent = n ? `Clean (${n})` : "Clean";

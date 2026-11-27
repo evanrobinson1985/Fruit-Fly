@@ -620,6 +620,87 @@ $("loom").onclick = () => {
   world.looms.push(lo);
   $("hint").textContent = `A dark disc approaches from ${az > 0 ? "the left" : "the right"} at 0.5 m/s.`;
 };
+// ---------- ways to stress the fly (game: Pester; lab: Simulation: Stress the fly) ----------
+// Each adds to its stress (addStress), and whatever makes it escape adds more.
+const flashEl = Object.assign(document.createElement("div"), { className: "fx-flash" });
+document.body.append(flashEl);
+{
+  const st = document.createElement("style");
+  st.textContent = `.fx-flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 40; transition: opacity 0.35s ease-out; }
+    .fx-flash.on { opacity: 0.92; transition: none; }`;
+  document.head.append(st);
+}
+let shakeUntil = 0;
+const pester = {
+  /** A hand swats down from above, fast, at the fly: a big looming shadow. */
+  swat() {
+    if (!brainReady || !flyRoot) return;
+    const az = (Math.random() < 0.5 ? -1 : 1) * (15 + Math.random() * 45);
+    const lo = { t0: (curr.t || 0) + 0.03, azimuth: az, worldAz: body.heading + az, radius: 12, speed: 1100, d0: 260, x0: body.x, y0: body.y, mesh: loomMesh() };
+    lo.mesh.scale.setScalar(2.4);
+    loomGroup.add(lo.mesh);
+    world.looms.push(lo);
+    audio.whoosh(0.5, 0.45);
+    game?.stimulate();
+    addStress(12);
+    $("hint").textContent = "Swat! A hand comes down fast from the " + (az > 0 ? "left" : "right") + ".";
+  },
+  /** The whole arena jolts: the fly is knocked about, its legs feel it. */
+  shake() {
+    if (!flyRoot) return;
+    const a = Math.random() * Math.PI * 2, d = 1 + Math.random() * 1.5;
+    if (body.airborne > 0) body.knock(Math.cos(a) * d * 3, Math.sin(a) * d * 3, 0.3); else body.shove(Math.cos(a) * d, Math.sin(a) * d, world);
+    jolt.tilt.x += Math.cos(a) * 0.6; jolt.tilt.y += Math.sin(a) * 0.6;
+    jolt.dip = Math.max(jolt.dip, 0.4);
+    stim.touch = { zone: "legs", side: Math.random() < 0.5 ? "L" : "R", hz: 180 };
+    stim.touchUntil = (curr.t || 0) + 0.5;
+    shakeUntil = performance.now() + 450;
+    audio.whoosh(0.35, 0.35);
+    game?.stimulate();
+    addStress(16);
+    $("hint").textContent = "Shake! The ground jolts under the fly: its leg touch neurons fire.";
+  },
+  /** A sharp puff of air at the fly. */
+  puff() {
+    if (!flyRoot) return;
+    const a = Math.random() * Math.PI * 2;
+    blow(new THREE.Vector3(body.x + Math.cos(a) * 18, body.y + Math.sin(a) * 18, 0));
+    stim.windL = Math.max(stim.windL, 90); stim.windR = Math.max(stim.windR, 90);
+    game?.stimulate();
+    addStress(10);
+    $("hint").textContent = "Puff! A blast of air hits the fly: its antennal wind neurons fire hard.";
+  },
+  /** A blinding flash and a crack. */
+  flash() {
+    if (!flyRoot) return;
+    flashEl.classList.add("on");
+    requestAnimationFrame(() => requestAnimationFrame(() => flashEl.classList.remove("on")));
+    audio.whoosh(0.25, 0.6);
+    // the sudden change in light on both eyes, like something huge appearing: a short loom on each side
+    for (const az of [-60, 60]) {
+      const mesh = loomMesh();
+      mesh.material.visible = false; // (nothing to see: just the light changing)
+      loomGroup.add(mesh);
+      world.looms.push({ t0: (curr.t || 0) + 0.02, azimuth: az, worldAz: body.heading + az, radius: 40, speed: 2000, d0: 120, x0: body.x, y0: body.y, mesh });
+    }
+    game?.stimulate();
+    addStress(14);
+    $("hint").textContent = "Flash! A burst of light startles the fly.";
+  },
+};
+// Shaking the phone shakes the arena.
+{
+  let last = 0;
+  addEventListener("devicemotion", (e) => {
+    const g = e.accelerationIncludingGravity;
+    if (!g) return;
+    const m = Math.hypot(g.x || 0, g.y || 0, g.z || 0);
+    if (Math.abs(m - 9.8) > 14 && performance.now() - last > 900) { last = performance.now(); pester.shake(); }
+  });
+}
+for (const k of ["swat", "shake", "puff", "flash"]) { const b = document.getElementById("stress-" + k); if (b) b.onclick = () => pester[k](); }
+// the stress readout (Simulation panel), twice a second
+setInterval(() => { const el = document.getElementById("stress-val"); if (el) el.textContent = dying ? "breaking" : Math.round(stress.v) + "%"; }, 500);
 $("pause").onclick = () => {
   paused = !paused;
   $("pause").textContent = paused ? "Resume" : "Pause";
@@ -936,6 +1017,9 @@ function addStress(n) { if (!dying && !eaten && flyRoot) stress.v = Math.min(140
 function caughtByFrog(frog) {
   if (!flyRoot || eaten) return;
   eaten = { frog, at: performance.now(), swallowed: false };
+  // caught: it comes back shaken, its mood halved and half the way to breaking
+  if (game?.pet) game.pet.mood /= 2;
+  stress.v = Math.min(140, stress.v + 50);
   body.speed = 0; body.turn = 0; body.airborne = 0;
   body.feeding = false; body.boutLeft = 0; body.proboscis = 0;
   $("hint").textContent = frog.name + "'s tongue caught the fly!";
@@ -1311,6 +1395,8 @@ function frame(now) {
   }
   for (const c of loomGroup.children.slice()) if (!world.looms.some((lo) => lo.mesh === c)) loomGroup.remove(c);
   if (gustGroup.children.length && now > gustGroup.userData.until) gustGroup.clear();
+  // a shake jolts the view too
+  canvas.style.transform = now < shakeUntil ? `translate(${(Math.random() - 0.5) * 14}px, ${(Math.random() - 0.5) * 10}px)` : "";
   freeCam.update(Math.min(0.1, (now - freeCamAt) / 1000));
   freeCamAt = now;
   controls.update();
@@ -1409,6 +1495,7 @@ async function boot() {
         return "Free";
       },
       quality: QUALITY, setQuality,
+      pester, stress: () => (dying ? 100 : Math.min(100, stress.v)),
       body, world, canvas, addFood, removeFood, addDeposit, clearDeposits, groundZ,
       touchHead: () => {
         stim.touch = { zone: "head", side: Math.random() < 0.5 ? "L" : "R", hz: 120 };

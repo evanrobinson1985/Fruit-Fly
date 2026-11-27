@@ -124,6 +124,11 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   to turn, R and F to zoom, or the joystick on a touch screen; double-click or double-tap to
   glide to a spot; drag to turn, wheel or pinch to zoom, right-drag or two fingers to slide
   along the ground (`web/src/camctl.js`).
+- **Stressing the fly:** Swat (a hand comes down fast, looming on its eyes), Shake (the arena
+  jolts; or shake the phone), Puff (a blast of air) and Flash (a burst of light and a crack):
+  the game's Pester menu, or Simulation: Stress in the lab, with a Stress meter in both. Each
+  adds stress and whatever makes it escape adds more; a frog catching it halves its mood and
+  adds half the meter.
 - **Solid ground and perching:** stones, plants and the turf are solid. A frog's hop clears
   what is under its path or stops short of a stone too tall to leap onto, and it lands with
   all four feet flat on the surface (each leg bends to put its foot down). The fly climbs
