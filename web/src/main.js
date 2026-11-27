@@ -689,7 +689,13 @@ const freeCam = new FreeCam(camera, controls, canvas, {
     const r = canvas.getBoundingClientRect();
     ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    return ray.intersectObject(terrain.visible ? terrain.floor : floor)[0]?.point || null;
+    // where it meets the ground's level (over the pond too), then onto the ground there
+    const p = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Vector3());
+    if (!p) return null;
+    const pr = Math.hypot(p.x, p.y), R = world.radius - 10;
+    if (pr > R) { p.x *= R / pr; p.y *= R / pr; } // (beyond the wall: as near to it as the arena goes)
+    p.z = terrain.visible ? terrain.groundAt(p.x, p.y) : 0;
+    return p;
   },
 });
 let freeCamAt = performance.now();
@@ -1419,4 +1425,4 @@ async function boot() {
   brainMap.draw();
 }
 boot();
-window.flyApp = { quality: QUALITY, world, body, smooth, stim, addFood, addOdor, terrain, controls, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; }, get predators() { return predators; } }; // for debugging from the console
+window.flyApp = { quality: QUALITY, freeCam, world, body, smooth, stim, addFood, addOdor, terrain, controls, perch, updatePerch, chooseOpto, weather, camera, renderer, audio, depositFromFly, get fly() { return fly; }, get game() { return game; }, get predators() { return predators; } }; // for debugging from the console

@@ -88,7 +88,10 @@ export class SkyDome {
       uDark: { value: 0 }, uBow: { value: 0 }, uSnow: { value: 0 }, uGround: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() },
     };
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 32), new THREE.ShaderMaterial({
-      uniforms: this.uniforms, side: THREE.BackSide, transparent: true, depthWrite: false, fog: false,
+      // (drawn with the background, first, not with the see-through things after the scene:
+      // as one of those, everything further than the dome's 800 mm was painted over by it
+      // when the camera was zoomed far out; its custom blending still applies)
+      uniforms: this.uniforms, side: THREE.BackSide, transparent: false, depthWrite: false, fog: false,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
       vertexShader: "varying vec3 vDir; void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
       fragmentShader: CLOUD_FRAG,
