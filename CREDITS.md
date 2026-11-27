@@ -194,6 +194,14 @@ arena, its flower head simplified, its texture at 1024 px; and a three-leaf copy
 (one leaflet removed, the other three turned to 120 degrees apart). Because of the licence, the project as a whole may not be used commercially
 while it includes them.
 
+The clover patches scattered through the lawn as ground cover (`env/clover-patch.glb`, and
+`env/hd/clover-patch.glb` with 2048-pixel maps) are from **"Clovers - Plants / Foliage"** by
+[Studio Lab](https://sketchfab.com/studiolab.dev), on Sketchfab
+(https://sketchfab.com/3d-models/clovers-plants-foliage-d68dc45e329e48e3bc83ecc5448a6c25),
+licensed [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Changed for the arena: two
+of its detail levels kept, scaled to the arena, its textures resized; in the arena the patches
+are pressed down low, under the taller single clovers (`tools/assets/build_clover_patch.py`).
+
 ## Software and fonts
 
 - [three.js](https://threejs.org) (MIT License, © three.js authors) renders the website.

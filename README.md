@@ -61,7 +61,7 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
   on top of the abdomen, right over left (solved so they clear it by at least 15 µm).
 - **World:** a 200 mm arena with a 50 mm glass wall. The floor switch picks the lab
   arena (filter paper, the default) or grass and small weeds (fine turf, clover, dandelion
-  rosettes, seedlings, and two four-leaf clovers among the three-leaf ones, in a new random spot on every visit; each glints now and then, and tapping or clicking one picks it: it rises spinning and turning gold, bursts into golden sparkles with a chime, a rainbow arches over the arena and gold motes drift down round the fly, in the game the pet is fed, rested and happy, and the clover grows again somewhere else, `web/src/lucky.js`) at true scale for a 2.5 mm fly. On grass the fly walks on top of
+  rosettes, seedlings, low patches of small clover about 3 mm high as ground cover through the lawn (`env/clover-patch.glb`), and two four-leaf clovers among the three-leaf ones, in a new random spot on every visit; each glints now and then, and tapping or clicking one picks it: it rises spinning and turning gold, bursts into golden sparkles with a chime, a rainbow arches over the arena and gold motes drift down round the fly, in the game the pet is fed, rested and happy, and the clover grows again somewhere else, `web/src/lucky.js`) at true scale for a 2.5 mm fly. On grass the fly walks on top of
   leaves and the matted turf, tilted to the surface, and tastes food only when it is down
   on the ground. It stands on its six feet: it stays on a leaf while at least two feet are
   on it (so it walks across gaps between leaflets without bobbing), and changes level with a

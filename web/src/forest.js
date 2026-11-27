@@ -15,6 +15,8 @@ import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { PondWater, RIPPLE_GLSL, reflectable, underwater, LAYER_UNDER } from "./water.js";
 import { modelPondPlants } from "./pondplants.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { TURF_TOP } from "./terrain.js";
 
 // The Basis transcoder (KTX2 textures) sits next to the loaders: from the import map on the
 // website, from the APK's copy of three.js in the phone app.
@@ -489,6 +491,61 @@ export async function loadForest(terrain, renderer, base, keepClear = [], { high
     terrain.group.remove(terrain.blades); // never the old generated blades instead
     console.error("Grass asset failed to load:", e);
   }
+  // ---------- clover patches: filler ground cover through the lawn ----------
+  // ("Clovers - Plants / Foliage", Studio Lab, CC BY 4.0: tools/assets/build_clover_patch.py)
+  // Patches of small three-leaf clover, each about 80 mm across, scattered over the lawn clear
+  // of the pond, the stones and the ferns, draped onto the ground and merged into one mesh.
+  // They grow low: about 3 mm, under the taller single clovers (5-7 mm) standing among them.
+  try {
+    const patch = await loader.loadAsync(base + (high ? "hd/clover-patch.glb" : "clover-patch.glb"))
+      .catch(() => loader.loadAsync(base + "clover-patch.glb"));
+    const pick = (name) => { let m = null; patch.scene.traverse((o) => { if (o.isMesh && o.name === name) m = o; }); return m; };
+    const src = (high || medium ? pick("lod1") : pick("lod2")) || pick("lod1") || pick("lod2");
+    if (src) {
+      const n = high ? 44 : medium ? 30 : 16;
+      const sg = src.geometry, sp = sg.attributes.position, sn = sg.attributes.normal, su = sg.attributes.uv, si = sg.index;
+      const parts = [];
+      for (let i = 0, tries = 0; i < n && tries < n * 20; tries++) {
+        const s = 0.55 + r() * 0.5, rad = 40 * s;
+        const at = spot(rad * 0.7, POND_R + 25, R * 0.95, 1);
+        if (!at) continue;
+        i++;
+        const yaw = r() * Math.PI * 2, c = Math.cos(yaw), sn_ = Math.sin(yaw);
+        const kz = (0.26 + 0.1 * r()) / s; // squashed down: their tops 2.5-3.5 mm up
+        const P = new Float32Array(sp.count * 3), N = new Float32Array(sp.count * 3);
+        for (let v = 0; v < sp.count; v++) {
+          // model Y-up -> arena Z-up, scaled and turned
+          const mx = sp.getX(v) * s, my = -sp.getZ(v) * s, mz = sp.getY(v) * s;
+          const x = at[0] + mx * c - my * sn_, y = at[1] + mx * sn_ + my * c;
+          const b = bedGrid(x, y), g = b > -Infinity ? Math.max(b, TURF_TOP) : TURF_TOP;
+          P[3 * v] = x; P[3 * v + 1] = y; P[3 * v + 2] = g - 0.2 + mz * kz;
+          const nx = sn.getX(v), ny = -sn.getZ(v), nz = sn.getY(v) / kz, nl = Math.hypot(nx, ny, nz) || 1;
+          N[3 * v] = (nx * c - ny * sn_) / nl; N[3 * v + 1] = (nx * sn_ + ny * c) / nl; N[3 * v + 2] = nz / nl;
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.BufferAttribute(P, 3));
+        g.setAttribute("normal", new THREE.BufferAttribute(N, 3));
+        g.setAttribute("uv", su.clone());
+        g.setIndex(si.clone());
+        parts.push(g);
+      }
+      if (parts.length) {
+        const merged = mergeGeometries(parts);
+        for (const p of parts) p.dispose();
+        merged.computeBoundingSphere();
+        const mat = src.material.clone();
+        Object.assign(mat, { alphaTest: 0.4, transparent: false, side: THREE.DoubleSide, metalness: 0 });
+        mat.roughness = 1;
+        mat.color.setRGB(0.5, 0.78, 0.4); // a fresher, deeper green: lying flat they face the full sun
+        mat.envMapIntensity = 0.5;
+        if (mat.map) mat.map.anisotropy = high ? renderer.capabilities.getMaxAnisotropy() : 4;
+        const mesh = new THREE.Mesh(merged, mat);
+        mesh.name = "clover-patches";
+        mesh.castShadow = high; mesh.receiveShadow = true;
+        group.add(mesh);
+      }
+    }
+  } catch (e) { console.warn("Clover patches did not load:", e); }
   // The clovers, from the clover model (three-leaf, and the lucky four-leaf ones).
   try { terrain.useCloverModels?.(await loader.loadAsync(base + "clovers.glb")); }
   catch (e) { console.warn("Clover model did not load; keeping the drawn clovers:", e); }
