@@ -265,7 +265,10 @@ export class FrogPredators {
     this._pose(frog);
     const seated = this._skinnedBounds(mesh, actor, true);
     orient.position.z -= seated.min.z;
-    // The snout: the front-most point well off the ground (the forefeet reach further).
+    // The snout: the front-most point well off the ground (the forefeet reach further),
+    // measured with the frog sat on the ground (after the lift above).
+    actor.updateMatrixWorld(true);
+    mesh.skeleton.update();
     {
       const v = new THREE.Vector3(), inv = new THREE.Matrix4().copy(actor.matrixWorld).invert();
       const top = seated.max.z - seated.min.z, n = mesh.geometry.attributes.position.count;
@@ -309,8 +312,9 @@ export class FrogPredators {
       for (const e of frog.eyes) eye.add(e.getWorldPosition(v).applyMatrix4(inv));
       eye.multiplyScalar(1 / frog.eyes.length);
     } else eye.set(frog.snout.x - L * 0.2, 0, frog.snout.y);
-    const xs = frog.snout.x, zs = frog.snout.y - L * 0.035;
-    const xh = eye.x - eyeR * 1.9, zh = eye.z - eyeR * 2.1;
+    // (the corner of the mouth: under the eye, a little behind its middle)
+    const xs = frog.snout.x, zs = frog.snout.y - L * 0.02;
+    const xh = eye.x - eyeR * 0.8, zh = eye.z - eyeR * 1.5;
     const lipZ = (x) => zh + (zs - zh) * clamp((x - xh) / (xs - xh), 0, 1.2);
     // The head's bones (whichever trunk bones the author weighted the snout to): their share
     // of each vertex below the lip line goes to the jaw.
@@ -344,21 +348,22 @@ export class FrogPredators {
       geo.setAttribute("skinIndex", si);
     }
     const sw = geo.attributes.skinWeight;
+    // The lower lip and chin go with the jaw entirely (whatever bones the author weighted them
+    // to: shoulders and arms as well as the trunk), fading back into the throat.
     for (let i = 0; i < n; i++) {
       const m = share[i];
       if (m <= 0) continue;
-      let moved = 0, free = -1, least = 0;
+      let free = -1, least = 0;
       for (let k = 0; k < 4; k++) {
-        const b = si.getComponent(i, k), w = sw.getComponent(i, k);
-        if (headSet.has(b) && w > 0) { sw.setComponent(i, k, w * (1 - m)); moved += w * m; }
+        const w = sw.getComponent(i, k);
         if (w <= 0 && free < 0) free = k;
-        if (sw.getComponent(i, k) < sw.getComponent(i, least)) least = k;
+        if (w < sw.getComponent(i, least)) least = k;
       }
-      if (moved <= 0) continue;
+      for (let k = 0; k < 4; k++) sw.setComponent(i, k, sw.getComponent(i, k) * (1 - m));
       const k = free >= 0 ? free : least;
-      if (free < 0) moved += sw.getComponent(i, k); // the smallest influence gives way
+      const given = free >= 0 ? 0 : sw.getComponent(i, k); // the smallest influence gives way to the jaw
       si.setComponent(i, k, jawIndex);
-      sw.setComponent(i, k, Math.min(1, moved));
+      sw.setComponent(i, k, m + given);
     }
     si.needsUpdate = sw.needsUpdate = true;
     // The jaw bone: on the head, at the hinge, turned about the frog's side-to-side axis.
@@ -378,7 +383,9 @@ export class FrogPredators {
     for (let t = 0; t < open.count; t += 3) {
       const a = open.getX(t), b = open.getX(t + 1), c = open.getX(t + 2);
       const jawSide = (i) => below[i] && share[i] > 0.5;
-      const lips = [a, b, c].some(jawSide) && [a, b, c].some((i) => !jawSide(i)) && Math.min(P[a * 3], P[b * 3], P[c * 3]) > xh + L * 0.02;
+      // (only along the lips: further down the throat the skin stretches instead of parting)
+      const nearLip = [a, b, c].every((i) => Math.abs(P[i * 3 + 2] - lipZ(P[i * 3])) < L * 0.035);
+      const lips = nearLip && [a, b, c].some(jawSide) && [a, b, c].some((i) => !jawSide(i)) && Math.min(P[a * 3], P[b * 3], P[c * 3]) > xh + L * 0.02;
       if (lips) { open.setX(t + 1, a); open.setX(t + 2, a); }
     }
     // The inside of the mouth, in the head's space; its lower half follows the jaw (_pose).
@@ -420,7 +427,7 @@ export class FrogPredators {
     mouthMesh.visible = false;
     head.add(mouthMesh);
     const hinge = jaw.position.clone();
-    frog.jaw = { bone: jaw, axis, closed, open, mouthMesh, upper, lower, cu, cl, hinge, max: frog.gape || 0.6,
+    frog.jaw = { bone: jaw, axis, closed, open, mouthMesh, upper, lower, cu, cl, hinge, max: frog.gape || 0.6, lip: { xs, zs, xh, zh },
       root: jaw.worldToLocal(actor.localToWorld(new THREE.Vector3(xs - L * 0.07, 0, lipZ(xs - L * 0.07) - L * 0.015))) };
   }
 
