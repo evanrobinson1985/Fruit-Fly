@@ -282,6 +282,7 @@ export class FrogPredators {
       frog.snout = new THREE.Vector2(best, bz);
     }
     try { this._buildJaw(frog, head); } catch (e) { console.warn("No jaw for " + def.name + ":", e); }
+    try { this._findSoles(frog); } catch (e) { console.warn("Feet not planted for " + def.name + ":", e); }
     actor.position.set(def.start[0], def.start[1], 0);
     actor.rotation.z = def.heading;
     this.scene.add(actor);
@@ -450,6 +451,104 @@ export class FrogPredators {
       root: jaw.worldToLocal(actor.localToWorld(new THREE.Vector3(xs - L * 0.07, 0, lipZ(xs - L * 0.07) - L * 0.015))) };
   }
 
+  /**
+   * The soles of its four feet: for each foot (the foot or hand bone and its toes), the skin
+   * vertices lowest in the sitting pose. Each frame a standing frog puts each foot's sole
+   * down on the ground under it (_plant).
+   */
+  _findSoles(frog) {
+    const { mesh } = frog, bones = mesh.skeleton.bones, g = mesh.geometry;
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, n = si.count, v = new THREE.Vector3();
+    frog.actor.updateMatrixWorld(true);
+    // each vertex's main bone
+    const main = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      let best = -1, bw = 0;
+      for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } }
+      main[i] = best;
+    }
+    frog.feet = [];
+    for (const s of ["L", "R"]) for (const limb of ["hind", "fore"]) {
+      const chain = frog.limbs[s][limb];
+      if (!chain[0] || !chain[1] || !chain[2]) continue;
+      const set = new Set();
+      chain[2].traverse((b) => { if (b.isBone) set.add(bones.indexOf(b)); });
+      const ids = [];
+      for (let i = 0; i < n; i++) if (set.has(main[i])) { mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld); ids.push([v.z, i]); }
+      ids.sort((a, b) => a[0] - b[0]);
+      if (ids.length) frog.feet.push({ chain, ids: ids.slice(0, 40).map((x) => x[1]) });
+    }
+  }
+
+  /** Turn a bone by a rotation given in world space, about its own head. */
+  _turnWorld(bone, q) {
+    bone.parent.getWorldQuaternion(_pq);
+    _pq2.copy(_pq).invert().multiply(q).multiply(_pq);
+    bone.quaternion.premultiply(_pq2);
+    bone.updateMatrixWorld(true);
+  }
+
+  /** Two-bone IK: bend at B and swing at A so that C's head reaches T (all world). */
+  _ik2(A, B, C, T) {
+    const a = A.getWorldPosition(_pa), b = B.getWorldPosition(_pb), c = C.getWorldPosition(_pc);
+    const lab = a.distanceTo(b), lbc = b.distanceTo(c);
+    if (lab < 1e-6 || lbc < 1e-6) return;
+    const d = clamp(a.distanceTo(T), Math.abs(lab - lbc) + 1e-4, lab + lbc - 1e-4);
+    const ba = _pd.copy(a).sub(b), bc = _pe.copy(c).sub(b);
+    const cur = ba.angleTo(bc), want = Math.acos(clamp((lab * lab + lbc * lbc - d * d) / (2 * lab * lbc), -1, 1));
+    const axis = _pf.crossVectors(bc, ba);
+    if (axis.lengthSq() > 1e-12) this._turnWorld(B, _pq3.setFromAxisAngle(axis.normalize(), cur - want));
+    const c2 = C.getWorldPosition(_pc).sub(a).normalize(), to = _pd.copy(T).sub(a).normalize();
+    this._turnWorld(A, _pq3.setFromUnitVectors(c2, to));
+  }
+
+  /**
+   * A standing frog's four feet flat on the ground: each foot is moved, by bending its leg at
+   * the knee or elbow and swinging it at the hip or shoulder, until the lowest point of its
+   * sole is on the ground under it (a slope, a stone's edge, a bank), keeping its own angle.
+   */
+  _plant(frog) {
+    if (!frog.feet || !this.groundAt) return;
+    const h = frog.hop, t = frog.t;
+    const standing = frog.mode === "sit" || frog.mode === "croak" || (frog.mode === "strike" && !frog.lastSwam) ||
+      ((frog.mode === "hop" || frog.mode === "jump") && h && (t < h.start || t > h.end));
+    if (!standing || this.isWater?.(frog.x, frog.y)) return;
+    const mesh = frog.mesh, L = frog.length;
+    // how high a foot's sole is above the ground under it
+    const sole = (ft) => {
+      let low = Infinity, lx = 0, ly = 0;
+      for (const i of ft.ids) {
+        mesh.getVertexPosition(i, _pa).applyMatrix4(mesh.matrixWorld);
+        if (_pa.z < low) { low = _pa.z; lx = _pa.x; ly = _pa.y; }
+      }
+      return low - this.groundAt(lx, ly);
+    };
+    const reachDown = () => {
+      for (const ft of frog.feet) {
+        const dz = clamp(-sole(ft), -L * 0.25, L * 0.25);
+        if (Math.abs(dz) < 0.01) continue;
+        const C = ft.chain[2];
+        C.getWorldQuaternion(_pqFoot);
+        const target = C.getWorldPosition(_pg).add(_ph.set(0, 0, dz));
+        this._ik2(ft.chain[0], ft.chain[1], C, target);
+        // the foot keeps its own angle (flat, as posed), however the leg above it turned
+        C.parent.getWorldQuaternion(_pq);
+        C.quaternion.copy(_pq.invert().multiply(_pqFoot));
+        C.updateMatrixWorld(true);
+      }
+    };
+    frog.actor.updateMatrixWorld(true);
+    reachDown();
+    // A foot its leg can't reach down far enough to (a straight foreleg): the body comes down
+    // until it can, and the other legs fold a little more.
+    const hover = Math.max(...frog.feet.map(sole));
+    if (hover > 0.03) {
+      frog.actor.position.z -= Math.min(hover, L * 0.15);
+      frog.actor.updateMatrixWorld(true);
+      reachDown();
+    }
+  }
+
   /** Open the jaw by `k` (0 shut, 1 the full gape). */
   _openJaw(frog, k) {
     const J = frog.jaw;
@@ -574,6 +673,8 @@ export class FrogPredators {
         this._limb(frog, fore, sign, [[0.3, 0.78, -0.55], [0.45, 0.6, -0.65], [0.35, 0.6, -0.72]], fl * 0.8);
       }
     }
+    // Standing: all four feet flat on the ground.
+    this._plant(frog);
     // The mouth: open to strike; shut otherwise.
     frog.jawOpen = frog.mode === "strike" ? this._strikeTimes(frog).jaw : 0;
     this._openJaw(frog, frog.jawOpen);
@@ -1055,6 +1156,10 @@ export class FrogPredators {
 }
 
 const _dir = new THREE.Vector3(), _up = new THREE.Vector3(0, 0, 1), _v4 = new THREE.Vector3();
+// (foot planting)
+const _pa = new THREE.Vector3(), _pb = new THREE.Vector3(), _pc = new THREE.Vector3(), _pd = new THREE.Vector3(), _pe = new THREE.Vector3(),
+  _pf = new THREE.Vector3(), _pg = new THREE.Vector3(), _ph = new THREE.Vector3(),
+  _pq = new THREE.Quaternion(), _pq2 = new THREE.Quaternion(), _pq3 = new THREE.Quaternion(), _pqFoot = new THREE.Quaternion();
 const _t0 = new THREE.Vector3(), _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3();
 
 // The tongue: a flattened tube along a curve, TS segments long and TR round.

@@ -28,6 +28,7 @@ sun.position.set(8, -6, 20);
 scene.add(sun, sun.target);
 
 const P8 = new FrogPredators(scene, "/assets/frogs-original.glb", () => {}, 1000);
+P8.groundAt = () => 0; // flat ground: the feet are planted on it, as in the game
 await P8.load();
 const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 2000);
 cam.up.set(0, 0, 1);
