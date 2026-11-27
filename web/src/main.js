@@ -898,11 +898,12 @@ const RESPAWN_S = 10;
 let eaten = null; // { frog, at: ms, swallowed }
 // Stress (0..100+): every escape, raindrop strike and frog that lunges at it, and in the game
 // a miserable mood, add to it; it drains away over time. Past 100 the fly breaks: it grooms
-// its head frantically for DYING_S seconds, twisting it harder until it comes off (a game
+// its head frantically for DYING_S seconds, twisting it harder until it comes off, rolls the
+// head about in its front legs for ROLL_S, then curls up and dies, the head dropping (a game
 // event, not real fly behaviour: real flies groom hard but keep their heads), then lies dead
 // for DEAD_S, legs curled, and another appears, as after a frog.
 const stress = { v: 0, lastState: "" };
-const DYING_S = 5, DEAD_S = 3;
+const DYING_S = 5, ROLL_S = 3, DEAD_S = 3;
 let dying = null; // { at: ms, off, fallAt }
 function addStress(n) { if (!dying && !eaten && flyRoot) stress.v = Math.min(140, stress.v + n); }
 function caughtByFrog(frog) {
@@ -1218,17 +1219,28 @@ function frame(now) {
       } else {
         if (!dying.off) {
           dying.off = true;
-          $("hint").textContent = "The fly pulled its own head off.";
+          $("hint").textContent = "The fly pulled its own head off, and goes on rolling it in its front legs…";
           game?.notify(`Oh no, ${game.pet?.name || "the fly"} pulled its head off!`, 4);
         }
-        // the head drops to the ground and rolls; the legs curl
-        const t2 = u - DYING_S, fall = Math.min(1, t2 / 0.45);
-        const tq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1.6 * fall)
-          .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 2.5 * fall + 0.4 * Math.sin(t2 * 3) * Math.exp(-t2)));
-        fly.setHeadOff(new THREE.Vector3(0.7 + 0.4 * fall, 0.2 * fall, -0.9 * fall * fall), tq);
-        fly.setGroom(0, "rub", 0);
-        fly.setFlightLegs(Math.min(1, t2 / 0.8));
-        if (u >= DYING_S + DEAD_S) { dying = null; stress.v = 0; if (game?.pet) game.pet.mood = Math.max(game.pet.mood, 40); respawnAfterPredation("stress"); }
+        const t2 = u - DYING_S;
+        // rolling the head between its front legs (placed after the pose update below)
+        dying.roll = t2 < ROLL_S ? t2 : null;
+        if (t2 < ROLL_S) {
+          fly.setGroom(1, "rub", t2 * (16 - 3 * t2), "l");
+          fly.setFlightLegs(0);
+        } else {
+          // it curls up and dies; the head drops from its legs to the ground
+          const t3 = t2 - ROLL_S;
+          fly.setGroom(Math.max(0, 1 - t3 / 0.4), "rub", 0, "l");
+          fly.setFlightLegs(Math.min(1, t3 / 0.8));
+          const fall = Math.min(1, t3 / 0.4);
+          const held = dying.heldP || new THREE.Vector3(0.6, 0, -0.3);
+          const ground = fly.groundOffset + 0.22 - (dying.neckZ ?? 0.9); // the head's resting height, from the neck
+          const tq = (dying.heldQ || new THREE.Quaternion()).clone()
+            .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1.2 * fall));
+          fly.setHeadOff(new THREE.Vector3(held.x + 0.25 * fall, held.y + 0.1 * fall, held.z + (ground - held.z) * fall * fall), tq);
+        }
+        if (u >= DYING_S + ROLL_S + DEAD_S) { dying = null; stress.v = 0; if (game?.pet) game.pet.mood = Math.max(game.pet.mood, 40); respawnAfterPredation("stress"); }
       }
     }
     audio.update({
@@ -1242,6 +1254,20 @@ function frame(now) {
     const sniff = lastSense ? Math.min(0.4, (lastSense.odor.L + lastSense.odor.R) * 2) : 0;
     for (const s of ["l", "r"]) fly.set(`c_head-${s}_antenna-pitch`, sniff * Math.sin(now / 90 + (s === "l" ? 0 : 1.3)) * 0.5);
     fly.update();
+    if (dying?.roll != null) {
+      // the head, off, held between the front feet and rolled over and over
+      const P = fly.poses, B = fly.byName;
+      const mid = P[B.lf_tarsus2.id].p.clone().add(P[B.rf_tarsus2.id].p).multiplyScalar(0.5);
+      const neck = fly.headOff?.neck || P[B.c_head.id].p;
+      dying.neckZ = neck.z;
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), dying.roll * 7)
+        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5 * Math.sin(dying.roll * 11)));
+      const centre = new THREE.Vector3(0.22, 0, 0.05).applyQuaternion(q); // the head's middle, from its neck
+      const p = mid.sub(neck).sub(centre).add(new THREE.Vector3(0, 0, 0.12));
+      fly.setHeadOff(p, q);
+      dying.heldP = p.clone(); dying.heldQ = q.clone();
+      fly.update();
+    }
     if ((body.deposits || 0) > depositsSeen) {
       depositsSeen = body.deposits;
       flyRoot.updateMatrixWorld(true);

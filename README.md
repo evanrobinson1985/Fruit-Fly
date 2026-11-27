@@ -115,8 +115,9 @@ world ──► sensory neurons ──► 165k-neuron LIF network ──► desc
 - **Stress:** every escape, raindrop strike and frog lunge adds to the fly's stress (and in
   the game, a miserable mood does too); it drains away over time. Too much and the fly
   breaks: it stops, grooms its head frantically for about five seconds, twisting it harder
-  until the head comes off and drops, and the fly dies, legs curled; a few seconds later
-  another appears, as after a frog. (A game event: real flies groom vigorously but don't
+  until the head comes off; it goes on rolling the head about in its front legs for a few
+  seconds, then curls its legs and dies, the head dropping to the ground; a few seconds
+  later another appears, as after a frog. (A game event: real flies groom vigorously but don't
   pull their heads off; that is a popular myth.)
 - **Solid ground and perching:** stones, plants and the turf are solid. A frog's hop clears
   what is under its path or stops short of a stone too tall to leap onto, and it lands with
