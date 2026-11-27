@@ -3,7 +3,9 @@ package fly.watch
 // The frog and the toad on the watch (FlyWorld, Frogs.kt), drawn from sprite frames rendered
 // from the website's frog models (watch/tools/frogs.html): sitting, hopping, and striking with
 // the mouth open, the tongue drawn here from the mouth to wherever the fly is. A frog some way
-// behind the path is drawn smaller and higher on the screen, with the sprites' perspective.
+// behind the path stands on the far view (Scenery.far, tools/scenery.html): it is drawn where
+// that picture shows the ground at its distance, at that picture's scale, and scrolls with it,
+// so it stays put on the ground as the view follows the fly.
 
 import android.graphics.BitmapFactory
 import androidx.activity.ComponentActivity
@@ -68,9 +70,22 @@ private const val CAM_D = 11.16f
 private val COS17 = cos(Math.toRadians(17.0)).toFloat()
 private val SIN17 = sin(Math.toRadians(17.0)).toFloat()
 
-/** How much smaller something `depth` mm behind the path looks, and how far up the screen its ground is (in mm at the path). */
-fun depthScale(depth: Float) = CAM_D / (CAM_D + depth * COS17)
-fun depthRise(depth: Float) = CAM_D * depth * SIN17 / (CAM_D + depth * COS17)
+/**
+ * Where something `depth` mm behind the path is in the far view: its scale (1 at the seam with
+ * the near strip), how far up the screen its ground is (mm at the path's scale), and where it
+ * is across the screen for stage x (mm at the path's scale, before the view's scroll). The far
+ * view is one perspective picture whose focal length makes the seam (depth D/parallax - D)
+ * match the near strip (scenery.html).
+ */
+private class Far(sc: Scenery, depth: Float) {
+    private val f = CAM_D / sc.parallax                   // the far camera's focal length, in mm at the path
+    private val dist = CAM_D + depth * COS17
+    val scale = f / dist
+    val rise = f * depth * SIN17 / dist
+}
+
+/** Screen x of stage x at `depth`: it scrolls with the far view (sc.parallax), not with the path. */
+private fun DrawScope.farX(sc: Scenery, v: View, far: Far, x: Float) = size.width / 2 + (x * far.scale - v.camX * sc.parallax) * v.k
 
 private val Tongue = Color(0xFFE0828E)
 private val TongueTip = Color(0xFFF2A7B0)
@@ -80,13 +95,13 @@ private fun mouthAt(fv: FrogView, sp: FrogSprite, x: Float, gy: Float, sc: Float
     Offset(x + fv.facing * (sp.mouth.x - sp.originCol) * sc, gy + (sp.mouth.y - sp.groundRow) * sc)
 
 /** The frogs behind the path, furthest first. */
-fun DrawScope.drawFrogs(f: Frame, frogs: FrogSprites, v: View, groundY: Float) {
+fun DrawScope.drawFrogs(f: Frame, frogs: FrogSprites, sc0: Scenery, v: View, groundY: Float) {
     for (fv in f.frogs.sortedByDescending { it.depth }) {
         val sp = frogs.byId[fv.id] ?: continue
-        val d = fv.depth.toFloat()
-        val s = depthScale(d)
-        val x = size.width / 2 + (fv.x.toFloat() - v.camX) * v.k * s
-        val gy = groundY - depthRise(d) * v.k
+        val far = Far(sc0, fv.depth.toFloat())
+        val s = far.scale
+        val x = farX(sc0, v, far, fv.x.toFloat())
+        val gy = groundY - far.rise * v.k
         val sc = v.k * s / sp.pxPerMm                          // screen px per sprite px
         val half = sp.length * 1.8f * v.k * s
         if (x + half < 0 || x - half > size.width) continue
@@ -106,14 +121,14 @@ fun DrawScope.drawFrogs(f: Frame, frogs: FrogSprites, v: View, groundY: Float) {
 }
 
 /** Tongues out at the fly (drawn over it), with the fly on the tip if caught. */
-fun DrawScope.drawTongues(f: Frame, frogs: FrogSprites, v: View, groundY: Float, fly: Offset) {
+fun DrawScope.drawTongues(f: Frame, frogs: FrogSprites, sc0: Scenery, v: View, groundY: Float, fly: Offset) {
     for (fv in f.frogs) {
         if (fv.tongueOut <= 0.01) continue
         val sp = frogs.byId[fv.id] ?: continue
-        val d = fv.depth.toFloat()
-        val s = depthScale(d)
-        val x = size.width / 2 + (fv.x.toFloat() - v.camX) * v.k * s
-        val gy = groundY - depthRise(d) * v.k
+        val far = Far(sc0, fv.depth.toFloat())
+        val s = far.scale
+        val x = farX(sc0, v, far, fv.x.toFloat())
+        val gy = groundY - far.rise * v.k
         val mouth = mouthAt(fv, sp, x, gy, v.k * s / sp.pxPerMm)
         val out = fv.tongueOut.toFloat()
         val tip = Offset(mouth.x + (fly.x - mouth.x) * out, mouth.y + (fly.y - mouth.y) * out)
@@ -129,6 +144,6 @@ fun DrawScope.drawTongues(f: Frame, frogs: FrogSprites, v: View, groundY: Float,
     }
 }
 
-/** How far the view pulls back while a frog hunts near the fly (1: not at all; 0.5: twice as wide). */
+/** How far the view pulls back while a frog hunts near the fly (1: not at all; 0.4: two and a half times as wide). */
 fun frogZoom(f: Frame): Float =
-    if (f.frogs.any { it.hunting && kotlin.math.abs(it.x - f.x) < 90 }) 0.5f else 1f
+    if (f.frogs.any { it.hunting && kotlin.math.abs(it.x - f.x) < 90 }) 0.4f else 1f

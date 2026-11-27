@@ -21,7 +21,7 @@ class FrogTest {
 
     @Test
     fun frogHuntsAMovingFlyAndCatchesIt() {
-        val f = Frog(FrogKind.SMALL, -30.0, 45.0, Random(1))
+        val f = Frog(FrogKind.SMALL, -30.0, 75.0, Random(1))
         val events = run(f, 90.0, flyX = 5.0)
         println("frog events: $events")
         assertTrue(Frog.Event.APPROACH in events, "it comes in on the fly")
@@ -32,7 +32,7 @@ class FrogTest {
 
     @Test
     fun aFlyThatTakesOffIsNotCaught() {
-        val f = Frog(FrogKind.BIG, 30.0, 50.0, Random(2))
+        val f = Frog(FrogKind.BIG, 30.0, 80.0, Random(2))
         // the fly is always away (flying) by the time the tongue would reach it
         val events = run(f, 90.0, flyX = 0.0) { true }
         assertTrue(Frog.Event.CAUGHT !in events)

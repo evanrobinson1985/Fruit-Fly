@@ -11,7 +11,7 @@ import kotlin.random.Random
 
 // The website's two frogs (web/src/predators.js) on the watch's stage. The stage is a line
 // along the pond's south bank; a frog is somewhere along it (x, mm) and some way behind it
-// (depth, mm: the pond's edge is about 50 mm back). Mostly they sit by the pond and now and
+// (depth, mm: they sit at the pond's edge, 60-100 mm back). Mostly they sit there and now and
 // then hop to a new spot. When the fly moves within sight, a frog hunts: it hops in toward
 // the path, coming in front of the fly from the side, and strikes with its tongue once the
 // fly is in reach. An approaching frog looms on the fly's eye on that side, so the fly's
@@ -122,17 +122,19 @@ class Frog(val kind: FrogKind, var x: Double, var depth: Double, private val rng
                     if (abs(flyX - x) > 0.5) facing = sign(flyX - x).toInt()
                     if (gap(flyX) < kind.reach && (flyMoving || sitLeft <= 0)) return strike(flyX)
                     if (sitLeft <= 0) {
-                        // in toward the path, its mouth beside the fly, just inside reach
-                        val d = (kind.reach * 0.45).coerceIn(MIN_DEPTH, MAX_DEPTH)
+                        // in toward the path, its mouth off to the fly's side and inside reach
+                        // (from well back: a frog close up would fill the watch's screen)
+                        val d = (kind.reach * 0.65).coerceIn(MIN_DEPTH, MAX_DEPTH)
                         val side = if (x <= flyX) -1 else 1
-                        val along = sqrt(max(0.0, (kind.reach * 0.6) * (kind.reach * 0.6) - d * d))
+                        val along = sqrt(max(0.0, (kind.reach * 0.85) * (kind.reach * 0.85) - d * d))
                         hop(flyX + side * (kind.mouth + along), d)
                         // a hop that ends in reach is an attack: the fly sees it coming
                         return if (hypot(hx1 + (if (hx1 < flyX) 1 else -1) * kind.mouth - flyX, hd1) < kind.reach * 1.3) Event.APPROACH else null
                     }
                 } else if (sitLeft <= 0) {
-                    // back by the pond now and then, otherwise a hop or two along the bank
-                    val home = if (depth < 25 || rng.nextDouble() < 0.3) 30 + 25 * rng.nextDouble() else depth + (rng.nextDouble() - 0.5) * 10
+                    // back to the pond's edge (60-100 mm behind the path) after a hunt, otherwise
+                    // a hop or two along the bank there
+                    val home = if (depth < HOME_DEPTH || rng.nextDouble() < 0.3) HOME_DEPTH + 40 * rng.nextDouble() else depth + (rng.nextDouble() - 0.5) * 12
                     hop(x + (rng.nextDouble() - 0.5) * 2 * kind.hopLength, home)
                 }
             }
@@ -153,7 +155,8 @@ class Frog(val kind: FrogKind, var x: Double, var depth: Double, private val rng
 
     companion object {
         const val MIN_DEPTH = 6.0     // never on the path itself
-        const val MAX_DEPTH = 70.0    // the far edge of the bank, at the water
+        const val HOME_DEPTH = 60.0   // the pond's edge, where they sit between hunts
+        const val MAX_DEPTH = 105.0
         val STRIKE_T = doubleArrayOf(0.02, 0.05, 0.07, 0.09, 0.11, 0.14, 0.18, 0.22, 0.28, 0.36)
         fun ease(u: Double): Double { val c = u.coerceIn(0.0, 1.0); return c * c * (3 - 2 * c) }
     }

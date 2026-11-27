@@ -76,7 +76,7 @@ class FlyWorld(private val c: Connectome, val pet: Pet, seed: Int = 1, withFrogs
     var luckyAt = -1e9; private set
 
     /** The frog and the toad by the pond behind the path (Frogs.kt); the game has them, tests choose. */
-    val frogs = if (withFrogs) listOf(Frog(FrogKind.SMALL, -18.0, 40.0, rng), Frog(FrogKind.BIG, 24.0, 55.0, rng)) else emptyList()
+    val frogs = if (withFrogs) listOf(Frog(FrogKind.SMALL, -18.0, 70.0, rng), Frog(FrogKind.BIG, 24.0, 85.0, rng)) else emptyList()
     /** Caught by a frog: gone until then (s), and back somewhere away from them. */
     var eatenUntil = -1.0; private set
     val eaten get() = timeS < eatenUntil

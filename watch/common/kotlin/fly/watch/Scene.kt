@@ -123,15 +123,19 @@ fun DrawScope.drawLayer(img: ImageBitmap, sc: Scenery, v: View, col0: Float, row
 
 fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySize: Float, frogs: FrogSprites? = null) {
     val w = size.width
-    // The grass arena behind the path (over a lawn colour, in case the view pulls back past an edge).
-    drawRect(Color(0xFF26361A))
+    // The grass arena behind the path (over sky and lawn colours, for when the view pulls back past an edge).
+    drawRect(
+        androidx.compose.ui.graphics.Brush.verticalGradient(
+            0f to Color(0xFFBFD0DC), 0.45f to Color(0xFFD5DEE2), 0.6f to Color(0xFF3A4E26), 1f to Color(0xFF26361A),
+        ),
+    )
     drawLayer(sc.far, sc, v, sc.farX0, sc.feetRow, sc.parallax)
     drawRainbow(f.luckyAge.toFloat())                 // after a four-leaf clover (Lucky.kt)
     drawLayer(sc.near, sc, v, sc.x0, sc.feetRow, 1f)
     val sx = { x: Double -> w / 2 + (x.toFloat() - v.camX) * v.k }
     val groundY = v.standY + v.camZ * v.k
     drawLuckyClover(f, sx, groundY, v.k)
-    if (frogs != null) drawFrogs(f, frogs, v, groundY)   // by the pond behind the path (FrogScene.kt)
+    if (frogs != null) drawFrogs(f, frogs, sc, v, groundY)   // by the pond behind the path (FrogScene.kt)
     // Sugar drops at true size (2 mm across when full), glossy and flat.
     for ((fx, amount) in f.food) {
         val cx = sx(fx)
@@ -164,7 +168,7 @@ fun DrawScope.drawScene(f: Frame, sprites: Sprites, sc: Scenery, v: View, flySiz
     // Grass in front of the path, over the fly's feet.
     drawLayer(sc.front, sc, v, sc.x0, sc.feetRow, 1f)
     drawLuck(f, sx, groundY, v.k, px, top + flySize * 0.4f)
-    if (frogs != null) drawTongues(f, frogs, v, groundY, Offset(px, top + flySize * 0.6f))
+    if (frogs != null) drawTongues(f, frogs, sc, v, groundY, Offset(px, top + flySize * 0.6f))
     // Sugar off screen: a small arrow at that edge.
     for ((fx, _) in f.food) {
         val cx = sx(fx)
